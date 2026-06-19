@@ -1144,13 +1144,34 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     "tab": "61"
                 }
                 if action in keymap:
-                    subprocess.run(["adb", "shell", "input", "keyevent", keymap[action]])
-                    res_data["success"] = True
-                    res_data["message"] = f"Simulated {action.upper()} input keyevent."
+                    res = subprocess.run(["adb", "shell", "input", "keyevent", keymap[action]], capture_output=True, text=True)
+                    stdout = res.stdout or ""
+                    stderr = res.stderr or ""
+                    output = stdout + " " + stderr
+                    if "SecurityException" in output or "inject_events" in output.lower():
+                        res_data["message"] = (
+                            "Simulated input blocked by phone security settings.\n\n"
+                            "🔧 HOW TO FIX:\n"
+                            "Go to Developer Options on your phone, find 'USB debugging (Security settings)' "
+                            "(Allow simulating input events), and toggle it ON."
+                        )
+                    else:
+                        res_data["success"] = True
+                        res_data["message"] = f"Simulated {action.upper()} input keyevent."
                 elif action == "settings":
-                    subprocess.run(["adb", "shell", "am", "start", "-a", "android.settings.SETTINGS"])
-                    res_data["success"] = True
-                    res_data["message"] = "Opened Android Settings."
+                    res = subprocess.run(["adb", "shell", "am", "start", "-a", "android.settings.SETTINGS"], capture_output=True, text=True)
+                    stdout = res.stdout or ""
+                    stderr = res.stderr or ""
+                    output = stdout + " " + stderr
+                    if "SecurityException" in output:
+                        res_data["message"] = (
+                            "Settings shortcut blocked by phone security settings.\n\n"
+                            "🔧 HOW TO FIX:\n"
+                            "Enable 'USB debugging (Security settings)' in Developer Options on your phone."
+                        )
+                    else:
+                        res_data["success"] = True
+                        res_data["message"] = "Opened Android Settings."
                 else:
                     res_data["message"] = "Unknown control action."
                     
@@ -1160,9 +1181,20 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = "No text provided."
                 else:
                     escaped_text = text.replace("'", "'\\''")
-                    subprocess.run(["adb", "shell", "input", "text", f"'{escaped_text}'"])
-                    res_data["success"] = True
-                    res_data["message"] = f"Typed text onto device."
+                    res = subprocess.run(["adb", "shell", "input", "text", f"'{escaped_text}'"], capture_output=True, text=True)
+                    stdout = res.stdout or ""
+                    stderr = res.stderr or ""
+                    output = stdout + " " + stderr
+                    if "SecurityException" in output or "inject_events" in output.lower():
+                        res_data["message"] = (
+                            "Typing input blocked by phone security settings.\n\n"
+                            "🔧 HOW TO FIX:\n"
+                            "Go to Developer Options on your phone, find 'USB debugging (Security settings)' "
+                            "(Allow simulating input events), and toggle it ON."
+                        )
+                    else:
+                        res_data["success"] = True
+                        res_data["message"] = f"Typed text onto device."
                     
             elif self.path == '/api/touch_id_unlock':
                 config = ConnectPhone.load_config()

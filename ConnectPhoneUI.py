@@ -101,7 +101,7 @@ def scan_and_connect_wireless_debug(ip, timeout=0.15):
             with lock:
                 found_ports.append(port)
                 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=350) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         executor.map(worker, ports)
         
     found_ports.sort()
@@ -335,7 +335,7 @@ def run_qr_pairing_flow(service_name, password):
         ip, port = discover_adb_service_hybrid(
             "_adb-tls-pairing._tcp.local.",
             target_substring=suffix,
-            timeout=45.0,
+            timeout=180.0,
             is_cancelled_fn=lambda: qr_pairing_state["status"] != "waiting"
         )
         
@@ -731,7 +731,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 
                 # Generate lowercase service name to avoid mDNS case-sensitivity mismatch bugs
                 # Generate numeric password to match default Android pairing protocol conventions
-                service_name = "adb-cli-" + "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
+                service_name = "studio-" + "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
                 password = "".join(secrets.choice("0123456789") for _ in range(6))
                 payload = f"WIFI:T:ADB;S:{service_name};P:{password};;"
                 

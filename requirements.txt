@@ -1,0 +1,8 @@
+# ConnectPhone requires Python 3.x
+# No external python packages are required (uses standard library only)
+#
+# System dependencies:
+# - adb (Android Debug Bridge)
+# - scrcpy
+# - ffmpeg
+# - swiftc (Xcode Command Line Tools)

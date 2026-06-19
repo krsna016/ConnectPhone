@@ -1,0 +1,19 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Compiled binaries
+touch_id_helper
+get_window_id
+
+# OS files
+.DS_Store
+
+# Temporary records (if any are saved locally in project)
+*.wav
+*.mp4
+*.mkv
+*.aac
+*.png
+*.jpg

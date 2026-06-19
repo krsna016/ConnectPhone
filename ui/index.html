@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ConnectPhone - Dashboard</title>
+    <!-- Google Fonts Outfit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    
+    <!-- Protocol/Security Warning Banner -->
+    <div id="protocol-warning-banner" class="protocol-warning" style="display: none;">
+        ⚠️ <strong>Security Warning:</strong> You opened this dashboard as a local file (<code>file://</code>). Web browsers block local files from talking to the background server. Please open <a href="http://localhost:8282" target="_blank"><strong>http://localhost:8282</strong></a> instead!
+    </div>
+    
+    <!-- Main App Container -->
+    <div class="app-container">
+        
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="brand-icon">📱</span>
+                <div class="brand-text">
+                    <h1>ConnectPhone</h1>
+                    <span class="version">v2.1 Pro</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-tab="mirroring">
+                    <span class="btn-icon">🖥️</span> Mirror & Stream
+                </button>
+                <button class="nav-btn" data-tab="control">
+                    <span class="btn-icon">🎮</span> Simulated Input
+                </button>
+                <button class="nav-btn" data-tab="files">
+                    <span class="btn-icon">📤</span> File & Sync
+                </button>
+                <button class="nav-btn" data-tab="metrics">
+                    <span class="btn-icon">📈</span> Live Metrics
+                </button>
+                <button class="nav-btn" data-tab="profiles">
+                    <span class="btn-icon">⚡</span> Phone Quirks
+                </button>
+                <button class="nav-btn" data-tab="settings">
+                    <span class="btn-icon">⚙️</span> Preferences
+                </button>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <p>Designed for macOS Native Integration</p>
+            </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Dynamic Connection Header -->
+            <header class="app-header">
+                <div class="header-left">
+                    <div class="connection-badge disconnected" id="connection-status">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Disconnected</span>
+                    </div>
+                    <div class="device-details" id="header-device-info">
+                        Select Connection Settings in Preferences or connect using Wi-Fi IP
+                    </div>
+                </div>
+                
+                <div class="header-right">
+                    <button class="header-btn" id="btn-refresh" title="Scan devices">
+                        <span class="icon">🔄</span> Scan Devices
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Quick Camera Overlay (Visible when camera mirror is active) -->
+            <div class="camera-control-overlay hidden" id="camera-overlay">
+                <div class="overlay-left">
+                    <span class="live-indicator-dot"></span>
+                    <div class="overlay-text">
+                        <h3 id="camera-overlay-title">Live Camera Feed</h3>
+                        <p id="camera-overlay-desc">Camera stream is active. Snap photo or record HD clip.</p>
+                    </div>
+                </div>
+                <div class="overlay-right">
+                    <button class="action-btn-circle capture-btn" id="overlay-capture" title="Capture Snapshot">
+                        📸
+                    </button>
+                    <button class="action-btn-circle record-btn" id="overlay-record" title="Start HD Record">
+                        🎥
+                    </button>
+                    <button class="action-btn-circle stop-btn" id="overlay-stop" title="Stop camera stream">
+                        🛑
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Tab Pages Container -->
+            <div class="tab-content-container">
+                
+                <!-- Tab: Mirroring -->
+                <section class="tab-pane active" id="pane-mirroring">
+                    <div class="pane-header">
+                        <h2>Mirroring & Camera Modes</h2>
+                        <p>Stream your phone screen, sensor camera, or record session natively</p>
+                    </div>
+                    
+                    <div class="mirror-grid">
+                        <!-- Mode 1: Standard Mirror -->
+                        <div class="card mirror-card" data-mode="screen">
+                            <div class="card-icon">🖥️</div>
+                            <h3>Standard Screen Mirroring</h3>
+                            <p>Interact with your phone screen directly on your Mac. Seamless audio streaming output.</p>
+                            <button class="btn btn-primary start-mirror-btn" data-type="screen">Start Screen Mirror</button>
+                        </div>
+                        
+                        <!-- Mode 2: Camera Feed -->
+                        <div class="card mirror-card highlight" data-mode="camera">
+                            <div class="card-badge">PRO</div>
+                            <div class="card-icon">📷</div>
+                            <h3>Live Camera Feed</h3>
+                            <p>Stream front or back camera directly to your Mac. Supports mic merging and live controls.</p>
+                            
+                            <div class="mirror-form-group">
+                                <label for="cam-facing">Camera Sensor:</label>
+                                <select id="cam-facing">
+                                    <option value="back">Back Camera</option>
+                                    <option value="front">Front Camera</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mirror-form-group">
+                                <label for="cam-res">Resolution:</label>
+                                <select id="cam-res">
+                                    <option value="1080p">1080p Full HD (Recommended)</option>
+                                    <option value="720p">720p HD (High FPS)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mirror-checkbox-group">
+                                <input type="checkbox" id="cam-no-audio">
+                                <label for="cam-no-audio">Mute audio capture</label>
+                            </div>
+                            
+                            <button class="btn btn-accent start-mirror-btn" data-type="camera">Start Camera Stream</button>
+                        </div>
+                        
+                        <!-- Mode 3: Audio Only -->
+                        <div class="card mirror-card" data-mode="audio">
+                            <div class="card-icon">🔊</div>
+                            <h3>Audio-Only Mirroring</h3>
+                            <p>Listen directly to the Android microphone or system audio stream without rendering video.</p>
+                            <button class="btn btn-primary start-mirror-btn" data-type="audio">Listen to Mic</button>
+                        </div>
+                        
+                        <!-- Mode 4: Record Session -->
+                        <div class="card mirror-card" data-mode="record">
+                            <div class="card-icon">🎥</div>
+                            <h3>Mirror & Record Session</h3>
+                            <p>Launches standard screen mirror and records the entire session as an MP4 directly to your Mac Desktop.</p>
+                            <button class="btn btn-primary start-mirror-btn" data-type="record">Mirror & Record Session</button>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Tab: Simulated Input Control -->
+                <section class="tab-pane" id="pane-control">
+                    <div class="pane-header">
+                        <h2>Simulated Input & Remote Control</h2>
+                        <p>Interact with your phone directly using simulated hardware keyevents</p>
+                    </div>
+                    
+                    <div class="remote-layout">
+                        <!-- Keypad Remote Control -->
+                        <div class="remote-control-pad card">
+                            <h3>Quick Actions</h3>
+                            
+                            <div class="control-section-header">Navigation & System</div>
+                            <div class="pad-grid">
+                                <button class="pad-btn" id="ctrl-power" title="Lock/Unlock device screen">
+                                    <span class="icon">🔌</span> Power
+                                </button>
+                                <button class="pad-btn" id="ctrl-home" title="Go to home screen">
+                                    <span class="icon">🏠</span> Home
+                                </button>
+                                <button class="pad-btn" id="ctrl-back" title="Go back">
+                                    <span class="icon">🔙</span> Back
+                                </button>
+                                <button class="pad-btn" id="ctrl-recents" title="View recent applications">
+                                    <span class="icon">🔀</span> Recents
+                                </button>
+                                <button class="pad-btn" id="ctrl-settings" title="Open Android System Settings">
+                                    <span class="icon">⚙️</span> Settings
+                                </button>
+                            </div>
+                            
+                            <div class="control-section-header">Audio & Media</div>
+                            <div class="pad-grid">
+                                <button class="pad-btn" id="ctrl-vol-up" title="Increase volume">
+                                    <span class="icon">🔊</span> Vol +
+                                </button>
+                                <button class="pad-btn" id="ctrl-vol-down" title="Decrease volume">
+                                    <span class="icon">🔉</span> Vol -
+                                </button>
+                                <button class="pad-btn" id="ctrl-mute" title="Mute/unmute media volume">
+                                    <span class="icon">🔇</span> Mute
+                                </button>
+                                <button class="pad-btn" id="ctrl-media-play" title="Play/pause media stream">
+                                    <span class="icon">⏯️</span> Play/Pause
+                                </button>
+                                <button class="pad-btn" id="ctrl-media-prev" title="Previous media track">
+                                    <span class="icon">⏮️</span> Prev
+                                </button>
+                                <button class="pad-btn" id="ctrl-media-next" title="Next media track">
+                                    <span class="icon">⏭️</span> Next
+                                </button>
+                            </div>
+
+                            <div class="control-section-header">Keyboard Helpers</div>
+                            <div class="pad-grid">
+                                <button class="pad-btn" id="ctrl-backspace" title="Simulate Backspace keystroke">
+                                    <span class="icon">⌫</span> Backspace
+                                </button>
+                                <button class="pad-btn" id="ctrl-enter" title="Simulate Enter keystroke">
+                                    <span class="icon">⏎</span> Enter
+                                </button>
+                                <button class="pad-btn" id="ctrl-tab" title="Simulate Tab focus change">
+                                    <span class="icon">⇥</span> Tab
+                                </button>
+                            </div>
+                            
+                            <div class="touch-id-box">
+                                <button class="btn btn-touchid" id="ctrl-touch-id" title="Initiate Touch ID Biometric Bridge">
+                                    <span class="touch-icon">🔑</span> Authenticate & Unlock via macOS Touch ID
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Type Text Card -->
+                        <div class="type-text-card card">
+                            <h3>⌨️ Typing Input & Shortcuts</h3>
+                            <p>Type text on your Mac and send it directly to your phone screen.</p>
+                            
+                            <div class="alert-info-box">
+                                <div class="alert-icon">💡</div>
+                                <div class="alert-content">
+                                    <p><strong>Option A: Direct Keyboard Typing (Recommended)</strong></p>
+                                    <p>When screen mirroring is active, just click inside the mirroring window and type directly using your Mac keyboard. It works instantly without using this box!</p>
+                                </div>
+                            </div>
+
+                            <div class="alert-warning-box">
+                                <div class="alert-icon">⚠️</div>
+                                <div class="alert-content">
+                                    <p><strong>Option B: Remote Typing Simulation</strong></p>
+                                    <p>To use the text box below, you <strong>MUST first tap/click on an active text input field</strong> on the phone screen. If no input field is focused, Android's Launcher will automatically redirect the keystrokes to open Google Search.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group text-input-group">
+                                <textarea id="type-text-input" placeholder="Type text here to send..."></textarea>
+                            </div>
+                            <div class="text-input-actions">
+                                <button class="btn btn-primary" id="btn-type-send">Send Text</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Tab: File Synchronization -->
+                <section class="tab-pane" id="pane-files">
+                    <div class="pane-header">
+                        <h2>File Transfer & Real-time Synchronization</h2>
+                        <p>Send files to phone, fetch latest photo captures, or mirror folders</p>
+                    </div>
+                    
+                    <div class="files-layout">
+                        <!-- Left pane: file actions -->
+                        <div class="card file-action-card">
+                            <h3>📤 File Dispatch</h3>
+                            <p>Push folders/documents directly from your Mac to the phone's default Downloads folder.</p>
+                            
+                            <div class="form-group">
+                                <label for="push-path-input">Mac File Path:</label>
+                                <input type="text" id="push-path-input" placeholder="e.g. /Users/anurag/Downloads/doc.pdf">
+                            </div>
+                            <button class="btn btn-primary" id="btn-file-push">Push to Phone Downloads</button>
+                        </div>
+                        
+                        <div class="card file-action-card">
+                            <h3>📥 Pull Latest Photo</h3>
+                            <p>Instantly fetch the newest captured image from the DCIM/Camera directory on your phone to your Mac Downloads folder.</p>
+                            <button class="btn btn-primary" id="btn-file-pull">Pull Newest Photo</button>
+                        </div>
+                        
+                        <!-- Right pane: Sync watcher toggle -->
+                        <div class="card file-action-card highlight">
+                            <div class="card-icon">🔄</div>
+                            <h3>Real-time Sync Folder</h3>
+                            <p>Start a dynamic background directory watcher that instantly auto-syncs any photo or video captured on your phone to your Mac Desktop.</p>
+                            
+                            <div class="sync-status-box">
+                                <span class="sync-status-indicator" id="sync-indicator"></span>
+                                <span class="sync-status-label" id="sync-label">Folder Sync: Inactive</span>
+                            </div>
+                            <button class="btn btn-accent" id="btn-file-sync-toggle">Start Sync Watcher</button>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Tab: Live Metrics & Diagnostics -->
+                <section class="tab-pane" id="pane-metrics">
+                    <div class="pane-header">
+                        <h2>📈 Live Device Metrics & Diagnostics</h2>
+                        <p>Real-time resource utilization, thermal indicators, battery wear, and system diagnostics.</p>
+                    </div>
+                    
+                    <div class="metrics-grid">
+                        <!-- Battery Card -->
+                        <div class="card metrics-card battery-card">
+                            <h3>🔋 Battery & Power</h3>
+                            <div class="metric-visual">
+                                <div class="battery-level-container">
+                                    <div class="battery-fill" id="metric-bat-fill" style="width: 0%;"></div>
+                                    <span class="battery-percentage" id="metric-bat-pct">--%</span>
+                                </div>
+                            </div>
+                            <div class="metric-stats">
+                                <div class="stat-row"><span>Status:</span> <strong id="metric-bat-status">--</strong></div>
+                                <div class="stat-row"><span>Health:</span> <strong id="metric-bat-health">--</strong></div>
+                                <div class="stat-row"><span>Temperature:</span> <strong id="metric-bat-temp">--°C</strong></div>
+                                <div class="stat-row"><span>Voltage:</span> <strong id="metric-bat-voltage">-- V</strong></div>
+                                <div class="stat-row"><span>Technology:</span> <strong id="metric-bat-tech">--</strong></div>
+                            </div>
+                        </div>
+
+                        <!-- RAM Card -->
+                        <div class="card metrics-card ram-card">
+                            <h3>🧠 System Memory (RAM)</h3>
+                            <div class="metric-visual">
+                                <div class="progress-bar-container">
+                                    <div class="progress-fill" id="metric-ram-fill" style="width: 0%;"></div>
+                                </div>
+                                <div class="progress-labels">
+                                    <span id="metric-ram-used">0 GB Used</span>
+                                    <span id="metric-ram-pct">0%</span>
+                                </div>
+                            </div>
+                            <div class="metric-stats">
+                                <div class="stat-row"><span>Total Memory:</span> <strong id="metric-ram-total">-- GB</strong></div>
+                                <div class="stat-row"><span>Available:</span> <strong id="metric-ram-avail">-- GB</strong></div>
+                            </div>
+                        </div>
+
+                        <!-- Storage Card -->
+                        <div class="card metrics-card storage-card">
+                            <h3>💾 Internal Storage</h3>
+                            <div class="metric-visual">
+                                <div class="progress-bar-container">
+                                    <div class="progress-fill" id="metric-storage-fill" style="width: 0%;"></div>
+                                </div>
+                                <div class="progress-labels">
+                                    <span id="metric-storage-used">0 GB Used</span>
+                                    <span id="metric-storage-pct">0%</span>
+                                </div>
+                            </div>
+                            <div class="metric-stats">
+                                <div class="stat-row"><span>Total Storage:</span> <strong id="metric-storage-total">-- GB</strong></div>
+                                <div class="stat-row"><span>Free Space:</span> <strong id="metric-storage-avail">-- GB</strong></div>
+                            </div>
+                        </div>
+
+                        <!-- Network Card -->
+                        <div class="card metrics-card network-card">
+                            <h3>🌐 Network & System</h3>
+                            <div class="metric-stats">
+                                <div class="stat-row"><span>Device IP Address:</span> <strong id="metric-net-ip">--</strong></div>
+                                <div class="stat-row"><span>Connection Type:</span> <strong id="metric-net-type">--</strong></div>
+                                <div class="stat-row"><span>System Uptime:</span> <strong id="metric-sys-uptime">--</strong></div>
+                                <div class="stat-row"><span>System Load:</span> <strong id="metric-sys-load">--</strong></div>
+                            </div>
+                            <div class="ping-section">
+                                <button class="btn btn-accent" id="btn-ping-test">⚡ Run Connection Ping Test</button>
+                                <div class="ping-result" id="ping-test-result">Click test to calculate round-trip latency.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Tab: Phone Quirks & Device Profiles -->
+                <section class="tab-pane" id="pane-profiles">
+                    <div class="pane-header">
+                        <h2>Phone Profiles & Manufacturer Quirks</h2>
+                        <p>Customize setting workarounds and unlock brand-specific integrations</p>
+                    </div>
+                    
+                    <div class="profiles-layout">
+                        <!-- Hidden select element for programmatic config mapping -->
+                        <select id="profile-brand-select" style="display: none;">
+                            <option value="generic">generic</option>
+                            <option value="nothing">nothing</option>
+                            <option value="xiaomi">xiaomi</option>
+                            <option value="samsung">samsung</option>
+                            <option value="oneplus">oneplus</option>
+                        </select>
+
+                        <!-- Left Navigation Stack for Profiles -->
+                        <div class="profile-nav-stack">
+                            <div class="profile-nav-item active-profile selected" data-brand="generic">
+                                <div class="profile-nav-icon">📱</div>
+                                <div class="profile-nav-details">
+                                    <div class="profile-nav-title">Generic Android</div>
+                                    <div class="profile-nav-desc">Standard default configuration</div>
+                                </div>
+                                <div class="profile-active-indicator">
+                                    <span class="active-dot"></span>
+                                    <span class="active-label">Active</span>
+                                </div>
+                            </div>
+                            <div class="profile-nav-item" data-brand="nothing">
+                                <div class="profile-nav-icon">💡</div>
+                                <div class="profile-nav-details">
+                                    <div class="profile-nav-title">Nothing Phone</div>
+                                    <div class="profile-nav-desc">Glyph LEDs & 120Hz Refresh</div>
+                                </div>
+                                <div class="profile-active-indicator">
+                                    <span class="active-dot"></span>
+                                    <span class="active-label">Active</span>
+                                </div>
+                            </div>
+                            <div class="profile-nav-item" data-brand="xiaomi">
+                                <div class="profile-nav-icon">⚡</div>
+                                <div class="profile-nav-details">
+                                    <div class="profile-nav-title">Xiaomi / MIUI</div>
+                                    <div class="profile-nav-desc">HyperOS secure input settings</div>
+                                </div>
+                                <div class="profile-active-indicator">
+                                    <span class="active-dot"></span>
+                                    <span class="active-label">Active</span>
+                                </div>
+                            </div>
+                            <div class="profile-nav-item" data-brand="samsung">
+                                <div class="profile-nav-icon">🛡️</div>
+                                <div class="profile-nav-details">
+                                    <div class="profile-nav-title">Samsung Galaxy</div>
+                                    <div class="profile-nav-desc">Knox PIN unlock workaround</div>
+                                </div>
+                                <div class="profile-active-indicator">
+                                    <span class="active-dot"></span>
+                                    <span class="active-label">Active</span>
+                                </div>
+                            </div>
+                            <div class="profile-nav-item" data-brand="oneplus">
+                                <div class="profile-nav-icon">♾️</div>
+                                <div class="profile-nav-details">
+                                    <div class="profile-nav-title">OnePlus / Oppo</div>
+                                    <div class="profile-nav-desc">ADB Keep-Alive sync daemon</div>
+                                </div>
+                                <div class="profile-active-indicator">
+                                    <span class="active-dot"></span>
+                                    <span class="active-label">Active</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Right Details Pane -->
+                        <div class="profile-details-pane">
+                            <!-- Panel for Generic Profile (Always visible if active) -->
+                            <div class="card brand-panel" id="panel-brand-generic">
+                                <div class="brand-panel-header">
+                                    <span class="brand-badge generic-badge">GENERIC OS</span>
+                                    <h3>Generic Android Device Profile</h3>
+                                </div>
+                                <div class="brand-panel-body">
+                                    <p class="brand-desc">Standard configuration suitable for most Android phones (Google Pixel, Motorola, Asus, etc.) connected over USB or Wi-Fi.</p>
+                                    
+                                    <div class="info-box-generic accent-generic">
+                                        <h4>⚙️ Standard Settings Applied:</h4>
+                                        <ul class="optimizations-list">
+                                            <li>🚀 60 FPS Target Mirroring Frame Rate</li>
+                                            <li>🔋 Default Device Power Save Controls</li>
+                                            <li>🔊 Standard Audio Routing Alignment (Opus / 128k)</li>
+                                            <li>⌨️ Physical keyboard simulation (UHID) enabled</li>
+                                        </ul>
+                                    </div>
+                                    
+                                    <div class="alert-info-box">
+                                        <div class="alert-icon">💡</div>
+                                        <div class="alert-content">
+                                            <p>Select another profile in the left menu to view phone-specific optimizations such as the Nothing Glyph Interface or Xiaomi Security bypasses.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="brand-panel-footer push-bottom">
+                                    <button class="btn btn-primary btn-apply-profile" data-brand="generic">
+                                        Apply Generic Profile
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Details / Custom Panel for Nothing Phone -->
+                            <div class="card brand-panel hidden" id="panel-brand-nothing">
+                                <div class="brand-panel-header">
+                                    <span class="brand-badge nothing-badge">NOTHING OS</span>
+                                    <h3>Nothing Phone Glyph Interface & 120Hz</h3>
+                                </div>
+                                <div class="brand-panel-body">
+                                    <p class="brand-desc">Nothing OS utilizes unique Glyph LEDs on the back of the device and requires special settings to bypass ambient light delays.</p>
+                                    
+                                    <div class="info-box-generic accent-nothing">
+                                        <h4>💡 120Hz High-Refresh Optimization:</h4>
+                                        <p>Nothing Phone supports true 120Hz scrolling. Applying this profile automatically configures the dashboard mirror to request 120 FPS target output limit.</p>
+                                    </div>
+
+                                    <div class="glyph-controls-box">
+                                        <h4>💡 Glyph LED Hardware Controls</h4>
+                                        <div class="glyph-grid">
+                                            <button class="btn btn-accent" id="btn-nothing-glyph-on">
+                                                💡 Enable Glyphs
+                                            </button>
+                                            <button class="btn btn-danger" id="btn-nothing-glyph-off">
+                                                🔌 Disable Glyphs
+                                            </button>
+                                            <button class="btn btn-primary glyph-btn-full" id="btn-nothing-glyph-settings">
+                                                ⚙️ Launch Phone Glyph Settings Page
+                                            </button>
+                                            <button class="btn btn-accent glyph-btn-flash" id="btn-nothing-glyph-flash">
+                                                ✨ Flash Glyph Test Notification
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="brand-panel-footer push-bottom">
+                                    <button class="btn btn-primary btn-apply-profile" data-brand="nothing">
+                                        Apply Nothing Phone Profile
+                                    </button>
+                                </div>
+                            </div>
+    
+                            <!-- Panel for Xiaomi -->
+                            <div class="card brand-panel hidden" id="panel-brand-xiaomi">
+                                <div class="brand-panel-header">
+                                    <span class="brand-badge xiaomi-badge">MIUI / HYPEROS</span>
+                                    <h3>Xiaomi Input Quirks</h3>
+                                </div>
+                                <div class="brand-panel-body">
+                                    <p class="brand-desc">Xiaomi, Redmi, and Poco devices block remote typing on lock screens and system dialogs by default due to strict system overlay restrictions.</p>
+                                    
+                                    <div class="info-box-generic accent-xiaomi">
+                                        <h4>⚠️ Crucial Requirement:</h4>
+                                        <ul class="optimizations-list">
+                                            <li>Navigate to: <code>Settings > Developer Options</code></li>
+                                            <li>Enable: <code>USB Debugging (Security Settings)</code></li>
+                                            <li>Otherwise, simulated keyboard input and Touch ID unlock requests will be silently blocked.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="brand-panel-footer push-bottom">
+                                    <button class="btn btn-primary btn-apply-profile" data-brand="xiaomi">
+                                        Apply Xiaomi Profile
+                                    </button>
+                                </div>
+                            </div>
+    
+                            <!-- Panel for Samsung -->
+                            <div class="card brand-panel hidden" id="panel-brand-samsung">
+                                <div class="brand-panel-header">
+                                    <span class="brand-badge samsung-badge">SAMSUNG KNOX</span>
+                                    <h3>Samsung Knox Security</h3>
+                                </div>
+                                <div class="brand-panel-body">
+                                    <p class="brand-desc">Samsung Galaxy devices use Knox Security. Pin unlock requires entering an explicit 'Enter/OK' key after simulated typing.</p>
+                                    <div class="info-box-generic accent-samsung">
+                                        <h4>⚙️ Optimization:</h4>
+                                        <ul class="optimizations-list">
+                                            <li>The Samsung profile automatically appends the Enter keyevent keycode after typing the backup PIN during biometric unlock sequences.</li>
+                                            <li>Bypasses default screen dim delays by pulsing virtual cursor interactions.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="brand-panel-footer push-bottom">
+                                    <button class="btn btn-primary btn-apply-profile" data-brand="samsung">
+                                        Apply Samsung Profile
+                                    </button>
+                                </div>
+                            </div>
+    
+                            <!-- Panel for OnePlus -->
+                            <div class="card brand-panel hidden" id="panel-brand-oneplus">
+                                <div class="brand-panel-header">
+                                    <span class="brand-badge oneplus-badge">ONEPLUS / OPPO</span>
+                                    <h3>OnePlus Custom Controls</h3>
+                                </div>
+                                <div class="brand-panel-body">
+                                    <p class="brand-desc">OnePlus OS aggressively kills background ADB processes to save battery power.</p>
+                                    <div class="info-box-generic accent-oneplus">
+                                        <h4>⚙️ Optimization:</h4>
+                                        <ul class="optimizations-list">
+                                            <li>Enables a persistent ADB keep-alive daemon that periodically pings the phone every 30 seconds to prevent auto-disconnection.</li>
+                                            <li>Maintains low latency during long monitoring sessions.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="brand-panel-footer push-bottom">
+                                    <button class="btn btn-primary btn-apply-profile" data-brand="oneplus">
+                                        Apply OnePlus Profile
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Tab: Preferences and Connection Settings -->
+                <section class="tab-pane" id="pane-settings">
+                    <div class="pane-header">
+                        <h2>Preferences & Connection Settings</h2>
+                        <p>Customize video formats, delay syncing, restart ADB, or connect wirelessly</p>
+                    </div>
+                    
+                    <div class="settings-layout">
+                        
+                        <!-- Wireless debug column -->
+                        <div class="card settings-card">
+                            <h3>🔗 Device Connection Center</h3>
+                            <p>Connect or pair wirelessly using standard pairing/connection ports.</p>
+                            
+                            <div class="settings-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="conn-ip">IP Address:</label>
+                                        <input type="text" id="conn-ip" placeholder="e.g. 192.168.29.201">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="conn-port">Connection Port:</label>
+                                        <input type="text" id="conn-port" value="5555">
+                                    </div>
+                                </div>
+                                <div class="form-tip">💡 <b>Connection Tip:</b> Android randomizes the connection port every time Wi-Fi reconnects. Check <b>IP address & Port</b> on your phone's Wireless Debugging screen (e.g. 192.168.29.201:<b>38947</b>). Once paired, you do NOT need to pair again.</div>
+                                <button class="btn btn-primary" id="btn-conn-connect">Connect Device</button>
+                                
+                                <hr class="settings-divider">
+                                
+                                <h4>Wireless Debugging Pairing (Android 11+)</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="pair-port">Pairing Port:</label>
+                                        <input type="text" id="pair-port" placeholder="e.g. 40561">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pair-code">Pairing Code:</label>
+                                        <input type="text" id="pair-code" placeholder="e.g. 129035">
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary" id="btn-conn-pair">Pair Wireless Device</button>
+                                
+                                <hr class="settings-divider">
+                                <button class="btn btn-danger" id="btn-disconnect-all">Disconnect / Reset Connection</button>
+                                <button class="btn btn-warning" id="btn-restart-adb">Restart ADB Server</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Codec settings column -->
+                        <div class="card settings-card">
+                            <h3>⚙️ Mirroring Preferences</h3>
+                            <p>Customize high-speed parameters and save them locally.</p>
+                            
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="pref-codec">Video Codec:</label>
+                                    <select id="pref-codec">
+                                        <option value="h265">H.265 (Recommended - Low Bitrate)</option>
+                                        <option value="h264">H.264 (Standard Compatibility)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="pref-bitrate">Bitrate limit:</label>
+                                        <select id="pref-bitrate">
+                                            <option value="32M">32 Mbps (Extreme Quality)</option>
+                                            <option value="16M">16 Mbps (High Quality)</option>
+                                            <option value="8M">8 Mbps (Medium Quality)</option>
+                                            <option value="4M">4 Mbps (Efficient)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pref-fps">FPS Cap:</label>
+                                        <select id="pref-fps">
+                                            <option value="60">60 FPS (Super Smooth)</option>
+                                            <option value="120">120 FPS (High Speed)</option>
+                                            <option value="240">240 FPS (Ultra Slow-Mo)</option>
+                                            <option value="30">30 FPS (Standard Power Save)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pref-audio-preset">Audio Output Profile:</label>
+                                    <select id="pref-audio-preset">
+                                        <option value="voice_communication">Voice Communication (Noise Suppression)</option>
+                                        <option value="studio_unprocessed">Studio Unprocessed (Raw High-Fidelity)</option>
+                                        <option value="camcorder">Camcorder Preset</option>
+                                        <option value="output">Device Output Mirroring</option>
+                                        <option value="mac_mic">Mac Microphone Override (Podcast sync)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pref-sync-delay">Mac Mic Audio Sync Delay (seconds):</label>
+                                    <input type="number" id="pref-sync-delay" step="0.05" value="0.80">
+                                </div>
+                                
+                                <div class="form-group" id="pref-mac-mic-group">
+                                    <label for="pref-mac-mic-device">Mac Input Microphone Device:</label>
+                                    <select id="pref-mac-mic-device">
+                                        <option value="default">Default System Audio Input</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pref-audio-buffer">Audio Buffer Delay (ms):</label>
+                                    <input type="number" id="pref-audio-buffer" min="10" max="2000" step="10" value="100" title="Higher buffer sizes prevent pops & static noise, particularly over Wi-Fi connections.">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pref-keyboard">Keyboard Input Mode:</label>
+                                    <select id="pref-keyboard">
+                                        <option value="uhid">Physical Simulation (UHID - Recommended, Hides Gboard)</option>
+                                        <option value="sdk">Standard Injection (SDK - Shows Gboard)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="pref-pin">Android Lockscreen PIN:</label>
+                                        <input type="password" id="pref-pin" placeholder="Enter PIN (Saved locally)">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pref-applock">App Lock PIN:</label>
+                                        <input type="password" id="pref-applock" placeholder="Enter App Lock PIN">
+                                    </div>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-mirror-enabled" checked>
+                                    <label for="pref-mirror-enabled">Align Screen Orientation Automatically</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-screen-off">
+                                    <label for="pref-screen-off">Turn physical phone screen off during mirror</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-stay-awake">
+                                    <label for="pref-stay-awake">Keep Android awake during mirroring</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-show-touches">
+                                    <label for="pref-show-touches">Show touchscreen touch indicators</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-biometric-daemon">
+                                    <label for="pref-biometric-daemon">Auto-Prompt macOS Touch ID for Android Lockscreen & App Locks</label>
+                                </div>
+                                
+                                <button class="btn btn-accent" id="btn-save-pref">Save Preferences</button>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </section>
+                
+            </div>
+            
+        </main>
+        
+    </div>
+    
+    <!-- Toast Message Container -->
+    <div id="toast-container" class="toast-container"></div>
+    
+    <script src="index.js"></script>
+</body>
+</html>

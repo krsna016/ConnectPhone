@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:8282' : '';
     
     // State variables
-    let currentTab = 'mirroring';
+    let currentTab = 'connection';
     let statusInterval = null;
     let scrcpyWasRunning = false;
     let isRecording = false;
@@ -120,16 +120,130 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateConnectionUI(data) {
+        const cleanInfo = (data.device_info || "").replace(/\\033\[[0-9;]*m/g, '').replace(/\x1b\[[0-9;]*m/g, '');
         if (data.connected) {
             connStatus.className = 'connection-badge connected';
             connStatusText.textContent = 'Connected';
-            // Strip ANSI codes if returned in raw string
-            const cleanInfo = (data.device_info || "Connected Device").replace(/\\033\[[0-9;]*m/g, '').replace(/\x1b\[[0-9;]*m/g, '');
-            headerDevice.textContent = cleanInfo;
+            headerDevice.textContent = cleanInfo || "Connected Device";
         } else {
             connStatus.className = 'connection-badge disconnected';
             connStatusText.textContent = 'Disconnected';
-            headerDevice.textContent = 'Select Connection Settings in Preferences or connect using Wi-Fi IP';
+            headerDevice.textContent = 'Connection Center 🔗 Connect using USB or Wi-Fi IP';
+        }
+
+        // Populate ADB devices list in Connection Center
+        const adbList = document.getElementById('adb-devices-list');
+        const pulseIndicator = document.getElementById('device-pulse-indicator');
+        const activeDetailsBox = document.getElementById('active-device-details-box');
+        
+        if (adbList) {
+            adbList.innerHTML = '';
+            
+            const devices = data.devices_detailed || [];
+            if (devices.length === 0) {
+                adbList.innerHTML = '<p class="list-placeholder">No attached ADB devices found. Plug in via USB or connect over Wi-Fi.</p>';
+                if (pulseIndicator) pulseIndicator.className = 'pulse-indicator disconnected';
+                if (activeDetailsBox) {
+                    activeDetailsBox.innerHTML = '<p class="status-placeholder">No active Android device is currently selected. Connect a device to begin.</p>';
+                }
+            } else {
+                // Determine status for pulse indicator
+                let hasOnline = devices.some(d => d.status === 'device');
+                let hasUnauthorized = devices.some(d => d.status === 'unauthorized');
+                
+                if (pulseIndicator) {
+                    if (hasOnline) pulseIndicator.className = 'pulse-indicator connected';
+                    else if (hasUnauthorized) pulseIndicator.className = 'pulse-indicator unauthorized';
+                    else pulseIndicator.className = 'pulse-indicator disconnected';
+                }
+                
+                // Active details box rendering
+                if (activeDetailsBox) {
+                    if (data.connected && data.device_info) {
+                        // Parse info: Device: model | Battery: level | Storage: storage_info
+                        const match = cleanInfo.match(/Device:\s*(.*?)\s*\|\s*Battery:\s*(.*?)\s*\|\s*Storage:\s*(.*)/i);
+                        if (match) {
+                            const model = match[1];
+                            const battery = match[2];
+                            const storage = match[3];
+                            
+                            activeDetailsBox.innerHTML = `
+                                <div class="active-device-details">
+                                    <div class="detail-item">
+                                        <span>📱 Device Model</span>
+                                        <p>${model}</p>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span>🔋 Battery Level</span>
+                                        <p>${battery}</p>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span>💾 Available Storage</span>
+                                        <p>${storage}</p>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span>🌐 IP Address / Serial</span>
+                                        <p>${data.devices[0] || 'USB Connection'}</p>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            activeDetailsBox.innerHTML = `<p class="status-placeholder">${cleanInfo}</p>`;
+                        }
+                    } else {
+                        activeDetailsBox.innerHTML = '<p class="status-placeholder">Device attached but offline or unauthorized. Please verify the debugging prompt on your phone screen.</p>';
+                    }
+                }
+                
+                // Add rows to the devices list
+                devices.forEach(device => {
+                    const row = document.createElement('div');
+                    const isActive = data.connected && data.devices.includes(device.serial);
+                    row.className = `device-row ${isActive ? 'active-device' : ''}`;
+                    
+                    const isWireless = device.type === 'wireless';
+                    const icon = isWireless ? '📶' : '🔌';
+                    const statusText = device.status === 'device' ? 'online' : (device.status === 'unauthorized' ? 'unauthorized' : 'offline');
+                    
+                    row.innerHTML = `
+                        <div class="device-info-left">
+                            <span class="device-type-icon">${icon}</span>
+                            <div class="device-meta">
+                                <h4>${device.model}</h4>
+                                <p>${device.serial} (${isWireless ? 'Wi-Fi' : 'USB'})</p>
+                            </div>
+                        </div>
+                        <div class="device-info-right">
+                            <span class="status-badge ${statusText}">${statusText}</span>
+                            ${isWireless ? `<button class="btn btn-sm btn-danger btn-device-disconnect" data-serial="${device.serial}">Disconnect</button>` : ''}
+                        </div>
+                    `;
+                    
+                    // Bind disconnect button
+                    const discBtn = row.querySelector('.btn-device-disconnect');
+                    if (discBtn) {
+                        discBtn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            showToast(`Disconnecting ${device.serial}...`, 'info');
+                            try {
+                                const parts = device.serial.split(':');
+                                const res = await fetch(`${API_BASE}/api/disconnect`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ ip: parts[0], port: parts[1] })
+                                });
+                                const resData = await res.json();
+                                showToast(resData.message || 'Disconnected.', resData.success ? 'success' : 'error');
+                                fetchStatus();
+                            } catch (err) {
+                                showToast(`Error: ${err.message}`, 'error');
+                            }
+                        });
+                    }
+                    
+                    adbList.appendChild(row);
+                });
+            }
         }
     }
 
@@ -428,6 +542,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Settings Connections Bindings
+    // Settings Connections Bindings
     const btnAutoConnect = document.getElementById('btn-conn-autoconnect');
     if (btnAutoConnect) {
         btnAutoConnect.addEventListener('click', () => {
@@ -459,8 +574,6 @@ document.addEventListener('DOMContentLoaded', () => {
         postAction('/api/pair', { ip: ip, port: port, code: code });
     });
 
-
-
     document.getElementById('btn-disconnect-all').addEventListener('click', () => {
         postAction('/api/disconnect');
     });
@@ -469,6 +582,73 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast('Restarting ADB server...', 'info');
         postAction('/api/restart_adb');
     });
+
+    // mDNS Auto-Discovery Bindings
+    const btnScanMdns = document.getElementById('btn-scan-mdns-devices');
+    const mdnsList = document.getElementById('mdns-discovered-list');
+    if (btnScanMdns && mdnsList) {
+        btnScanMdns.addEventListener('click', async () => {
+            mdnsList.innerHTML = '<p class="list-placeholder">⚡ Scanning Wi-Fi network for Wireless Debugging services (takes 2 seconds)...</p>';
+            btnScanMdns.disabled = true;
+            try {
+                const res = await fetch(`${API_BASE}/api/mdns/discover`);
+                const data = await res.json();
+                mdnsList.innerHTML = '';
+                if (data.success && data.services && data.services.length > 0) {
+                    data.services.forEach(service => {
+                        const row = document.createElement('div');
+                        row.className = 'device-row';
+                        const isPairing = service.type === 'pairing';
+                        row.innerHTML = `
+                            <div class="device-info-left">
+                                <span class="device-type-icon">🔍</span>
+                                <div class="device-meta">
+                                    <h4>${service.name} (${isPairing ? 'Pairing Service' : 'Connect Target'})</h4>
+                                    <p>${service.ip}:${service.port}</p>
+                                </div>
+                            </div>
+                            <div class="device-info-right">
+                                <button class="btn btn-sm btn-primary btn-mdns-action" data-ip="${service.ip}" data-port="${service.port}" data-type="${service.type}">
+                                    ${isPairing ? '🔑 Start Pairing' : '⚡ Connect'}
+                                </button>
+                            </div>
+                        `;
+                        
+                        const actionBtn = row.querySelector('.btn-mdns-action');
+                        actionBtn.addEventListener('click', () => {
+                            document.getElementById('conn-ip').value = service.ip;
+                            if (isPairing) {
+                                document.getElementById('pair-port').value = service.port;
+                                document.getElementById('pair-code').value = '';
+                                document.getElementById('pair-code').focus();
+                                showToast(`Target IP and Pairing Port filled! Please enter the 6-digit Pairing Code shown on your phone.`, 'info');
+                            } else {
+                                document.getElementById('conn-port').value = service.port;
+                                showToast(`Connecting to discovered device at ${service.ip}:${service.port}...`, 'info');
+                                postAction('/api/connect', { ip: service.ip, port: service.port });
+                            }
+                        });
+                        
+                        mdnsList.appendChild(row);
+                    });
+                } else {
+                    mdnsList.innerHTML = '<p class="list-placeholder">No active wireless debugging services discovered on local network. Verify "Wireless Debugging" is toggled ON in Developer Options.</p>';
+                }
+            } catch (err) {
+                console.error("mDNS scan error:", err);
+                mdnsList.innerHTML = `<p class="list-placeholder error">Scan failed: ${err.message}</p>`;
+            } finally {
+                btnScanMdns.disabled = false;
+            }
+        });
+    }
+
+    const btnRefreshList = document.getElementById('btn-refresh-devices-list');
+    if (btnRefreshList) {
+        btnRefreshList.addEventListener('click', () => {
+            fetchStatus(true);
+        });
+    }
 
     // Save Preferences settings Click
     document.getElementById('btn-save-pref').addEventListener('click', () => {
@@ -656,11 +836,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const pingResult = document.getElementById('ping-test-result');
     if (btnPing) {
         btnPing.addEventListener('click', async () => {
+            const manualIp = document.getElementById('conn-ip').value.trim();
+            pingResult.classList.remove('hidden');
             pingResult.textContent = '⚡ Running ping test... please wait...';
             pingResult.className = 'ping-result running';
             try {
-                // Post endpoint
-                const res = await postAction('/api/ping');
+                const res = await postAction('/api/ping', manualIp ? { ip: manualIp } : {});
                 if (res && res.success) {
                     pingResult.textContent = res.message;
                     pingResult.className = 'ping-result success';

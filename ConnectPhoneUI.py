@@ -513,6 +513,87 @@ def get_live_metrics():
     metrics["success"] = True
     return metrics
 
+def get_detailed_adb_devices():
+    try:
+        res = subprocess.run(["adb", "devices", "-l"], capture_output=True, text=True)
+        lines = res.stdout.strip().split("\n")[1:]
+        devices_list = []
+        for line in lines:
+            if not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                serial = parts[0]
+                status = parts[1]
+                
+                # Check if wireless
+                conn_type = "wireless" if ":" in serial else "usb"
+                
+                # Find model, product, device in properties
+                model = "Android Device"
+                product = "generic"
+                for part in parts[2:]:
+                    if part.startswith("model:"):
+                        model = part.split(":")[1].replace("_", " ")
+                    elif part.startswith("product:"):
+                        product = part.split(":")[1]
+                        
+                devices_list.append({
+                    "serial": serial,
+                    "status": status,
+                    "type": conn_type,
+                    "model": model,
+                    "product": product
+                })
+        return devices_list
+    except Exception:
+        return []
+
+def discover_all_mdns_services(timeout=2.0):
+    from zeroconf import Zeroconf, ServiceBrowser
+    
+    discovered = []
+    
+    class MultiListener:
+        def add_service(self, zc, type, name):
+            try:
+                info = zc.get_service_info(type, name)
+                if info:
+                    addresses = info.parsed_addresses()
+                    ipv4_addrs = [addr for addr in addresses if '.' in addr]
+                    ip = ipv4_addrs[0] if ipv4_addrs else (addresses[0] if addresses else "unknown")
+                    
+                    # Clean up service name (e.g. adb-xxxx._adb-tls-connect._tcp.local. -> adb-xxxx)
+                    clean_name = name.split(".")[0]
+                    discovered.append({
+                        "name": clean_name,
+                        "ip": ip,
+                        "port": info.port,
+                        "type": "connect" if "connect" in type else "pairing"
+                    })
+            except Exception:
+                pass
+        def remove_service(self, zc, type, name):
+            pass
+        def update_service(self, zc, type, name):
+            pass
+
+    # Start Zeroconf browser for both connect and pairing service types
+    zc = None
+    try:
+        zc = Zeroconf()
+        listener = MultiListener()
+        b1 = ServiceBrowser(zc, "_adb-tls-connect._tcp.local.", listener)
+        b2 = ServiceBrowser(zc, "_adb-tls-pairing._tcp.local.", listener)
+        time.sleep(timeout)
+    except Exception:
+        pass
+    finally:
+        if zc:
+            zc.close()
+            
+    return discovered
+
 class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
     # Suppress verbose log messages on terminal for clean output
     def log_message(self, format, *args):
@@ -584,15 +665,16 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         
         if self.path == '/api/status':
-            devices = ConnectPhone.check_adb_devices()
-            device_connected = len(devices) > 0
+            devices_detailed = get_detailed_adb_devices()
+            device_connected = len(devices_detailed) > 0
             device_info = ConnectPhone.get_device_info() if device_connected else None
             
             scrcpy_running = scrcpy_proc is not None and scrcpy_proc.poll() is None
             
             response = {
                 "connected": device_connected,
-                "devices": devices,
+                "devices": [d["serial"] for d in devices_detailed],
+                "devices_detailed": devices_detailed,
                 "device_info": device_info,
                 "scrcpy_running": scrcpy_running,
                 "recording_active": scrcpy_state["recording_active"],
@@ -607,6 +689,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/api/settings/audio_devices':
             devices = ConnectPhone.get_macos_audio_devices()
             self.wfile.write(json.dumps({"success": True, "devices": devices}).encode('utf-8'))
+        elif self.path == '/api/mdns/discover':
+            discovered = discover_all_mdns_services()
+            self.wfile.write(json.dumps({"success": True, "services": discovered}).encode('utf-8'))
         else:
             self.wfile.write(json.dumps({"error": "Unknown GET endpoint"}).encode('utf-8'))
 
@@ -704,10 +789,20 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                                 )
                         
             elif self.path == '/api/disconnect':
-                res = subprocess.run(["adb", "disconnect"], capture_output=True, text=True)
+                target_ip = data.get("ip", "").strip() if data else ""
+                target_port = data.get("port", "").strip() if data else ""
+                if target_ip and target_port:
+                    ip_port = f"{target_ip}:{target_port}"
+                    res = subprocess.run(["adb", "disconnect", ip_port], capture_output=True, text=True)
+                    res_data["message"] = f"Disconnected from {ip_port}."
+                elif target_ip:
+                    res = subprocess.run(["adb", "disconnect", target_ip], capture_output=True, text=True)
+                    res_data["message"] = f"Disconnected from {target_ip}."
+                else:
+                    res = subprocess.run(["adb", "disconnect"], capture_output=True, text=True)
+                    res_data["message"] = "Disconnected from all devices."
+                    stop_scrcpy_bg()
                 res_data["success"] = True
-                res_data["message"] = "Disconnected from all devices."
-                stop_scrcpy_bg()
                 
             elif self.path == '/api/pair':
                 ip = data.get("ip", "").strip()
@@ -749,20 +844,22 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 res_data["message"] = "ADB server restarted successfully."
                 
             elif self.path == '/api/ping':
-                ip = "unknown"
-                res_route = subprocess.run(["adb", "shell", "ip route"], capture_output=True, text=True)
-                for line in res_route.stdout.splitlines():
-                    if "src" in line:
-                        parts = line.split()
-                        try:
-                            idx = parts.index("src")
-                            ip = parts[idx + 1]
-                            break
-                        except Exception:
-                            pass
+                ip = data.get("ip", "").strip() if data else ""
+                if not ip:
+                    ip = "unknown"
+                    res_route = subprocess.run(["adb", "shell", "ip route"], capture_output=True, text=True)
+                    for line in res_route.stdout.splitlines():
+                        if "src" in line:
+                            parts = line.split()
+                            try:
+                                idx = parts.index("src")
+                                ip = parts[idx + 1]
+                                break
+                            except Exception:
+                                pass
                 
                 if ip == "unknown" or not ip:
-                    res_data["message"] = "Could not find active wireless IP address for the device."
+                    res_data["message"] = "Could not find active wireless IP address for the device. Please connect or specify IP manually."
                 else:
                     # -c 3: 3 packets, -t 2: timeout in 2 seconds
                     res_ping = subprocess.run(["ping", "-c", "3", "-t", "2", ip], capture_output=True, text=True)
@@ -775,9 +872,12 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                                 break
                         if rtt_line:
                             res_data["success"] = True
-                            res_data["message"] = f"Ping Success: {rtt_line.strip()}"
+                            res_data["message"] = f"Ping Success to {ip}: {rtt_line.strip()}"
                         else:
                             res_data["success"] = True
+                            res_data["message"] = f"Ping Success to {ip} (no stats parsed)"
+                    else:
+                        res_data["message"] = f"Ping failed to target IP: {ip}"
                             res_data["message"] = f"Pinged {ip} successfully, packets transmitted."
                     else:
                         res_data["message"] = f"Failed to ping {ip}. Phone might be on an isolated network or USB only."

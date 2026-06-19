@@ -718,8 +718,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         
         try:
             if self.path == '/api/connect':
-                ip = data.get("ip", "").strip()
-                port = data.get("port", "5555").strip()
+                ip = str(data.get("ip", "")).strip()
+                port = str(data.get("port", "5555")).strip()
                 if not ip:
                     res_data["message"] = "IP address is required."
                 else:
@@ -789,8 +789,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                                 )
                         
             elif self.path == '/api/disconnect':
-                target_ip = data.get("ip", "").strip() if data else ""
-                target_port = data.get("port", "").strip() if data else ""
+                target_ip = str(data.get("ip", "")).strip() if data and data.get("ip") is not None else ""
+                target_port = str(data.get("port", "")).strip() if data and data.get("port") is not None else ""
                 if target_ip and target_port:
                     ip_port = f"{target_ip}:{target_port}"
                     res = subprocess.run(["adb", "disconnect", ip_port], capture_output=True, text=True)
@@ -805,9 +805,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 res_data["success"] = True
                 
             elif self.path == '/api/pair':
-                ip = data.get("ip", "").strip()
-                port = data.get("port", "").strip()
-                code = data.get("code", "").strip()
+                ip = str(data.get("ip", "")).strip()
+                port = str(data.get("port", "")).strip()
+                code = str(data.get("code", "")).strip()
                 if not ip or not port or not code:
                     res_data["message"] = "IP, Port, and Pairing Code are all required."
                 else:
@@ -844,7 +844,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 res_data["message"] = "ADB server restarted successfully."
                 
             elif self.path == '/api/ping':
-                ip = data.get("ip", "").strip() if data else ""
+                ip = str(data.get("ip", "")).strip() if data and data.get("ip") is not None else ""
                 if not ip:
                     ip = "unknown"
                     res_route = subprocess.run(["adb", "shell", "ip route"], capture_output=True, text=True)

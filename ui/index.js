@@ -492,48 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
         postAction('/api/mirror/stop');
     });
 
-    // Control Keypad Click Bindings
-    const bindControl = (btnId, actionName) => {
-        const el = document.getElementById(btnId);
-        if (el) {
-            el.addEventListener('click', () => {
-                postAction('/api/control', { action: actionName });
-            });
-        }
-    };
-    
-    bindControl('ctrl-power', 'power');
-    bindControl('ctrl-vol-up', 'vol_up');
-    bindControl('ctrl-vol-down', 'vol_down');
-    bindControl('ctrl-back', 'back');
-    bindControl('ctrl-home', 'home');
-    bindControl('ctrl-recents', 'recents');
-    bindControl('ctrl-settings', 'settings');
-    bindControl('ctrl-mute', 'mute');
-    bindControl('ctrl-media-play', 'play_pause');
-    bindControl('ctrl-media-prev', 'prev_track');
-    bindControl('ctrl-media-next', 'next_track');
-    bindControl('ctrl-backspace', 'backspace');
-    bindControl('ctrl-enter', 'enter');
-    bindControl('ctrl-tab', 'tab');
 
-    // Touch ID Unlock Simulation
-    document.getElementById('ctrl-touch-id').addEventListener('click', () => {
-        showToast('Confirm Touch ID on your Mac...', 'info');
-        postAction('/api/touch_id_unlock');
-    });
-
-    // Simulate Keyboard Input Typer
-    const textTyperInput = document.getElementById('type-text-input');
-    document.getElementById('btn-type-send').addEventListener('click', () => {
-        const text = textTyperInput.value.trim();
-        if (!text) {
-            showToast('Please type some text first.', 'error');
-            return;
-        }
-        postAction('/api/type', { text: text });
-        textTyperInput.value = '';
-    });
 
     // File Dispatch & Photo Pulling Clicks
     document.getElementById('btn-file-push').addEventListener('click', () => {

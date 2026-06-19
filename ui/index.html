@@ -38,9 +38,7 @@
                 <button class="nav-btn" data-tab="mirroring">
                     <span class="btn-icon">🖥️</span> Mirror & Stream
                 </button>
-                <button class="nav-btn" data-tab="control">
-                    <span class="btn-icon">🎮</span> Simulated Input
-                </button>
+
                 <button class="nav-btn" data-tab="files">
                     <span class="btn-icon">📤</span> File & Sync
                 </button>
@@ -308,109 +306,7 @@
                     </div>
                 </section>
                 
-                <!-- Tab: Simulated Input Control -->
-                <section class="tab-pane" id="pane-control">
-                    <div class="pane-header">
-                        <h2>Simulated Input & Remote Control</h2>
-                        <p>Interact with your phone directly using simulated hardware keyevents</p>
-                    </div>
-                    
-                    <div class="remote-layout">
-                        <!-- Keypad Remote Control -->
-                        <div class="remote-control-pad card">
-                            <h3>Quick Actions</h3>
-                            
-                            <div class="control-section-header">Navigation & System</div>
-                            <div class="pad-grid">
-                                <button class="pad-btn" id="ctrl-power" title="Lock/Unlock device screen">
-                                    <span class="icon">🔌</span> Power
-                                </button>
-                                <button class="pad-btn" id="ctrl-home" title="Go to home screen">
-                                    <span class="icon">🏠</span> Home
-                                </button>
-                                <button class="pad-btn" id="ctrl-back" title="Go back">
-                                    <span class="icon">🔙</span> Back
-                                </button>
-                                <button class="pad-btn" id="ctrl-recents" title="View recent applications">
-                                    <span class="icon">🔀</span> Recents
-                                </button>
-                                <button class="pad-btn" id="ctrl-settings" title="Open Android System Settings">
-                                    <span class="icon">⚙️</span> Settings
-                                </button>
-                            </div>
-                            
-                            <div class="control-section-header">Audio & Media</div>
-                            <div class="pad-grid">
-                                <button class="pad-btn" id="ctrl-vol-up" title="Increase volume">
-                                    <span class="icon">🔊</span> Vol +
-                                </button>
-                                <button class="pad-btn" id="ctrl-vol-down" title="Decrease volume">
-                                    <span class="icon">🔉</span> Vol -
-                                </button>
-                                <button class="pad-btn" id="ctrl-mute" title="Mute/unmute media volume">
-                                    <span class="icon">🔇</span> Mute
-                                </button>
-                                <button class="pad-btn" id="ctrl-media-play" title="Play/pause media stream">
-                                    <span class="icon">⏯️</span> Play/Pause
-                                </button>
-                                <button class="pad-btn" id="ctrl-media-prev" title="Previous media track">
-                                    <span class="icon">⏮️</span> Prev
-                                </button>
-                                <button class="pad-btn" id="ctrl-media-next" title="Next media track">
-                                    <span class="icon">⏭️</span> Next
-                                </button>
-                            </div>
 
-                            <div class="control-section-header">Keyboard Helpers</div>
-                            <div class="pad-grid">
-                                <button class="pad-btn" id="ctrl-backspace" title="Simulate Backspace keystroke">
-                                    <span class="icon">⌫</span> Backspace
-                                </button>
-                                <button class="pad-btn" id="ctrl-enter" title="Simulate Enter keystroke">
-                                    <span class="icon">⏎</span> Enter
-                                </button>
-                                <button class="pad-btn" id="ctrl-tab" title="Simulate Tab focus change">
-                                    <span class="icon">⇥</span> Tab
-                                </button>
-                            </div>
-                            
-                            <div class="touch-id-box">
-                                <button class="btn btn-touchid" id="ctrl-touch-id" title="Initiate Touch ID Biometric Bridge">
-                                    <span class="touch-icon">🔑</span> Authenticate & Unlock via macOS Touch ID
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <!-- Type Text Card -->
-                        <div class="type-text-card card">
-                            <h3>⌨️ Typing Input & Shortcuts</h3>
-                            <p>Type text on your Mac and send it directly to your phone screen.</p>
-                            
-                            <div class="alert-info-box">
-                                <div class="alert-icon">💡</div>
-                                <div class="alert-content">
-                                    <p><strong>Option A: Direct Keyboard Typing (Recommended)</strong></p>
-                                    <p>When screen mirroring is active, just click inside the mirroring window and type directly using your Mac keyboard. It works instantly without using this box!</p>
-                                </div>
-                            </div>
-
-                            <div class="alert-warning-box">
-                                <div class="alert-icon">⚠️</div>
-                                <div class="alert-content">
-                                    <p><strong>Option B: Remote Typing Simulation</strong></p>
-                                    <p>To use the text box below, you <strong>MUST first tap/click on an active text input field</strong> on the phone screen. If no input field is focused, Android's Launcher will automatically redirect the keystrokes to open Google Search.</p>
-                                </div>
-                            </div>
-                            
-                            <div class="form-group text-input-group">
-                                <textarea id="type-text-input" placeholder="Type text here to send..."></textarea>
-                            </div>
-                            <div class="text-input-actions">
-                                <button class="btn btn-primary" id="btn-type-send">Send Text</button>
-                            </div>
-                        </div>
-                    </div>
-                </section>
                 
                 <!-- Tab: File Synchronization -->
                 <section class="tab-pane" id="pane-files">

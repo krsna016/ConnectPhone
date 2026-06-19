@@ -785,19 +785,18 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         timeout=3.0
                     )
                     
-                    target_port = None
+                    connected = False
                     if mdns_port:
-                        target_port = mdns_port
-                        ip_port = f"{ip}:{target_port}"
+                        ip_port = f"{ip}:{mdns_port}"
                         subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
                         stdout = res.stdout or ""
                         if "connected to" in stdout.lower() or "already connected to" in stdout.lower():
                             res_data["success"] = True
                             res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
-                        else:
-                            res_data["message"] = f"Port {target_port} found open via mDNS, but connection failed: {stdout.strip()}"
-                    else:
+                            connected = True
+                            
+                    if not connected:
                         # 2. Fallback to scanning and connecting on the verified open port
                         target_port = scan_and_connect_wireless_debug(ip)
                         if target_port:
@@ -811,8 +810,14 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             if ping_res.returncode == 0:
                                 res_data["message"] = (
                                     f"Auto-connect failed. No active wireless debugging ports found open on {ip}.\n\n"
-                                    "💡 DIAGNOSIS: Your phone is online and responding, but the Wireless Debugging service "
-                                    "appears to be turned OFF on the device. Please open Developer Options on your phone and verify it is toggled ON."
+                                    "💡 DIAGNOSIS:\n"
+                                    "Your phone is online and responding, but the connection was refused. This usually means:\n"
+                                    "• The Wireless Debugging service is toggled OFF on your phone.\n"
+                                    "• The device has not been paired with this computer yet.\n\n"
+                                    "🔧 HOW TO FIX:\n"
+                                    "1. Verify that 'Wireless Debugging' is toggled ON under Developer Options.\n"
+                                    "2. If it is already ON, try toggling it OFF and back ON to refresh the service port.\n"
+                                    "3. If this is a new phone, click 'Generate Pairing QR Code' below and scan it on your phone to pair it."
                                 )
                             else:
                                 res_data["message"] = (

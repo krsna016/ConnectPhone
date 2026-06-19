@@ -1126,9 +1126,36 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["success"] = success
                     res_data["message"] = msg
                     
-
-
-                    
+            elif self.path == '/api/device/beep':
+                # Max out ring/notification volume first (send Volume Up multiple times)
+                for _ in range(7):
+                    subprocess.run(["adb", "shell", "input", "keyevent", "24"])
+                
+                # Headless system beep play
+                played = False
+                for folder in ["/system/media/audio/notifications", "/system/media/audio/ui", "/system/media/audio/alarms", "/system/media/audio/ringtones"]:
+                    res = subprocess.run(["adb", "shell", "ls", folder], capture_output=True, text=True)
+                    files = (res.stdout or "").strip().split("\n")
+                    ogg_files = [f.strip() for f in files if f.strip().endswith(".ogg")]
+                    if ogg_files:
+                        sound_path = f"{folder}/{ogg_files[0]}"
+                        # Play headlessly via stagefright utility
+                        subprocess.run(["adb", "shell", "stagefright", "-a", "-o", sound_path], capture_output=True)
+                        played = True
+                        break
+                
+                # Fallback to posting a system notification to trigger default chime
+                subprocess.run([
+                    "adb", "shell", "cmd", "notification", "post", 
+                    "-t", "ConnectPhone", 
+                    "-c", "alert", 
+                    "9999", 
+                    "Emergency Beep Alert Triggered from Mac"
+                ], capture_output=True)
+                
+                res_data["success"] = True
+                res_data["message"] = "Triggered sound alert beep on device."
+                
             elif self.path == '/api/settings/save':
                 config = ConnectPhone.load_config()
                 for key in ["camera_bitrate", "camera_fps", "camera_codec", "audio_sync_delay", "android_pin", "applock_pin", "audio_preset", "mirror_enabled", "screen_off_enabled", "stay_awake_enabled", "show_touches_enabled", "keyboard_mode", "biometric_daemon_enabled", "mac_mic_device", "audio_buffer", "device_profile"]:

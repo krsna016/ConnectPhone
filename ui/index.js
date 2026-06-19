@@ -692,6 +692,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Beep Test
+    const btnBeep = document.getElementById('btn-phone-beep');
+    if (btnBeep) {
+        btnBeep.addEventListener('click', () => {
+            showToast('Triggering device sound beep...', 'info');
+            postAction('/api/device/beep');
+        });
+    }
+
     async function loadMacAudioDevices() {
         try {
             const res = await fetch(`${API_BASE}/api/settings/audio_devices`);

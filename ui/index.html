@@ -41,6 +41,9 @@
                 <button class="nav-btn" data-tab="metrics">
                     <span class="btn-icon">📈</span> Live Metrics
                 </button>
+                <button class="nav-btn" data-tab="calls">
+                    <span class="btn-icon">📞</span> Phone Calls
+                </button>
                 <button class="nav-btn" data-tab="settings">
                     <span class="btn-icon">⚙️</span> Preferences
                 </button>
@@ -381,6 +384,73 @@
                     </div>
                 </section>
                 
+
+                <!-- Tab: Phone Calls Hub -->
+                <section class="tab-pane" id="pane-calls">
+                    <div class="pane-header">
+                        <h2>📞 Phone Calls Hub</h2>
+                        <p>Initiate outgoing calls, answer incoming calls, and manage audio routes using your connected phone</p>
+                    </div>
+
+                    <div class="calls-layout">
+                        <!-- Dialer Card -->
+                        <div class="card calls-card dialer-card">
+                            <h3>🔢 Make a Call</h3>
+                            <p>Enter a phone number to dial. We will open the dialer on your phone.</p>
+                            
+                            <div class="dialer-input-container">
+                                <input type="tel" id="dial-number" placeholder="Enter phone number..." autocomplete="off">
+                            </div>
+                            
+                            <div class="dialer-grid">
+                                <button class="dial-btn" data-val="1">1</button>
+                                <button class="dial-btn" data-val="2">2</button>
+                                <button class="dial-btn" data-val="3">3</button>
+                                <button class="dial-btn" data-val="4">4</button>
+                                <button class="dial-btn" data-val="5">5</button>
+                                <button class="dial-btn" data-val="6">6</button>
+                                <button class="dial-btn" data-val="7">7</button>
+                                <button class="dial-btn" data-val="8">8</button>
+                                <button class="dial-btn" data-val="9">9</button>
+                                <button class="dial-btn" data-val="*">*</button>
+                                <button class="dial-btn" data-val="0">0</button>
+                                <button class="dial-btn" data-val="#">#</button>
+                            </div>
+                            
+                            <div class="dialer-actions">
+                                <button class="btn btn-danger" id="btn-dial-clear">Clear</button>
+                                <button class="btn btn-success" id="btn-dial-call">📞 Call</button>
+                            </div>
+                        </div>
+
+                        <!-- Active Call / Telecom Controls Card -->
+                        <div class="card calls-card control-card">
+                            <h3>⚡ Call Controller</h3>
+                            <p>Control incoming or ongoing phone calls directly from your Mac.</p>
+                            
+                            <div class="call-status-box">
+                                <div class="call-status-indicator">
+                                    <span class="status-dot-large idle" id="call-status-dot"></span>
+                                </div>
+                                <div class="call-status-details">
+                                    <h4 id="call-status-text">Line Idle</h4>
+                                    <p id="call-status-sub">No active call detected</p>
+                                </div>
+                            </div>
+                            
+                            <div class="call-control-actions">
+                                <button class="btn btn-success btn-large" id="btn-call-answer">🟢 Answer Call</button>
+                                <button class="btn btn-danger btn-large" id="btn-call-hangup">🔴 Hang Up / Reject</button>
+                            </div>
+                            
+                            <div class="call-audio-info">
+                                <h4>💡 Audio Routing Tip</h4>
+                                <p>To talk using your earbuds, make sure your Bluetooth earbuds are connected directly to your <strong>Android Phone</strong>. The phone call audio will automatically route through them.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
 
                 <!-- Tab: Preferences and Connection Settings -->
                 <section class="tab-pane" id="pane-settings">

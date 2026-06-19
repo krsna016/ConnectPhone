@@ -611,6 +611,69 @@ def discover_all_mdns_services(timeout=2.0):
             
     return discovered
 
+def get_call_state_info():
+    try:
+        res = subprocess.run(["adb", "shell", "dumpsys", "telephony.registry"], capture_output=True, text=True)
+        if res.returncode == 0:
+            call_states = []
+            for line in res.stdout.splitlines():
+                if "mCallState=" in line:
+                    try:
+                        call_states.append(int(line.split("=")[1].strip()))
+                    except Exception:
+                        pass
+            if call_states:
+                max_state = max(call_states)
+                if max_state == 1:
+                    return {"state": "ringing", "message": "Incoming Call...", "sub": "Someone is calling your phone"}
+                elif max_state == 2:
+                    return {"state": "active", "message": "Active Call", "sub": "Ongoing phone conversation"}
+    except Exception as e:
+        print(f"Error reading telephony registry: {e}")
+    return {"state": "idle", "message": "Line Idle", "sub": "No active call detected"}
+
+def make_device_call(number):
+    try:
+        escaped_number = number.replace("#", "%23")
+        subprocess.run([
+            "adb", "shell", "am", "start", 
+            "-a", "android.intent.action.DIAL", 
+            "-d", f"tel:{escaped_number}"
+        ], capture_output=True, text=True)
+        
+        time.sleep(0.8)
+        
+        res_key = subprocess.run(["adb", "shell", "input", "keyevent", "5"], capture_output=True, text=True)
+        key_err = (res_key.stdout or "") + " " + (res_key.stderr or "")
+        
+        if "SecurityException" in key_err:
+            return True, f"Dialer opened on phone with {number}. Enable 'USB debugging (Security settings)' in developer options to dial automatically."
+        else:
+            return True, f"Placed call to {number}."
+    except Exception as e:
+        return False, f"Exception: {e}"
+
+def answer_device_call():
+    try:
+        res = subprocess.run(["adb", "shell", "input", "keyevent", "5"], capture_output=True, text=True)
+        err = (res.stdout or "") + " " + (res.stderr or "")
+        if "SecurityException" in err:
+            return False, "Enable 'USB debugging (Security settings)' in Developer options to answer calls from Mac."
+        return True, "Call answered successfully."
+    except Exception as e:
+        return False, f"Exception: {e}"
+
+def hangup_device_call():
+    try:
+        res = subprocess.run(["adb", "shell", "input", "keyevent", "6"], capture_output=True, text=True)
+        err = (res.stdout or "") + " " + (res.stderr or "")
+        if "SecurityException" in err:
+            return False, "Enable 'USB debugging (Security settings)' in Developer options to end calls from Mac."
+        return True, "Call ended/rejected successfully."
+    except Exception as e:
+        return False, f"Exception: {e}"
+
+
 
 
 class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
@@ -713,6 +776,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/api/mdns/discover':
             discovered = discover_all_mdns_services()
             self.wfile.write(json.dumps({"success": True, "services": discovered}).encode('utf-8'))
+        elif self.path == '/api/device/call_state':
+            state_info = get_call_state_info()
+            self.wfile.write(json.dumps({"success": True, **state_info}).encode('utf-8'))
         else:
             self.wfile.write(json.dumps({"error": "Unknown GET endpoint"}).encode('utf-8'))
 
@@ -1128,7 +1194,22 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["success"] = success
                     res_data["message"] = msg
                     
-
+            elif self.path == '/api/device/call':
+                number = str(data.get("number", "")).strip()
+                if not number:
+                    res_data["message"] = "Phone number is required."
+                else:
+                    success, msg = make_device_call(number)
+                    res_data["success"] = success
+                    res_data["message"] = msg
+            elif self.path == '/api/device/call/answer':
+                success, msg = answer_device_call()
+                res_data["success"] = success
+                res_data["message"] = msg
+            elif self.path == '/api/device/call/hangup':
+                success, msg = hangup_device_call()
+                res_data["success"] = success
+                res_data["message"] = msg
                 
             elif self.path == '/api/settings/save':
                 config = ConnectPhone.load_config()

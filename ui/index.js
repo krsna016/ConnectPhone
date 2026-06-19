@@ -57,6 +57,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             stopMetricsPolling();
         }
+
+        // Toggle Phone Call Status polling
+        if (tabName === 'calls') {
+            startCallStatusPolling();
+        } else {
+            stopCallStatusPolling();
+        }
     }
 
     // Refresh devices list manually
@@ -712,6 +719,110 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error("Error loading Mac audio devices:", err);
         }
+    }
+
+    // Phone Call Manager functionality
+    let callStateInterval = null;
+
+    function startCallStatusPolling() {
+        if (callStateInterval) clearInterval(callStateInterval);
+        pollCallStatus();
+        callStateInterval = setInterval(pollCallStatus, 1500);
+    }
+
+    function stopCallStatusPolling() {
+        if (callStateInterval) {
+            clearInterval(callStateInterval);
+            callStateInterval = null;
+        }
+    }
+
+    async function pollCallStatus() {
+        try {
+            const res = await fetch(`${API_BASE}/api/device/call_state`);
+            if (!res.ok) throw new Error("Failed to fetch call state");
+            const data = await res.json();
+            
+            const dot = document.getElementById('call-status-dot');
+            const txt = document.getElementById('call-status-text');
+            const sub = document.getElementById('call-status-sub');
+            
+            if (dot && txt && sub) {
+                dot.className = 'status-dot-large';
+                
+                if (data.state === 'ringing') {
+                    dot.classList.add('ringing');
+                    txt.textContent = data.message || 'Incoming Call...';
+                    sub.textContent = data.sub || 'Someone is calling your phone';
+                } else if (data.state === 'active') {
+                    dot.classList.add('active-call');
+                    txt.textContent = data.message || 'Active Call';
+                    sub.textContent = data.sub || 'Ongoing phone conversation';
+                } else {
+                    dot.classList.add('idle');
+                    txt.textContent = data.message || 'Line Idle';
+                    sub.textContent = data.sub || 'No active call detected';
+                }
+            }
+        } catch (err) {
+            console.error("Error polling call status:", err);
+        }
+    }
+
+    // Set up dialer key listeners
+    const dialNumberInput = document.getElementById('dial-number');
+    const dialBtns = document.querySelectorAll('.dial-btn');
+    const btnDialClear = document.getElementById('btn-dial-clear');
+    const btnDialCall = document.getElementById('btn-dial-call');
+
+    if (dialBtns) {
+        dialBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (dialNumberInput) {
+                    dialNumberInput.value += btn.getAttribute('data-val');
+                }
+            });
+        });
+    }
+
+    if (btnDialClear) {
+        btnDialClear.addEventListener('click', () => {
+            if (dialNumberInput) {
+                dialNumberInput.value = '';
+            }
+        });
+    }
+
+    if (btnDialCall) {
+        btnDialCall.addEventListener('click', () => {
+            if (dialNumberInput) {
+                const number = dialNumberInput.value.trim();
+                if (!number) {
+                    showToast("Please enter a phone number to call", "error");
+                    return;
+                }
+                showToast(`Dialing ${number}...`, 'info');
+                postAction('/api/device/call', { number: number });
+            }
+        });
+    }
+
+    // Call Action Listeners
+    const btnCallAnswer = document.getElementById('btn-call-answer');
+    const btnCallHangup = document.getElementById('btn-call-hangup');
+
+    if (btnCallAnswer) {
+        btnCallAnswer.addEventListener('click', () => {
+            showToast("Answering incoming call...", "info");
+            postAction('/api/device/call/answer');
+        });
+    }
+
+    if (btnCallHangup) {
+        btnCallHangup.addEventListener('click', () => {
+            showToast("Ending call / rejecting...", "info");
+            postAction('/api/device/call/hangup');
+        });
     }
 
     // Run Initial Status queries

@@ -1122,7 +1122,25 @@ def push_file_to_phone():
         print(f"{RED}❌ Push failed: {res.stderr}{RESET}")
     input("\nPress Enter to return...")
 
-def pull_latest_photos():
+def pull_latest_photos(interactive=True):
+    if not interactive:
+        try:
+            cmd = ["adb", "shell", "ls", "-t", "/sdcard/DCIM/Camera/"]
+            output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8").strip()
+            files = [f.strip() for f in output.split("\n") if f.strip()]
+            if not files:
+                return False, "No photos found in Camera folder."
+            filename = files[0]
+            phone_path = f"/sdcard/DCIM/Camera/{filename}"
+            mac_path = os.path.expanduser(f"~/Downloads/{filename}")
+            res = subprocess.run(["adb", "pull", phone_path, mac_path], capture_output=True, text=True)
+            if res.returncode == 0:
+                return True, f"Successfully pulled latest photo to Mac Downloads: {filename}"
+            else:
+                return False, f"ADB pull failed: {res.stderr}"
+        except Exception as e:
+            return False, f"Error pulling latest photo: {str(e)}"
+
     print_header("Pull Camera Photos to Mac")
     try:
         cmd = ["adb", "shell", "ls", "-t", "/sdcard/DCIM/Camera/"]
@@ -1158,15 +1176,16 @@ def pull_latest_photos():
         print(f"{RED}Error listing/pulling photos: {e}{RESET}")
     input("\nPress Enter to continue...")
 
-def watch_send_to_mac_folder():
-    print_header("Auto-File Sync Monitor")
-    print(f"{GREEN}{BOLD}🔄 Sync Monitor started!{RESET}")
-    print("\nHow to transfer files from Phone to Mac:")
-    print(f"1. On your phone's File Manager, copy/move files into the folder: {CYAN}{BOLD}SendToMac{RESET}")
-    print(f"   (This folder is in your internal storage: /sdcard/SendToMac/)")
-    print(f"2. They will automatically be pulled to your Mac's {GREEN}{BOLD}Desktop{RESET} in real-time.\n")
-    print(f"{YELLOW}💡 Keep this terminal window open in the background to receive files.{RESET}")
-    print("Press Ctrl+C to stop the monitor and return to the menu.\n")
+def watch_send_to_mac_folder(interactive=True):
+    if interactive:
+        print_header("Auto-File Sync Monitor")
+        print(f"{GREEN}{BOLD}🔄 Sync Monitor started!{RESET}")
+        print("\nHow to transfer files from Phone to Mac:")
+        print(f"1. On your phone's File Manager, copy/move files into the folder: {CYAN}{BOLD}SendToMac{RESET}")
+        print(f"   (This folder is in your internal storage: /sdcard/SendToMac/)")
+        print(f"2. They will automatically be pulled to your Mac's {GREEN}{BOLD}Desktop{RESET} in real-time.\n")
+        print(f"{YELLOW}💡 Keep this terminal window open in the background to receive files.{RESET}")
+        print("Press Ctrl+C to stop the monitor and return to the menu.\n")
     
     # Create folder on phone if it doesn't exist
     subprocess.run(["adb", "shell", "mkdir", "-p", "/sdcard/SendToMac"], stderr=subprocess.DEVNULL)
@@ -1175,6 +1194,15 @@ def watch_send_to_mac_folder():
     
     try:
         while True:
+            if not interactive:
+                # Stop if sync_watcher_active is set to False in ConnectPhoneUI
+                try:
+                    import ConnectPhoneUI
+                    if not ConnectPhoneUI.sync_watcher_active:
+                        break
+                except Exception:
+                    pass
+
             # Check for files on phone
             cmd = ["adb", "shell", "ls", "/sdcard/SendToMac"]
             res = subprocess.run(cmd, capture_output=True, text=True)
@@ -1186,20 +1214,23 @@ def watch_send_to_mac_folder():
                     phone_path = f"/sdcard/SendToMac/{filename}"
                     mac_path = os.path.join(mac_desktop, filename)
                     
-                    # Prevent pulling empty or partial files (check size stable)
-                    print(f"📥 Found file: {filename}. Pulling to Mac Desktop...")
+                    if interactive:
+                        print(f"📥 Found file: {filename}. Pulling to Mac Desktop...")
                     pull_res = subprocess.run(["adb", "pull", phone_path, mac_path], capture_output=True, text=True)
                     if pull_res.returncode == 0:
                         # Clean up phone directory
-                        # Wrap in single quotes to handle spaces/special characters
                         subprocess.run(["adb", "shell", "rm", f"'/sdcard/SendToMac/{filename}'"], stderr=subprocess.DEVNULL)
-                        print(f"{GREEN}✅ Transferred successfully to: {mac_path}{RESET}")
+                        if interactive:
+                            print(f"{GREEN}✅ Transferred successfully to: {mac_path}{RESET}")
                     else:
-                        print(f"{RED}❌ Transfer failed: {pull_res.stderr}{RESET}")
+                        if interactive:
+                            print(f"{RED}❌ Transfer failed: {pull_res.stderr}{RESET}")
             time.sleep(1.5)
     except KeyboardInterrupt:
-        print(f"\n{YELLOW}🛑 Monitor stopped.{RESET}")
-    input("\nPress Enter to return...")
+        if interactive:
+            print(f"\n{YELLOW}🛑 Monitor stopped.{RESET}")
+    if interactive:
+        input("\nPress Enter to return...")
 
 def install_apk():
     print_header("Install APK on Phone")

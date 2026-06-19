@@ -727,11 +727,19 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     ip_port = f"{ip}:{port}"
                     res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
                     stdout = res.stdout or ""
-                    if "connected to" in stdout.lower() or "already connected to" in stdout.lower():
+                    stderr = res.stderr or ""
+                    output = (stdout + " " + stderr).strip()
+                    if "connected to" in output.lower() or "already connected to" in output.lower():
                         res_data["success"] = True
                         res_data["message"] = f"Successfully connected to {ip_port}!"
                     else:
-                        res_data["message"] = f"Connection failed: {stdout.strip()}"
+                        res_data["message"] = (
+                            f"Connection failed: {output}\n\n"
+                            "💡 WHY DID THIS FAIL?\n"
+                            "Your phone was found on the network, but it actively rejected/refused the connection. This is because:\n"
+                            "• Your Mac has NOT been paired/authorized with your phone yet. You must complete the 'Wireless Debugging Pairing' step below once first using the 6-digit code.\n"
+                            "• Or, your phone screen turned off and went to sleep, closing the active connection. Wake your phone and toggle Wireless Debugging OFF and ON."
+                        )
                         
             elif self.path == '/api/connect/auto':
                 config = ConnectPhone.load_config()
@@ -1154,20 +1162,16 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         res_data["message"] = f"ADB transfer failed: {res.stderr}"
                         
             elif self.path == '/api/files/pull_photo':
-                def pull_task():
-                    ConnectPhone.pull_latest_photos()
-                t = threading.Thread(target=pull_task)
-                t.daemon = True
-                t.start()
-                res_data["success"] = True
-                res_data["message"] = "Requested latest photo pull (saves to Downloads)."
+                success, msg = ConnectPhone.pull_latest_photos(interactive=False)
+                res_data["success"] = success
+                res_data["message"] = msg
                 
             elif self.path == '/api/files/sync_watcher/toggle':
                 if not sync_watcher_active:
                     sync_watcher_active = True
                     def sync_watcher():
                         global sync_watcher_active
-                        ConnectPhone.watch_send_to_mac_folder()
+                        ConnectPhone.watch_send_to_mac_folder(interactive=False)
                         sync_watcher_active = False
                     sync_watcher_thread = threading.Thread(target=sync_watcher)
                     sync_watcher_thread.daemon = True

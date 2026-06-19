@@ -428,7 +428,22 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         else:
                             res_data["message"] = f"Port {target_port} found open, but connection failed: {stdout.strip()}"
                     else:
-                        res_data["message"] = f"Auto-connect failed. No active wireless debugging ports found open on {ip}."
+                        # Ping device to diagnose why scan failed
+                        import platform
+                        ping_param = "-n" if platform.system().lower() == "windows" else "-c"
+                        ping_res = subprocess.run(["ping", ping_param, "1", "-t", "1", ip], capture_output=True)
+                        if ping_res.returncode == 0:
+                            res_data["message"] = (
+                                f"Auto-connect failed. No active wireless debugging ports found open on {ip}.\n\n"
+                                "💡 DIAGNOSIS: Your phone is online and responding, but the Wireless Debugging service "
+                                "appears to be turned OFF on the device. Please open Developer Options on your phone and verify it is toggled ON."
+                            )
+                        else:
+                            res_data["message"] = (
+                                f"Auto-connect failed. Could not reach your phone at {ip}.\n\n"
+                                "💡 DIAGNOSIS: The device is offline/unreachable. Your phone's IP address might have changed, "
+                                "or Wi-Fi is disconnected. Please check the current IP Address listed under Wireless Debugging on your phone."
+                            )
                         
             elif self.path == '/api/disconnect':
                 res = subprocess.run(["adb", "disconnect"], capture_output=True, text=True)

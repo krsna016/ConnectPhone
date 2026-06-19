@@ -59,13 +59,7 @@ scrcpy_state = {
 sync_watcher_thread = None
 sync_watcher_active = False
 
-# QR Code Pairing state tracker
-qr_pairing_state = {
-    "status": "idle", # idle, waiting, pairing, connected, error
-    "message": "",
-    "service_name": "",
-    "password": ""
-}
+
 
 def scan_and_connect_wireless_debug(ip, timeout=0.15):
     import socket
@@ -325,87 +319,7 @@ def discover_adb_service_hybrid(service_type, target_substring=None, target_ip=N
             
     return result["ip"], result["port"]
 
-def run_qr_pairing_flow(service_name, password):
-    global qr_pairing_state
-    try:
-        # Extract the highly unique random suffix (last part after the dash) to support custom vendor GUID-prefixed formats
-        suffix = service_name.split("-")[-1]
-        
-        # 1. Discover the phone's pairing service
-        ip, port = discover_adb_service_hybrid(
-            "_adb-tls-pairing._tcp.local.",
-            target_substring=suffix,
-            timeout=180.0,
-            is_cancelled_fn=lambda: qr_pairing_state["status"] != "waiting"
-        )
-        
-        if qr_pairing_state["status"] != "waiting":
-            return # Cancelled or reset
-            
-        if not ip or not port:
-            qr_pairing_state["status"] = "error"
-            qr_pairing_state["message"] = "Scanning timeout. Please try generating a new QR code."
-            return
-            
-        # 2. Phone discovered, initiate pairing
-        qr_pairing_state["status"] = "pairing"
-        qr_pairing_state["message"] = f"Phone discovered at {ip}. Pairing..."
-        
-        ip_port = f"{ip}:{port}"
-        res_pair = subprocess.run(["adb", "pair", ip_port, password], capture_output=True, text=True, timeout=15)
-        stdout = res_pair.stdout or ""
-        stderr = res_pair.stderr or ""
-        
-        if "successfully paired to" not in stdout.lower() and "successfully paired to" not in stderr.lower():
-            qr_pairing_state["status"] = "error"
-            qr_pairing_state["message"] = f"Pairing failed: {stdout.strip()} {stderr.strip()}"
-            return
-            
-        # 3. Pairing succeeded
-        ConnectPhone.save_last_ip(ip)
-        qr_pairing_state["message"] = "Successfully paired! Discovering connection port..."
-        
-        # 4. Discover connecting service on the phone
-        conn_ip, conn_port = discover_adb_service_hybrid(
-            "_adb-tls-connect._tcp.local.",
-            target_ip=ip,
-            timeout=15.0,
-            is_cancelled_fn=lambda: qr_pairing_state["status"] not in ("pairing", "waiting")
-        )
-        
-        if qr_pairing_state["status"] not in ("pairing", "waiting"):
-            return # Cancelled
-            
-        if not conn_port:
-            qr_pairing_state["message"] = "mDNS port timeout. Scanning ports..."
-            target_port = scan_and_connect_wireless_debug(ip)
-            if target_port:
-                qr_pairing_state["status"] = "connected"
-                qr_pairing_state["message"] = f"Successfully auto-connected to phone at {ip}:{target_port}!"
-            else:
-                qr_pairing_state["status"] = "error"
-                qr_pairing_state["message"] = "Paired successfully, but could not discover active connection port."
-        else:
-            target_port = conn_port
-            if target_port:
-                conn_ip_port = f"{ip}:{target_port}"
-                # Disconnect any old bindings first
-                subprocess.run(["adb", "disconnect", conn_ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                res_conn = subprocess.run(["adb", "connect", conn_ip_port], capture_output=True, text=True)
-                conn_out = res_conn.stdout or ""
-                if "connected to" in conn_out.lower() or "already connected to" in conn_out.lower():
-                    qr_pairing_state["status"] = "connected"
-                    qr_pairing_state["message"] = f"Successfully auto-connected to phone at {conn_ip_port}!"
-                else:
-                    qr_pairing_state["status"] = "error"
-                    qr_pairing_state["message"] = f"Paired successfully, but connection failed on port {target_port}: {conn_out.strip()}"
-            else:
-                qr_pairing_state["status"] = "error"
-                qr_pairing_state["message"] = "Paired successfully, but could not discover active connection port."
-            
-    except Exception as e:
-        qr_pairing_state["status"] = "error"
-        qr_pairing_state["message"] = f"Exception: {e}"
+
 
 def stop_scrcpy_bg():
     global scrcpy_proc, scrcpy_state
@@ -693,11 +607,6 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/api/settings/audio_devices':
             devices = ConnectPhone.get_macos_audio_devices()
             self.wfile.write(json.dumps({"success": True, "devices": devices}).encode('utf-8'))
-        elif self.path == '/api/pair/qr/status':
-            self.wfile.write(json.dumps({
-                "status": qr_pairing_state["status"],
-                "message": qr_pairing_state["message"]
-            }).encode('utf-8'))
         else:
             self.wfile.write(json.dumps({"error": "Unknown GET endpoint"}).encode('utf-8'))
 
@@ -723,43 +632,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         res_data = {"success": False, "message": ""}
         
         try:
-            if self.path == '/api/pair/qr/start':
-                import qrcode
-                import io
-                import base64
-                import secrets
-                
-                # Generate lowercase service name to avoid mDNS case-sensitivity mismatch bugs
-                # Generate numeric password to match default Android pairing protocol conventions
-                service_name = "studio-" + "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
-                password = "".join(secrets.choice("0123456789") for _ in range(6))
-                payload = f"WIFI:T:ADB;S:{service_name};P:{password};;"
-                
-                img = qrcode.make(payload)
-                buffered = io.BytesIO()
-                img.save(buffered, format="PNG")
-                qr_base64 = "data:image/png;base64," + base64.b64encode(buffered.getvalue()).decode('utf-8')
-                
-                qr_pairing_state["status"] = "waiting"
-                qr_pairing_state["message"] = "Ready to scan. Waiting for phone..."
-                qr_pairing_state["service_name"] = service_name
-                qr_pairing_state["password"] = password
-                
-                t = threading.Thread(target=run_qr_pairing_flow, args=(service_name, password))
-                t.daemon = True
-                t.start()
-                
-                res_data["success"] = True
-                res_data["image"] = qr_base64
-                res_data["message"] = "QR Code generated successfully. Scan it on your phone."
-                
-            elif self.path == '/api/pair/qr/cancel':
-                qr_pairing_state["status"] = "idle"
-                qr_pairing_state["message"] = "Pairing cancelled."
-                res_data["success"] = True
-                res_data["message"] = "Pairing process cancelled."
-
-            elif self.path == '/api/connect':
+            if self.path == '/api/connect':
                 ip = data.get("ip", "").strip()
                 port = data.get("port", "5555").strip()
                 if not ip:
@@ -821,7 +694,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                                     "🔧 HOW TO FIX:\n"
                                     "1. Verify that 'Wireless Debugging' is toggled ON under Developer Options.\n"
                                     "2. If it is already ON, try toggling it OFF and back ON to refresh the service port.\n"
-                                    "3. If this is a new phone, click 'Generate Pairing QR Code' below and scan it on your phone to pair it."
+                                    "3. If this is a new phone, please pair it using the Wireless Debugging Pairing section (enter port and code) to establish trust."
                                 )
                             else:
                                 res_data["message"] = (

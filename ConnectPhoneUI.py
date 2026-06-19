@@ -611,6 +611,31 @@ def discover_all_mdns_services(timeout=2.0):
             
     return discovered
 
+def generate_eas_sound(filepath):
+    import wave
+    import math
+    import struct
+    
+    duration_sec = 6.0
+    sample_rate = 22050
+    num_samples = int(duration_sec * sample_rate)
+    
+    try:
+        wav_file = wave.open(filepath, 'wb')
+        wav_file.setparams((1, 2, sample_rate, num_samples, 'NONE', 'not compressed'))
+        
+        # EAS Dual-Tone Attention Signal: 853 Hz and 960 Hz combined
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            val = 0.5 * (math.sin(2.0 * math.pi * 853.0 * t) + math.sin(2.0 * math.pi * 960.0 * t))
+            sample = int(val * 32767.0)
+            wav_file.writeframes(struct.pack('<h', sample))
+        wav_file.close()
+        return True
+    except Exception as e:
+        print(f"Error generating EAS sound: {e}")
+        return False
+
 class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
     # Suppress verbose log messages on terminal for clean output
     def log_message(self, format, *args):
@@ -1131,30 +1156,28 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 for _ in range(7):
                     subprocess.run(["adb", "shell", "input", "keyevent", "24"])
                 
-                # Headless system beep play
-                played = False
-                for folder in ["/system/media/audio/notifications", "/system/media/audio/ui", "/system/media/audio/alarms", "/system/media/audio/ringtones"]:
-                    res = subprocess.run(["adb", "shell", "ls", folder], capture_output=True, text=True)
-                    files = (res.stdout or "").strip().split("\n")
-                    ogg_files = [f.strip() for f in files if f.strip().endswith(".ogg")]
-                    if ogg_files:
-                        sound_path = f"{folder}/{ogg_files[0]}"
-                        # Play headlessly via stagefright utility
-                        subprocess.run(["adb", "shell", "stagefright", "-a", "-o", sound_path], capture_output=True)
-                        played = True
-                        break
+                # Generate government EAS alarm locally on Mac
+                local_eas_path = os.path.expanduser("~/.connectphone_eas.wav")
+                generate_eas_sound(local_eas_path)
                 
-                # Fallback to posting a system notification to trigger default chime
+                # Push the sound file to the phone
+                phone_eas_path = "/sdcard/Download/eas_alert.wav"
+                subprocess.run(["adb", "push", local_eas_path, phone_eas_path], capture_output=True)
+                
+                # Play headlessly via stagefright utility
+                subprocess.run(["adb", "shell", "stagefright", "-a", "-o", phone_eas_path], capture_output=True)
+                
+                # Post emergency alert system warning notification
                 subprocess.run([
                     "adb", "shell", "cmd", "notification", "post", 
-                    "-t", "ConnectPhone", 
-                    "-c", "alert", 
+                    "-t", "⚠️ EMERGENCY ALERT", 
+                    "-c", "emergency", 
                     "9999", 
-                    "Emergency Beep Alert Triggered from Mac"
+                    "Earthquake warning! Take cover immediately!"
                 ], capture_output=True)
                 
                 res_data["success"] = True
-                res_data["message"] = "Triggered sound alert beep on device."
+                res_data["message"] = "Government-style emergency EAS alert chime triggered!"
                 
             elif self.path == '/api/settings/save':
                 config = ConnectPhone.load_config()

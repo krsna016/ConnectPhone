@@ -799,6 +799,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     audio_args = ["--audio-source=mic", "--audio-codec=opus", "--audio-bit-rate=128000"]
                 
+                devices = ConnectPhone.check_adb_devices()
+                is_wireless = any(":" in d for d in devices) if devices else False
+
                 cmd = ["scrcpy"]
                 a_buf = config.get("audio_buffer", "100")
                 cmd.append(f"--audio-buffer={a_buf}")
@@ -817,6 +820,14 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         
                     k_mode = config.get("keyboard_mode", "uhid")
                     cmd.append(f"--keyboard={k_mode}")
+                    
+                    # Apply video quality settings to screen mirroring as well
+                    s_codec = config.get("camera_codec", "h265")
+                    s_bitrate = config.get("camera_bitrate", "32M")
+                    if is_wireless:
+                        s_bitrate = "16M"
+                        cmd.append("--video-buffer=100")
+                    cmd += [f"--video-bit-rate={s_bitrate}", f"--video-codec={s_codec}"]
                         
                 elif mirror_type == "camera":
                     is_cam = True
@@ -840,21 +851,20 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     if config.get("mirror_enabled", True):
                         cmd.append("--orientation=flip0")
                         
-                    # Apply camera quality preferences (Auto-optimize front camera and wireless feeds to prevent lag)
-                    devices = ConnectPhone.check_adb_devices()
-                    is_wireless = any(":" in d for d in devices) if devices else False
+                    # Apply camera quality preferences
+                    c_bitrate = config.get("camera_bitrate", "32M")
+                    c_fps = config.get("camera_fps", "60")
+                    c_codec = config.get("camera_codec", "h265")
                     
                     if facing == "front":
-                        c_bitrate = "12M"
                         c_fps = "30"
-                        c_codec = "h264"
-                    else:
-                        c_bitrate = config.get("camera_bitrate", "32M")
-                        c_fps = config.get("camera_fps", "60")
-                        c_codec = config.get("camera_codec", "h265")
-                        if is_wireless:
-                            c_bitrate = "12M"
-                            c_codec = "h264"
+                        if c_bitrate == "32M":
+                            c_bitrate = "16M"
+                            
+                    if is_wireless:
+                        c_bitrate = "16M"
+                        cmd.append("--video-buffer=100")
+                        
                     cmd += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}", "--video-codec-options=i-frame-interval=1"]
                     
                     if c_fps in ["120", "240"]:
@@ -883,6 +893,14 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         
                     k_mode = config.get("keyboard_mode", "uhid")
                     cmd.append(f"--keyboard={k_mode}")
+                    
+                    # Apply video quality settings to recording as well
+                    s_codec = config.get("camera_codec", "h265")
+                    s_bitrate = config.get("camera_bitrate", "32M")
+                    if is_wireless:
+                        s_bitrate = "16M"
+                        cmd.append("--video-buffer=100")
+                    cmd += [f"--video-bit-rate={s_bitrate}", f"--video-codec={s_codec}"]
                     
                     res_data["message"] = f"Entire session is being recorded to Desktop: {os.path.basename(record_path)}"
                     

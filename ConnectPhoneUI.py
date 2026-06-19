@@ -611,59 +611,7 @@ def discover_all_mdns_services(timeout=2.0):
             
     return discovered
 
-def download_eas_sound(filepath):
-    url = "https://upload.wikimedia.org/wikipedia/commons/1/1d/Emergency_Alert_System_Attention_Signal_20s.ogg"
-    try:
-        import urllib.request
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            with open(filepath, 'wb') as f:
-                f.write(response.read())
-        return True
-    except Exception as e:
-        print(f"Error downloading EAS sound: {e}")
-        return False
 
-def generate_eas_sound(filepath):
-    import wave
-    import math
-    import struct
-    
-    duration_sec = 6.0
-    sample_rate = 22050
-    num_samples = int(duration_sec * sample_rate)
-    
-    try:
-        wav_file = wave.open(filepath, 'wb')
-        wav_file.setparams((1, 2, sample_rate, num_samples, 'NONE', 'not compressed'))
-        
-        # EAS Dual-Tone Attention Signal: 853 Hz and 960 Hz combined
-        for i in range(num_samples):
-            t = float(i) / sample_rate
-            val = 0.5 * (math.sin(2.0 * math.pi * 853.0 * t) + math.sin(2.0 * math.pi * 960.0 * t))
-            sample = int(val * 32767.0)
-            wav_file.writeframes(struct.pack('<h', sample))
-        wav_file.close()
-        return True
-    except Exception as e:
-        print(f"Error generating EAS sound: {e}")
-        return False
-
-def ensure_eas_sound():
-    local_ogg = os.path.expanduser("~/.connectphone_eas.ogg")
-    local_wav = os.path.expanduser("~/.connectphone_eas.wav")
-    
-    if os.path.exists(local_ogg) and os.path.getsize(local_ogg) > 0:
-        return local_ogg, "audio/ogg", "eas_alert.ogg"
-        
-    print("Downloading authentic EAS alert sound...")
-    if download_eas_sound(local_ogg):
-        return local_ogg, "audio/ogg", "eas_alert.ogg"
-        
-    print("Download failed or offline. Generating fallback dual-tone EAS sound...")
-    if not os.path.exists(local_wav) or os.path.getsize(local_wav) == 0:
-        generate_eas_sound(local_wav)
-    return local_wav, "audio/wav", "eas_alert.wav"
 
 class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
     # Suppress verbose log messages on terminal for clean output
@@ -1180,51 +1128,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["success"] = success
                     res_data["message"] = msg
                     
-            elif self.path == '/api/device/beep':
-                # Max out ring/notification volume first (send Volume Up multiple times)
-                for _ in range(7):
-                    subprocess.run(["adb", "shell", "input", "keyevent", "24"])
-                
-                # Ensure we have the authentic EAS sound (downloaded or fallback generated)
-                local_eas_path, mime_type, phone_filename = ensure_eas_sound()
-                phone_eas_path = f"/sdcard/Download/{phone_filename}"
-                
-                # Push the sound file to the phone
-                subprocess.run(["adb", "push", local_eas_path, phone_eas_path], capture_output=True)
-                
-                # Run the alarm task in a separate thread so it does not block the UI response
-                def run_alarm_loop():
-                    # 1. Play headlessly via stagefright utility (if supported)
-                    subprocess.Popen(["adb", "shell", "stagefright", "-a", "-o", phone_eas_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    
-                    # 2. Trigger standard media player to play the EAS file
-                    subprocess.run([
-                        "adb", "shell", "am", "start", 
-                        "-a", "android.intent.action.VIEW", 
-                        "-d", f"file://{phone_eas_path}", 
-                        "-t", mime_type
-                    ], capture_output=True)
-                    
-                    # 3. Post emergency alert system notifications in a loop to create a continuous chime sequence
-                    for _ in range(5):
-                        subprocess.run([
-                            "adb", "shell", "cmd", "notification", "post", 
-                            "-t", "⚠️ EMERGENCY ALERT", 
-                            "-c", "emergency", 
-                            "9999", 
-                            "EARTHQUAKE WARNING: TAKE COVER IMMEDIATELY!"
-                        ], capture_output=True)
-                        time.sleep(1.2)
-                        
-                    # 4. Press home keyevent to dismiss media player UI and return to normal screen state
-                    subprocess.run(["adb", "shell", "input", "keyevent", "3"])
-                    
-                alarm_thread = threading.Thread(target=run_alarm_loop)
-                alarm_thread.daemon = True
-                alarm_thread.start()
-                
-                res_data["success"] = True
-                res_data["message"] = "Government-style emergency EAS alert chime triggered!"
+
                 
             elif self.path == '/api/settings/save':
                 config = ConnectPhone.load_config()

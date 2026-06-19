@@ -860,14 +860,14 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     if c_fps not in ["120", "240"]:
                         c_fps = "30"
                         
-                    if facing == "front":
-                        c_bitrate = "12M"
+                    if is_wireless:
+                        c_bitrate = "6M"
                         c_codec = "h264"
+                        cmd.append("--video-buffer=150")
                     else:
-                        if is_wireless:
+                        if facing == "front":
                             c_bitrate = "12M"
                             c_codec = "h264"
-                            cmd.append("--video-buffer=100")
                             
                     cmd.append("--stay-awake")
                     cmd += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]

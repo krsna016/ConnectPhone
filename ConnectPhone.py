@@ -779,18 +779,23 @@ def run_mirroring_flow(mode, config):
         devices = check_adb_devices()
         is_wireless = any(":" in d for d in devices) if devices else False
         
-        if facing == "front":
-            c_bitrate = "12M"
-            c_fps = "30"
+        if is_wireless:
+            c_bitrate = "6M"
             c_codec = "h264"
+            args.append("--video-buffer=150")
+            print(f"\n{YELLOW}📶 Wireless connection detected. Auto-tuning camera to 6M H.264 and 150ms buffer for lag-free performance...{RESET}")
         else:
-            c_bitrate = config.get("camera_bitrate", "32M")
-            c_fps = config.get("camera_fps", "60")
-            c_codec = config.get("camera_codec", "h265")
-            if is_wireless:
+            if facing == "front":
                 c_bitrate = "12M"
                 c_codec = "h264"
-                print(f"\n{YELLOW}📶 Wireless connection detected. Auto-tuning back camera to 12M H.264 for lag-free performance...{RESET}")
+            else:
+                c_bitrate = config.get("camera_bitrate", "32M")
+                c_codec = config.get("camera_codec", "h265")
+
+        if facing == "front" or is_wireless:
+            c_fps = "30"
+        else:
+            c_fps = config.get("camera_fps", "60")
                 
         args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
         args.append("--stay-awake")
@@ -830,18 +835,23 @@ def run_mirroring_flow(mode, config):
         devices = check_adb_devices()
         is_wireless = any(":" in d for d in devices) if devices else False
         
-        if facing == "front":
-            c_bitrate = "12M"
-            c_fps = "30"
+        if is_wireless:
+            c_bitrate = "6M"
             c_codec = "h264"
+            args.append("--video-buffer=150")
+            print(f"\n{YELLOW}📶 Wireless connection detected. Auto-tuning camera to 6M H.264 and 150ms buffer for lag-free performance...{RESET}")
         else:
-            c_bitrate = config.get("camera_bitrate", "32M")
-            c_fps = config.get("camera_fps", "60")
-            c_codec = config.get("camera_codec", "h265")
-            if is_wireless:
+            if facing == "front":
                 c_bitrate = "12M"
                 c_codec = "h264"
-                print(f"\n{YELLOW}📶 Wireless connection detected. Auto-tuning back camera to 12M H.264 for lag-free performance...{RESET}")
+            else:
+                c_bitrate = config.get("camera_bitrate", "32M")
+                c_codec = config.get("camera_codec", "h265")
+
+        if facing == "front" or is_wireless:
+            c_fps = "30"
+        else:
+            c_fps = config.get("camera_fps", "60")
                 
         args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
         args.append("--stay-awake")

@@ -29,6 +29,15 @@ os.environ["PATH"] = current_path
 PROJECT_DIR = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(PROJECT_DIR)
 
+# Try to raise the file descriptor limit (prevents "Too many open files" socket errors on macOS)
+try:
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft < 4096:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (min(4096, hard), hard))
+except Exception:
+    pass
+
 import ConnectPhone
 
 PORT = 8282
@@ -58,7 +67,7 @@ qr_pairing_state = {
     "password": ""
 }
 
-def scan_wireless_debug_port(ip, start_port=30000, end_port=48000, timeout=0.08):
+def scan_wireless_debug_port(ip, start_port=30000, end_port=48000, timeout=0.15):
     import socket
     import concurrent.futures
     
@@ -131,22 +140,25 @@ class RobustAdbMdnsListener:
 
 def resolve_hostname_dns_sd(hostname, timeout=2.0):
     import re
+    import select
     cmd = ["dns-sd", "-G", "v4", hostname]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
         start = time.time()
         while time.time() - start < timeout:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            line_str = line.strip()
-            if "Add" in line_str:
-                parts = line_str.split()
-                if len(parts) >= 6:
-                    ip = parts[5]
-                    if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip):
-                        proc.terminate()
-                        return ip
+            r, _, _ = select.select([proc.stdout], [], [], 0.1)
+            if proc.stdout in r:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                line_str = line.strip()
+                if "Add" in line_str:
+                    parts = line_str.split()
+                    if len(parts) >= 6:
+                        ip = parts[5]
+                        if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip):
+                            proc.terminate()
+                            return ip
             time.sleep(0.05)
         proc.terminate()
     except Exception:
@@ -154,23 +166,26 @@ def resolve_hostname_dns_sd(hostname, timeout=2.0):
     return None
 
 def resolve_instance_dns_sd(instance_name, service_type, timeout=2.0):
+    import select
     cmd = ["dns-sd", "-L", instance_name, service_type, "local."]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
         start = time.time()
         while time.time() - start < timeout:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            line_str = line.strip()
-            if "can be reached at" in line_str:
-                reached_part = line_str.split("can be reached at")[1].strip()
-                host_port = reached_part.split()[0]
-                if ":" in host_port:
-                    host, port_str = host_port.rsplit(":", 1)
-                    port = int(port_str)
-                    proc.terminate()
-                    return host, port
+            r, _, _ = select.select([proc.stdout], [], [], 0.1)
+            if proc.stdout in r:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                line_str = line.strip()
+                if "can be reached at" in line_str:
+                    reached_part = line_str.split("can be reached at")[1].strip()
+                    host_port = reached_part.split()[0]
+                    if ":" in host_port:
+                        host, port_str = host_port.rsplit(":", 1)
+                        port = int(port_str)
+                        proc.terminate()
+                        return host, port
             time.sleep(0.05)
         proc.terminate()
     except Exception:
@@ -179,6 +194,7 @@ def resolve_instance_dns_sd(instance_name, service_type, timeout=2.0):
 
 def browse_dns_sd_loop(service_type, target_substring, target_ip, result_dict, stop_event, timeout):
     import socket
+    import select
     
     # Strip .local. or .local from service type for dns-sd command
     dns_sd_service = service_type
@@ -192,30 +208,34 @@ def browse_dns_sd_loop(service_type, target_substring, target_ip, result_dict, s
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
         start_time = time.time()
         while time.time() - start_time < timeout and not stop_event.is_set():
-            line = proc.stdout.readline()
-            if not line:
+            r, _, _ = select.select([proc.stdout], [], [], 0.1)
+            if stop_event.is_set():
                 break
-            line_str = line.strip()
-            if "Add" in line_str:
-                parts = line_str.split()
-                if len(parts) >= 7:
-                    instance_name = " ".join(parts[6:])
-                    if target_substring is None or target_substring in instance_name:
-                        host, port = resolve_instance_dns_sd(instance_name, dns_sd_service)
-                        if host and port:
-                            ip = None
-                            try:
-                                ip = socket.gethostbyname(host)
-                            except Exception:
-                                ip = resolve_hostname_dns_sd(host)
-                            
-                            if ip:
-                                if target_ip is None or ip == target_ip:
-                                    result_dict["ip"] = ip
-                                    result_dict["port"] = port
-                                    stop_event.set()
-                                    proc.terminate()
-                                    return
+            if proc.stdout in r:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                line_str = line.strip()
+                if "Add" in line_str:
+                    parts = line_str.split()
+                    if len(parts) >= 7:
+                        instance_name = " ".join(parts[6:])
+                        if target_substring is None or target_substring in instance_name:
+                            host, port = resolve_instance_dns_sd(instance_name, dns_sd_service)
+                            if host and port:
+                                ip = None
+                                try:
+                                    ip = socket.gethostbyname(host)
+                                except Exception:
+                                    ip = resolve_hostname_dns_sd(host)
+                                
+                                if ip:
+                                    if target_ip is None or ip == target_ip:
+                                        result_dict["ip"] = ip
+                                        result_dict["port"] = port
+                                        stop_event.set()
+                                        proc.terminate()
+                                        return
             time.sleep(0.05)
         proc.terminate()
     except Exception:
@@ -750,11 +770,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         except Exception:
                             return False
                     
-                    # 1. Try mDNS discovery first for up to 1.5 seconds (extremely fast and lightweight)
+                    # 1. Try mDNS discovery first for up to 3.0 seconds (extremely fast and lightweight)
                     _, mdns_port = discover_adb_service_hybrid(
                         "_adb-tls-connect._tcp.local.",
                         target_ip=ip,
-                        timeout=1.5
+                        timeout=3.0
                     )
                     
                     target_port = None
@@ -771,7 +791,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             nonlocal found_port
                             if found_port is not None:
                                 return
-                            if check_single_port(ip, port, 0.08):
+                            if check_single_port(ip, port, 0.15):
                                 found_port = port
                                 
                         with concurrent.futures.ThreadPoolExecutor(max_workers=350) as executor:

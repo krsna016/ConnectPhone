@@ -141,8 +141,8 @@ class RobustAdbMdnsListener:
                 ipv4_addresses = [addr for addr in addresses if '.' in addr]
                 resolved_ip = ipv4_addresses[0] if ipv4_addresses else addresses[0]
                 
-                # Check target service name substring constraint
-                if self.target_service_name and self.target_service_name not in name:
+                # Check target service name substring constraint (case-insensitive)
+                if self.target_service_name and self.target_service_name.lower() not in name.lower():
                     return
                     
                 # Check target IP constraint
@@ -236,7 +236,7 @@ def browse_dns_sd_loop(service_type, target_substring, target_ip, result_dict, s
                     parts = line_str.split()
                     if len(parts) >= 7:
                         instance_name = " ".join(parts[6:])
-                        if target_substring is None or target_substring in instance_name:
+                        if target_substring is None or target_substring.lower() in instance_name.lower():
                             host, port = resolve_instance_dns_sd(instance_name, dns_sd_service)
                             if host and port:
                                 ip = None
@@ -726,9 +726,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 import base64
                 import secrets
                 
-                alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                service_name = "adb-cli-" + "".join(secrets.choice(alphabet) for _ in range(6))
-                password = "".join(secrets.choice(alphabet) for _ in range(6))
+                # Generate lowercase service name to avoid mDNS case-sensitivity mismatch bugs
+                # Generate numeric password to match default Android pairing protocol conventions
+                service_name = "adb-cli-" + "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
+                password = "".join(secrets.choice("0123456789") for _ in range(6))
                 payload = f"WIFI:T:ADB;S:{service_name};P:{password};;"
                 
                 img = qrcode.make(payload)

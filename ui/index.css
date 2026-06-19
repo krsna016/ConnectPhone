@@ -449,6 +449,14 @@ body {
     border-color: var(--border-hover);
 }
 
+.btn-sm {
+    width: auto !important;
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
 .btn-primary {
     background-color: var(--color-primary);
     border-color: var(--color-primary);
@@ -1526,6 +1534,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 16px;
     margin-bottom: 16px;
 }
 
@@ -1657,4 +1666,62 @@ body {
     margin: 0;
     font-size: 13px;
     font-weight: 500;
+}
+
+/* Guide Card Styling */
+.guide-card {
+    background: rgba(255, 255, 255, 0.02) !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    margin-bottom: 24px;
+}
+
+.guide-steps-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 14px;
+}
+
+@media (max-width: 600px) {
+    .guide-steps-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.step-item {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.step-badge {
+    background: linear-gradient(135deg, var(--color-accent), var(--color-primary));
+    color: #0b0c10;
+    font-weight: 700;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+    font-size: 11px;
+}
+
+.step-content h4 {
+    margin: 0 0 4px 0;
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.step-content p {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
 }

@@ -856,10 +856,12 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     c_fps = config.get("camera_fps", "60")
                     c_codec = config.get("camera_codec", "h265")
                     
-                    if facing == "front":
+                    # For standard camera mirroring, cap FPS to 30 to match sensor limits and prevent encoder overflow
+                    if c_fps not in ["120", "240"]:
                         c_fps = "30"
-                        if c_bitrate == "32M":
-                            c_bitrate = "16M"
+                        
+                    if facing == "front" and c_bitrate == "32M":
+                        c_bitrate = "16M"
                             
                     if is_wireless:
                         c_bitrate = "16M"

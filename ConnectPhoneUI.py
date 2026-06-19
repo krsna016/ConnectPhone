@@ -549,6 +549,23 @@ def get_detailed_adb_devices():
     except Exception:
         return []
 
+def check_and_autoselect_device(devices_detailed):
+    online_serials = [d["serial"] for d in devices_detailed if d["status"] == "device"]
+    active = os.environ.get("ANDROID_SERIAL", "")
+    if active and active in online_serials:
+        return active
+    if online_serials:
+        os.environ["ANDROID_SERIAL"] = online_serials[0]
+        return online_serials[0]
+    all_serials = [d["serial"] for d in devices_detailed]
+    if all_serials:
+        if active and active in all_serials:
+            return active
+        os.environ["ANDROID_SERIAL"] = all_serials[0]
+        return all_serials[0]
+    os.environ.pop("ANDROID_SERIAL", None)
+    return ""
+
 def discover_all_mdns_services(timeout=2.0):
     from zeroconf import Zeroconf, ServiceBrowser
     
@@ -666,7 +683,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         
         if self.path == '/api/status':
             devices_detailed = get_detailed_adb_devices()
-            device_connected = len(devices_detailed) > 0
+            active_device = check_and_autoselect_device(devices_detailed)
+            device_connected = len(devices_detailed) > 0 and any(d["status"] == "device" for d in devices_detailed)
             device_info = ConnectPhone.get_device_info() if device_connected else None
             
             scrcpy_running = scrcpy_proc is not None and scrcpy_proc.poll() is None
@@ -675,6 +693,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 "connected": device_connected,
                 "devices": [d["serial"] for d in devices_detailed],
                 "devices_detailed": devices_detailed,
+                "active_device": active_device,
                 "device_info": device_info,
                 "scrcpy_running": scrcpy_running,
                 "recording_active": scrcpy_state["recording_active"],
@@ -717,7 +736,15 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         res_data = {"success": False, "message": ""}
         
         try:
-            if self.path == '/api/connect':
+            if self.path == '/api/devices/select':
+                serial = str(data.get("serial", "")).strip()
+                if not serial:
+                    res_data["message"] = "Serial is required."
+                else:
+                    os.environ["ANDROID_SERIAL"] = serial
+                    res_data["success"] = True
+                    res_data["message"] = f"Target device serial set to {serial}."
+            elif self.path == '/api/connect':
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "5555")).strip()
                 if not ip:

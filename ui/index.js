@@ -198,8 +198,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Add rows to the devices list
                 devices.forEach(device => {
                     const row = document.createElement('div');
-                    const isActive = data.connected && data.devices.includes(device.serial);
+                    const isActive = (device.serial === data.active_device);
                     row.className = `device-row ${isActive ? 'active-device' : ''}`;
+                    
+                    row.addEventListener('click', async () => {
+                        try {
+                            const res = await postAction('/api/devices/select', { serial: device.serial });
+                            if (res && res.success) {
+                                showToast(res.message, 'success');
+                                fetchStatus();
+                            } else {
+                                showToast(res ? res.message : 'Failed to select device', 'error');
+                            }
+                        } catch (err) {
+                            showToast(`Error: ${err.message}`, 'error');
+                        }
+                    });
                     
                     const isWireless = device.type === 'wireless';
                     const icon = isWireless ? '📶' : '🔌';

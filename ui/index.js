@@ -479,6 +479,11 @@ document.addEventListener('DOMContentLoaded', () => {
             mac_mic_device: document.getElementById('pref-mac-mic-device').value,
             audio_buffer: document.getElementById('pref-audio-buffer').value
         };
+        showToast('Saving preferences...', 'info');
+        postAction('/api/settings/save', body).then(() => {
+            preferencesLoaded = false;
+            fetchStatus();
+        });
     });
 
     // Device Profiles Navigation Click Bindings

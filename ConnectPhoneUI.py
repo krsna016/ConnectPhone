@@ -1164,17 +1164,36 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 phone_eas_path = "/sdcard/Download/eas_alert.wav"
                 subprocess.run(["adb", "push", local_eas_path, phone_eas_path], capture_output=True)
                 
-                # Play headlessly via stagefright utility
-                subprocess.run(["adb", "shell", "stagefright", "-a", "-o", phone_eas_path], capture_output=True)
-                
-                # Post emergency alert system warning notification
-                subprocess.run([
-                    "adb", "shell", "cmd", "notification", "post", 
-                    "-t", "⚠️ EMERGENCY ALERT", 
-                    "-c", "emergency", 
-                    "9999", 
-                    "Earthquake warning! Take cover immediately!"
-                ], capture_output=True)
+                # Run the alarm task in a separate thread so it does not block the UI response
+                def run_alarm_loop():
+                    # 1. Play headlessly via stagefright utility (if supported)
+                    subprocess.Popen(["adb", "shell", "stagefright", "-a", "-o", phone_eas_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    # 2. Trigger standard media player to play the EAS wav file
+                    subprocess.run([
+                        "adb", "shell", "am", "start", 
+                        "-a", "android.intent.action.VIEW", 
+                        "-d", f"file://{phone_eas_path}", 
+                        "-t", "audio/wav"
+                    ], capture_output=True)
+                    
+                    # 3. Post emergency alert system notifications in a loop to create a continuous chime sequence
+                    for _ in range(5):
+                        subprocess.run([
+                            "adb", "shell", "cmd", "notification", "post", 
+                            "-t", "⚠️ EMERGENCY ALERT", 
+                            "-c", "emergency", 
+                            "9999", 
+                            "EARTHQUAKE WARNING: TAKE COVER IMMEDIATELY!"
+                        ], capture_output=True)
+                        time.sleep(1.2)
+                        
+                    # 4. Press home keyevent to dismiss media player UI and return to normal screen state
+                    subprocess.run(["adb", "shell", "input", "keyevent", "3"])
+                    
+                alarm_thread = threading.Thread(target=run_alarm_loop)
+                alarm_thread.daemon = True
+                alarm_thread.start()
                 
                 res_data["success"] = True
                 res_data["message"] = "Government-style emergency EAS alert chime triggered!"

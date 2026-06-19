@@ -647,7 +647,7 @@ def make_device_call(number):
         key_err = (res_key.stdout or "") + " " + (res_key.stderr or "")
         
         if "SecurityException" in key_err:
-            return True, f"Dialer opened on phone with {number}. Enable 'USB debugging (Security settings)' in developer options to dial automatically."
+            return True, f"Dialer opened on phone with {number}. (Xiaomi/POCO device detected: if 'USB debugging (Security settings)' is already enabled, toggle it OFF and ON, or re-plug standard USB debugging to authorize)."
         else:
             return True, f"Placed call to {number}."
     except Exception as e:
@@ -658,7 +658,7 @@ def answer_device_call():
         res = subprocess.run(["adb", "shell", "input", "keyevent", "5"], capture_output=True, text=True)
         err = (res.stdout or "") + " " + (res.stderr or "")
         if "SecurityException" in err:
-            return False, "Enable 'USB debugging (Security settings)' in Developer options to answer calls from Mac."
+            return False, "Security Permission Denied: On Xiaomi/POCO devices, you must enable 'USB debugging (Security settings)' (below standard USB debugging). If it is already enabled, toggle it OFF and ON to refresh the authorization."
         return True, "Call answered successfully."
     except Exception as e:
         return False, f"Exception: {e}"
@@ -668,7 +668,7 @@ def hangup_device_call():
         res = subprocess.run(["adb", "shell", "input", "keyevent", "6"], capture_output=True, text=True)
         err = (res.stdout or "") + " " + (res.stderr or "")
         if "SecurityException" in err:
-            return False, "Enable 'USB debugging (Security settings)' in Developer options to end calls from Mac."
+            return False, "Security Permission Denied: On Xiaomi/POCO devices, you must enable 'USB debugging (Security settings)' (below standard USB debugging). If it is already enabled, toggle it OFF and ON to refresh the authorization."
         return True, "Call ended/rejected successfully."
     except Exception as e:
         return False, f"Exception: {e}"

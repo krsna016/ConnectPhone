@@ -328,10 +328,13 @@ def discover_adb_service_hybrid(service_type, target_substring=None, target_ip=N
 def run_qr_pairing_flow(service_name, password):
     global qr_pairing_state
     try:
+        # Extract the highly unique random suffix (last part after the dash) to support custom vendor GUID-prefixed formats
+        suffix = service_name.split("-")[-1]
+        
         # 1. Discover the phone's pairing service
         ip, port = discover_adb_service_hybrid(
             "_adb-tls-pairing._tcp.local.",
-            target_substring=service_name,
+            target_substring=suffix,
             timeout=45.0,
             is_cancelled_fn=lambda: qr_pairing_state["status"] != "waiting"
         )

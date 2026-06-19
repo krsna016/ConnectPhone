@@ -878,9 +878,6 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             res_data["message"] = f"Ping Success to {ip} (no stats parsed)"
                     else:
                         res_data["message"] = f"Ping failed to target IP: {ip}"
-                            res_data["message"] = f"Pinged {ip} successfully, packets transmitted."
-                    else:
-                        res_data["message"] = f"Failed to ping {ip}. Phone might be on an isolated network or USB only."
                 
             elif self.path == '/api/mirror':
                 mirror_type = data.get("type", "screen") # screen, camera, audio, record

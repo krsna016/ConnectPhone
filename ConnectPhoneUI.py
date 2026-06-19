@@ -67,9 +67,11 @@ qr_pairing_state = {
     "password": ""
 }
 
-def scan_wireless_debug_port(ip, start_port=30000, end_port=48000, timeout=0.15):
+def scan_and_connect_wireless_debug(ip, timeout=0.15):
     import socket
     import concurrent.futures
+    import subprocess
+    import threading
     
     def check_single_port(ip_addr, port_num, timeout_val):
         try:
@@ -81,25 +83,39 @@ def scan_wireless_debug_port(ip, start_port=30000, end_port=48000, timeout=0.15)
         except Exception:
             return False
             
-    # Check default port 5555 first
+    # 1. Check default port 5555 first
     if check_single_port(ip, 5555, 0.2):
-        return 5555
-        
-    # Concurrently scan range
-    ports = list(range(start_port, end_port + 1))
-    found_port = None
+        subprocess.run(["adb", "disconnect", f"{ip}:5555"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = subprocess.run(["adb", "connect", f"{ip}:5555"], capture_output=True, text=True)
+        out = res.stdout or ""
+        if "connected to" in out.lower() or "already connected to" in out.lower():
+            return 5555
+            
+    # 2. Concurrently scan range
+    ports = list(range(30000, 48000 + 1))
+    found_ports = []
+    lock = threading.Lock()
     
     def worker(port):
-        nonlocal found_port
-        if found_port is not None:
-            return
         if check_single_port(ip, port, timeout):
-            found_port = port
-            
+            with lock:
+                found_ports.append(port)
+                
     with concurrent.futures.ThreadPoolExecutor(max_workers=350) as executor:
         executor.map(worker, ports)
         
-    return found_port
+    found_ports.sort()
+    
+    # 3. Try to connect to each found port
+    for port in found_ports:
+        ip_port = f"{ip}:{port}"
+        subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+        out = res.stdout or ""
+        if "connected to" in out.lower() or "already connected to" in out.lower():
+            return port
+            
+    return None
 
 class RobustAdbMdnsListener:
     def __init__(self, target_service_name=None, target_ip=None):
@@ -359,25 +375,30 @@ def run_qr_pairing_flow(service_name, password):
             
         if not conn_port:
             qr_pairing_state["message"] = "mDNS port timeout. Scanning ports..."
-            target_port = scan_wireless_debug_port(ip)
-        else:
-            target_port = conn_port
-            
-        if target_port:
-            conn_ip_port = f"{ip}:{target_port}"
-            # Disconnect any old bindings first
-            subprocess.run(["adb", "disconnect", conn_ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            res_conn = subprocess.run(["adb", "connect", conn_ip_port], capture_output=True, text=True)
-            conn_out = res_conn.stdout or ""
-            if "connected to" in conn_out.lower() or "already connected to" in conn_out.lower():
+            target_port = scan_and_connect_wireless_debug(ip)
+            if target_port:
                 qr_pairing_state["status"] = "connected"
-                qr_pairing_state["message"] = f"Successfully auto-connected to phone at {conn_ip_port}!"
+                qr_pairing_state["message"] = f"Successfully auto-connected to phone at {ip}:{target_port}!"
             else:
                 qr_pairing_state["status"] = "error"
-                qr_pairing_state["message"] = f"Paired successfully, but connection failed on port {target_port}: {conn_out.strip()}"
+                qr_pairing_state["message"] = "Paired successfully, but could not discover active connection port."
         else:
-            qr_pairing_state["status"] = "error"
-            qr_pairing_state["message"] = "Paired successfully, but could not discover active connection port."
+            target_port = conn_port
+            if target_port:
+                conn_ip_port = f"{ip}:{target_port}"
+                # Disconnect any old bindings first
+                subprocess.run(["adb", "disconnect", conn_ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                res_conn = subprocess.run(["adb", "connect", conn_ip_port], capture_output=True, text=True)
+                conn_out = res_conn.stdout or ""
+                if "connected to" in conn_out.lower() or "already connected to" in conn_out.lower():
+                    qr_pairing_state["status"] = "connected"
+                    qr_pairing_state["message"] = f"Successfully auto-connected to phone at {conn_ip_port}!"
+                else:
+                    qr_pairing_state["status"] = "error"
+                    qr_pairing_state["message"] = f"Paired successfully, but connection failed on port {target_port}: {conn_out.strip()}"
+            else:
+                qr_pairing_state["status"] = "error"
+                qr_pairing_state["message"] = "Paired successfully, but could not discover active connection port."
             
     except Exception as e:
         qr_pairing_state["status"] = "error"
@@ -757,19 +778,6 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["success"] = False
                     res_data["message"] = "No previously paired IP address found in config. Connect manually first."
                 else:
-                    import socket
-                    import concurrent.futures
-                    
-                    def check_single_port(ip_addr, port_num, timeout_val):
-                        try:
-                            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            s.settimeout(timeout_val)
-                            result = s.connect_ex((ip_addr, port_num))
-                            s.close()
-                            return result == 0
-                        except Exception:
-                            return False
-                    
                     # 1. Try mDNS discovery first for up to 3.0 seconds (extremely fast and lightweight)
                     _, mdns_port = discover_adb_service_hybrid(
                         "_adb-tls-connect._tcp.local.",
@@ -780,25 +788,6 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     target_port = None
                     if mdns_port:
                         target_port = mdns_port
-                    elif check_single_port(ip, 5555, 0.2):
-                        target_port = 5555
-                    else:
-                        # 2. Concurrently scan dynamic range 30000 to 48000
-                        ports = list(range(30000, 48000 + 1))
-                        found_port = None
-                        
-                        def worker(port):
-                            nonlocal found_port
-                            if found_port is not None:
-                                return
-                            if check_single_port(ip, port, 0.15):
-                                found_port = port
-                                
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=350) as executor:
-                            executor.map(worker, ports)
-                        target_port = found_port
-                    
-                    if target_port:
                         ip_port = f"{ip}:{target_port}"
                         subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
@@ -807,24 +796,30 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             res_data["success"] = True
                             res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
                         else:
-                            res_data["message"] = f"Port {target_port} found open, but connection failed: {stdout.strip()}"
+                            res_data["message"] = f"Port {target_port} found open via mDNS, but connection failed: {stdout.strip()}"
                     else:
-                        # Ping device to diagnose why scan failed
-                        import platform
-                        ping_param = "-n" if platform.system().lower() == "windows" else "-c"
-                        ping_res = subprocess.run(["ping", ping_param, "1", "-t", "1", ip], capture_output=True)
-                        if ping_res.returncode == 0:
-                            res_data["message"] = (
-                                f"Auto-connect failed. No active wireless debugging ports found open on {ip}.\n\n"
-                                "💡 DIAGNOSIS: Your phone is online and responding, but the Wireless Debugging service "
-                                "appears to be turned OFF on the device. Please open Developer Options on your phone and verify it is toggled ON."
-                            )
+                        # 2. Fallback to scanning and connecting on the verified open port
+                        target_port = scan_and_connect_wireless_debug(ip)
+                        if target_port:
+                            res_data["success"] = True
+                            res_data["message"] = f"Successfully auto-connected to phone at {ip}:{target_port}!"
                         else:
-                            res_data["message"] = (
-                                f"Auto-connect failed. Could not reach your phone at {ip}.\n\n"
-                                "💡 DIAGNOSIS: The device is offline/unreachable. Your phone's IP address might have changed, "
-                                "or Wi-Fi is disconnected. Please check the current IP Address listed under Wireless Debugging on your phone."
-                            )
+                            # 3. Both failed, diagnose the problem
+                            import platform
+                            ping_param = "-n" if platform.system().lower() == "windows" else "-c"
+                            ping_res = subprocess.run(["ping", ping_param, "1", "-t", "1", ip], capture_output=True)
+                            if ping_res.returncode == 0:
+                                res_data["message"] = (
+                                    f"Auto-connect failed. No active wireless debugging ports found open on {ip}.\n\n"
+                                    "💡 DIAGNOSIS: Your phone is online and responding, but the Wireless Debugging service "
+                                    "appears to be turned OFF on the device. Please open Developer Options on your phone and verify it is toggled ON."
+                                )
+                            else:
+                                res_data["message"] = (
+                                    f"Auto-connect failed. Could not reach your phone at {ip}.\n\n"
+                                    "💡 DIAGNOSIS: The device is offline/unreachable. Your phone's IP address might have changed, "
+                                    "or Wi-Fi is disconnected. Please check the current IP Address listed under Wireless Debugging on your phone."
+                                )
                         
             elif self.path == '/api/disconnect':
                 res = subprocess.run(["adb", "disconnect"], capture_output=True, text=True)

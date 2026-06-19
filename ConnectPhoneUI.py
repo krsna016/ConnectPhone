@@ -399,7 +399,22 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         res_data["success"] = True
                         res_data["message"] = f"Successfully paired! Now connect to the port from the Wireless Debugging screen."
                     else:
-                        res_data["message"] = f"Pairing failed: {stdout.strip()} {stderr.strip()}"
+                        err_msg = f"{stdout.strip()} {stderr.strip()}"
+                        if "protocol fault" in err_msg.lower() or "couldn't read status message" in err_msg.lower():
+                            res_data["message"] = (
+                                f"Pairing failed: {err_msg}\n\n"
+                                "💡 TIP: This protocol fault usually means you entered the wrong port. "
+                                "Make sure you open the 'Pair device with pairing code' popup on your phone, "
+                                "and use the PAIRING PORT displayed inside the popup, NOT the main connection port."
+                            )
+                        elif "connection refused" in err_msg.lower() or "timeout" in err_msg.lower() or "timed out" in err_msg.lower():
+                            res_data["message"] = (
+                                f"Pairing failed: {err_msg}\n\n"
+                                "💡 TIP: Connection refused/timeout. Ensure both your Mac and phone are "
+                                "connected to the exact same Wi-Fi network and that Client/AP Isolation is disabled on your router."
+                            )
+                        else:
+                            res_data["message"] = f"Pairing failed: {err_msg}"
                         
             elif self.path == '/api/restart_adb':
                 subprocess.run(["adb", "kill-server"])

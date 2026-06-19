@@ -164,6 +164,11 @@ def run_scrcpy(args, is_camera=False):
     try:
         temp_mkv = None
         if is_camera:
+            # Ensure the device is awake to prevent camera session termination
+            try:
+                subprocess.run(["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"], capture_output=True)
+            except Exception:
+                pass
             has_custom_record = any(arg.startswith("--record=") for arg in args)
             if not has_custom_record:
                 temp_mkv = os.path.expanduser("~/.connectphone_temp_rec.mkv")
@@ -787,7 +792,8 @@ def run_mirroring_flow(mode, config):
                 c_codec = "h264"
                 print(f"\n{YELLOW}📶 Wireless connection detected. Auto-tuning back camera to 12M H.264 for lag-free performance...{RESET}")
                 
-        args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}", "--video-codec-options=i-frame-interval=1"]
+        args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
+        args.append("--stay-awake")
         if c_fps in ["120", "240"]:
             if resolution != "720p":
                 print(f"\n{YELLOW}⚠️ High-Speed Mode ({c_fps} FPS) is restricted to 720p or lower resolution on this device.{RESET}")
@@ -837,7 +843,8 @@ def run_mirroring_flow(mode, config):
                 c_codec = "h264"
                 print(f"\n{YELLOW}📶 Wireless connection detected. Auto-tuning back camera to 12M H.264 for lag-free performance...{RESET}")
                 
-        args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}", "--video-codec-options=i-frame-interval=1"]
+        args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
+        args.append("--stay-awake")
         if c_fps in ["120", "240"]:
             if resolution != "720p":
                 print(f"\n{YELLOW}⚠️ High-Speed Mode ({c_fps} FPS) is restricted to 720p or lower resolution on this device.{RESET}")

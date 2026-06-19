@@ -860,14 +860,17 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     if c_fps not in ["120", "240"]:
                         c_fps = "30"
                         
-                    if facing == "front" and c_bitrate == "32M":
-                        c_bitrate = "16M"
+                    if facing == "front":
+                        c_bitrate = "12M"
+                        c_codec = "h264"
+                    else:
+                        if is_wireless:
+                            c_bitrate = "12M"
+                            c_codec = "h264"
+                            cmd.append("--video-buffer=100")
                             
-                    if is_wireless:
-                        c_bitrate = "16M"
-                        cmd.append("--video-buffer=100")
-                        
-                    cmd += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}", "--video-codec-options=i-frame-interval=1"]
+                    cmd.append("--stay-awake")
+                    cmd += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
                     
                     if c_fps in ["120", "240"]:
                         cmd = [a for a in cmd if not a.startswith("--camera-size=")]
@@ -919,6 +922,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 scrcpy_state["recording_active"] = False
                 scrcpy_state["temp_mkv"] = temp_mkv_path
                 
+                if mirror_type == "camera":
+                    # Ensure device is awake so camera capture session does not get suspended
+                    try:
+                        subprocess.run(["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"], capture_output=True)
+                    except Exception:
+                        pass
+                
                 scrcpy_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                 
                 # Auto-unlock lock screen concurrently via macOS Touch ID
@@ -944,6 +954,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     global scrcpy_proc
                     for line in iter(scrcpy_proc.stdout.readline, b''):
                         line_str = line.decode('utf-8', errors='ignore')
+                        print(f"[scrcpy] {line_str.strip()}", flush=True)
                         if "Texture:" in line_str:
                             scrcpy_state["session_start_time"] = time.time()
                         if "Display orientation set to" in line_str:

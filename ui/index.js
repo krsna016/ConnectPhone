@@ -102,7 +102,6 @@ document.addEventListener('DOMContentLoaded', () => {
             updateConnectionUI(data);
             updatePreferencesForm(data.config);
             updateCameraOverlayUI(data);
-            updateSyncWatcherUI(data.sync_watcher_active);
             
             if (isManual) {
                 if (data.connected) {
@@ -326,31 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
         scrcpyWasRunning = isRunning;
     }
 
-    function updateSyncWatcherUI(isActive) {
-        const syncIndicator = document.getElementById('sync-indicator');
-        const syncLabel = document.getElementById('sync-label');
-        const btnToggle = document.getElementById('btn-file-sync-toggle');
 
-        if (isActive) {
-            syncIndicator.className = 'sync-status-indicator active';
-            syncLabel.textContent = 'Folder Sync: Active';
-            btnToggle.textContent = 'Stop Sync Watcher';
-            btnToggle.className = 'btn btn-danger';
-        } else {
-            syncIndicator.className = 'sync-status-indicator';
-            syncLabel.textContent = 'Folder Sync: Inactive';
-            btnToggle.textContent = 'Start Sync Watcher';
-            btnToggle.className = 'btn btn-accent';
-        }
-    }
-
-    function showBrandPanel(brand) {
-        document.querySelectorAll('.brand-panel').forEach(p => p.classList.add('hidden'));
-        const panel = document.getElementById(`panel-brand-${brand}`);
-        if (panel) {
-            panel.classList.remove('hidden');
-        }
-    }
 
     // Set preference inputs from saved configuration json
     let preferencesLoaded = false;
@@ -372,48 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
             micSelect.value = config.mac_mic_device || 'default';
         }
         
-        const activeBrand = config.device_profile || 'generic';
-        const brandSelect = document.getElementById('profile-brand-select');
-        if (brandSelect) {
-            brandSelect.value = activeBrand;
-        }
 
-        // Mark active badge on matching nav item
-        document.querySelectorAll('.profile-nav-item').forEach(item => {
-            if (item.getAttribute('data-brand') === activeBrand) {
-                item.classList.add('active-profile');
-            } else {
-                item.classList.remove('active-profile');
-            }
-        });
-
-        // Update Apply buttons styling
-        document.querySelectorAll('.btn-apply-profile').forEach(btn => {
-            const btnBrand = btn.getAttribute('data-brand');
-            if (btnBrand === activeBrand) {
-                btn.textContent = '✓ Profile Applied';
-                btn.classList.add('applied-profile');
-                btn.classList.remove('btn-primary');
-            } else {
-                const brandPretty = btnBrand === 'generic' ? 'Generic' :
-                                    btnBrand === 'nothing' ? 'Nothing Phone' :
-                                    btnBrand === 'xiaomi' ? 'Xiaomi' :
-                                    btnBrand === 'samsung' ? 'Samsung' : 'OnePlus';
-                btn.textContent = `Apply ${brandPretty} Profile`;
-                btn.classList.remove('applied-profile');
-                btn.classList.add('btn-primary');
-            }
-        });
-
-        // Default selection to active profile if nothing is selected
-        const currentSelected = document.querySelector('.profile-nav-item.selected');
-        if (!currentSelected) {
-            const activeNavItem = document.querySelector(`.profile-nav-item[data-brand="${activeBrand}"]`);
-            if (activeNavItem) {
-                activeNavItem.classList.add('selected');
-            }
-            showBrandPanel(activeBrand);
-        }
         
         document.getElementById('pref-audio-buffer').value = config.audio_buffer || '100';
         
@@ -494,25 +428,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-    // File Dispatch & Photo Pulling Clicks
-    document.getElementById('btn-file-push').addEventListener('click', () => {
-        const path = document.getElementById('push-path-input').value.trim();
-        if (!path) {
-            showToast('Mac filepath is required.', 'error');
-            return;
-        }
-        showToast('Pushing file via ADB...', 'info');
-        postAction('/api/files/push', { mac_path: path });
-    });
 
-    document.getElementById('btn-file-pull').addEventListener('click', () => {
-        showToast('Searching and pulling latest photo...', 'info');
-        postAction('/api/files/pull_photo');
-    });
-
-    document.getElementById('btn-file-sync-toggle').addEventListener('click', () => {
-        postAction('/api/files/sync_watcher/toggle');
-    });
 
     // Settings Connections Bindings
     // Settings Connections Bindings
@@ -649,60 +565,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Device Profiles Navigation Click Bindings
-    document.querySelectorAll('.profile-nav-item').forEach(item => {
-        item.addEventListener('click', () => {
-            // Remove selected class from all nav items
-            document.querySelectorAll('.profile-nav-item').forEach(i => i.classList.remove('selected'));
-            
-            // Add selected class to current clicked nav item
-            item.classList.add('selected');
-            
-            const brand = item.getAttribute('data-brand');
-            
-            // Update hidden select dropdown
-            const brandSelect = document.getElementById('profile-brand-select');
-            if (brandSelect) {
-                brandSelect.value = brand;
-            }
-            
-            showBrandPanel(brand);
-        });
-    });
 
-    // Apply Profile Button Clicks
-    document.querySelectorAll('.btn-apply-profile').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const selectedBrand = btn.getAttribute('data-brand');
-            if (selectedBrand === 'nothing') {
-                const fpsInput = document.getElementById('pref-fps');
-                if (fpsInput) fpsInput.value = '120';
-            }
-            showToast(`Applying ${selectedBrand.toUpperCase()} profile...`, 'info');
-            postAction('/api/settings/save', {
-                device_profile: selectedBrand,
-                camera_fps: selectedBrand === 'nothing' ? '120' : undefined
-            }).then(() => {
-                preferencesLoaded = false;
-                fetchStatus();
-            });
-        });
-    });
-
-    const bindGlyphAction = (btnId, endpoint, body = {}) => {
-        const el = document.getElementById(btnId);
-        if (el) {
-            el.addEventListener('click', () => {
-                showToast('Sending Glyph command...', 'info');
-                postAction(endpoint, body);
-            });
-        }
-    };
-
-    bindGlyphAction('btn-nothing-glyph-on', '/api/nothing/glyph/toggle', { enabled: true });
-    bindGlyphAction('btn-nothing-glyph-off', '/api/nothing/glyph/toggle', { enabled: false });
-    bindGlyphAction('btn-nothing-glyph-settings', '/api/nothing/glyph/settings');
-    bindGlyphAction('btn-nothing-glyph-flash', '/api/nothing/glyph/flash');
 
     // --- Live Metrics & Diagnostics ---
     let metricsInterval = null;

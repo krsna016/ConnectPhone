@@ -1127,41 +1127,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = msg
                     
 
-            elif self.path == '/api/files/push':
-                mac_path = data.get("mac_path", "").strip()
-                if not mac_path or not os.path.exists(mac_path):
-                    res_data["message"] = f"Invalid file path: {mac_path}"
-                else:
-                    base_name = os.path.basename(mac_path)
-                    phone_path = f"/sdcard/Download/{base_name}"
-                    res = subprocess.run(["adb", "push", mac_path, phone_path], capture_output=True, text=True)
-                    if res.returncode == 0:
-                        res_data["success"] = True
-                        res_data["message"] = f"Successfully pushed file to Phone Downloads: {base_name}"
-                    else:
-                        res_data["message"] = f"ADB transfer failed: {res.stderr}"
-                        
-            elif self.path == '/api/files/pull_photo':
-                success, msg = ConnectPhone.pull_latest_photos(interactive=False)
-                res_data["success"] = success
-                res_data["message"] = msg
-                
-            elif self.path == '/api/files/sync_watcher/toggle':
-                if not sync_watcher_active:
-                    sync_watcher_active = True
-                    def sync_watcher():
-                        global sync_watcher_active
-                        ConnectPhone.watch_send_to_mac_folder(interactive=False)
-                        sync_watcher_active = False
-                    sync_watcher_thread = threading.Thread(target=sync_watcher)
-                    sync_watcher_thread.daemon = True
-                    sync_watcher_thread.start()
-                    res_data["success"] = True
-                    res_data["message"] = "Real-time sync folder watcher started!"
-                else:
-                    sync_watcher_active = False
-                    res_data["success"] = True
-                    res_data["message"] = "Sync folder watcher stopped (note: it terminates on next ADB event)."
+
                     
             elif self.path == '/api/settings/save':
                 config = ConnectPhone.load_config()
@@ -1171,36 +1137,6 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 ConnectPhone.save_config(config)
                 res_data["success"] = True
                 res_data["message"] = "Preferences saved successfully!"
-                
-            elif self.path == '/api/nothing/glyph/toggle':
-                enabled = data.get("enabled", True)
-                val = "1" if enabled else "0"
-                subprocess.run(["adb", "shell", "settings", "put", "secure", "glyph_interface_enabled", val])
-                res_data["success"] = True
-                res_data["message"] = f"Nothing Glyph Interface turned {'ON' if enabled else 'OFF'}."
-                
-            elif self.path == '/api/nothing/glyph/settings':
-                intent_cmd = (
-                    "adb shell 'am start -n com.nothing.settings/com.nothing.settings.glyph.GlyphActivity "
-                    "|| am start -a android.settings.ACTION_GLYPH_SETTINGS "
-                    "|| am start -n com.android.settings/.Settings\\$GlyphSettingsActivity'"
-                )
-                subprocess.run(intent_cmd, shell=True)
-                res_data["success"] = True
-                res_data["message"] = "Launched Nothing Phone Glyph Interface settings."
-                
-            elif self.path == '/api/nothing/glyph/flash':
-                subprocess.run([
-                    "adb", "shell", "cmd", "notification", "post", 
-                    "-t", "ConnectPhone", 
-                    "-c", "ConnectPhone Glyph Test", 
-                    "-S", "bigtext", 
-                    "-I", "flash", 
-                    "1337", 
-                    "Glyph LED Flash Test"
-                ])
-                res_data["success"] = True
-                res_data["message"] = "Sent Glyph notification flash command."
                 
             else:
                 res_data["message"] = "Unknown POST endpoint."

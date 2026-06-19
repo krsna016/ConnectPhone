@@ -459,6 +459,88 @@ document.addEventListener('DOMContentLoaded', () => {
         postAction('/api/pair', { ip: ip, port: port, code: code });
     });
 
+    // QR Code Pairing Bindings
+    let qrPollInterval = null;
+
+    function stopQrPolling() {
+        if (qrPollInterval) {
+            clearInterval(qrPollInterval);
+            qrPollInterval = null;
+        }
+    }
+
+    const btnQrStart = document.getElementById('btn-conn-qr-start');
+    const qrContainer = document.getElementById('qr-container');
+    const qrImage = document.getElementById('qr-image');
+    const qrStatus = document.getElementById('qr-status');
+    const btnQrCancel = document.getElementById('btn-conn-qr-cancel');
+
+    if (btnQrStart) {
+        btnQrStart.addEventListener('click', async () => {
+            showToast('Generating pairing QR code...', 'info');
+            stopQrPolling();
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/pair/qr/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (!res.ok) throw new Error("HTTP request failed");
+                const data = await res.json();
+                
+                if (data.success && data.image) {
+                    qrImage.src = data.image;
+                    qrContainer.classList.remove('hidden');
+                    qrStatus.textContent = 'Ready to scan. Waiting for phone...';
+                    qrStatus.style.color = 'var(--color-warning)';
+                    showToast(data.message, 'success');
+                    
+                    // Start status polling
+                    qrPollInterval = setInterval(async () => {
+                        try {
+                            const statusRes = await fetch(`${API_BASE}/api/pair/qr/status`);
+                            if (!statusRes.ok) return;
+                            const statusData = await statusRes.json();
+                            
+                            qrStatus.textContent = statusData.message || 'Waiting for phone...';
+                            
+                            if (statusData.status === 'connected') {
+                                stopQrPolling();
+                                qrStatus.style.color = 'var(--color-success)';
+                                showToast(statusData.message, 'success');
+                                setTimeout(() => {
+                                    qrContainer.classList.add('hidden');
+                                }, 3000);
+                            } else if (statusData.status === 'error') {
+                                stopQrPolling();
+                                qrStatus.style.color = 'var(--color-danger)';
+                                showToast(statusData.message, 'error');
+                            } else {
+                                qrStatus.style.color = 'var(--color-warning)';
+                            }
+                        } catch (err) {
+                            console.error("Error polling QR pairing status:", err);
+                        }
+                    }, 1500);
+                } else {
+                    showToast(data.message || 'Failed to generate QR Code', 'error');
+                }
+            } catch (err) {
+                console.error("Failed to generate QR pairing code:", err);
+                showToast('Failed to reach server to generate QR code.', 'error');
+            }
+        });
+    }
+
+    if (btnQrCancel) {
+        btnQrCancel.addEventListener('click', () => {
+            stopQrPolling();
+            postAction('/api/pair/qr/cancel').then(() => {
+                qrContainer.classList.add('hidden');
+            });
+        });
+    }
+
     document.getElementById('btn-disconnect-all').addEventListener('click', () => {
         postAction('/api/disconnect');
     });

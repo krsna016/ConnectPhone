@@ -1,8 +1,12 @@
-# ConnectPhone requires Python 3.x
-# No external python packages are required (uses standard library only)
-#
-# System dependencies:
-# - adb (Android Debug Bridge)
-# - scrcpy
-# - ffmpeg
+# ConnectPhone Python and System Dependencies
+
+# Python Libraries:
+qrcode>=8.0
+pillow>=10.0
+zeroconf>=0.130.0
+
+# System-level dependencies:
+# - adb (Android Debug Bridge) - e.g. brew install android-platform-tools
+# - scrcpy - e.g. brew install scrcpy
+# - ffmpeg - e.g. brew install ffmpeg
 # - swiftc (Xcode Command Line Tools)

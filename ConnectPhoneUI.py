@@ -50,6 +50,319 @@ scrcpy_state = {
 sync_watcher_thread = None
 sync_watcher_active = False
 
+# QR Code Pairing state tracker
+qr_pairing_state = {
+    "status": "idle", # idle, waiting, pairing, connected, error
+    "message": "",
+    "service_name": "",
+    "password": ""
+}
+
+def scan_wireless_debug_port(ip, start_port=30000, end_port=48000, timeout=0.08):
+    import socket
+    import concurrent.futures
+    
+    def check_single_port(ip_addr, port_num, timeout_val):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout_val)
+            result = s.connect_ex((ip_addr, port_num))
+            s.close()
+            return result == 0
+        except Exception:
+            return False
+            
+    # Check default port 5555 first
+    if check_single_port(ip, 5555, 0.2):
+        return 5555
+        
+    # Concurrently scan range
+    ports = list(range(start_port, end_port + 1))
+    found_port = None
+    
+    def worker(port):
+        nonlocal found_port
+        if found_port is not None:
+            return
+        if check_single_port(ip, port, timeout):
+            found_port = port
+            
+    with concurrent.futures.ThreadPoolExecutor(max_workers=350) as executor:
+        executor.map(worker, ports)
+        
+    return found_port
+
+class RobustAdbMdnsListener:
+    def __init__(self, target_service_name=None, target_ip=None):
+        self.target_service_name = target_service_name
+        self.target_ip = target_ip
+        self.ip_address = None
+        self.port = None
+
+    def remove_service(self, zeroconf, type, name):
+        pass
+
+    def update_service(self, zeroconf, type, name):
+        pass
+
+    def add_service(self, zeroconf, type, name):
+        try:
+            info = zeroconf.get_service_info(type, name)
+            if info:
+                addresses = info.parsed_addresses()
+                if not addresses:
+                    return
+                # Filter/prioritize IPv4 addresses
+                ipv4_addresses = [addr for addr in addresses if '.' in addr]
+                resolved_ip = ipv4_addresses[0] if ipv4_addresses else addresses[0]
+                
+                # Check target service name substring constraint
+                if self.target_service_name and self.target_service_name not in name:
+                    return
+                    
+                # Check target IP constraint
+                if self.target_ip and not any(addr == self.target_ip for addr in addresses):
+                    return
+                    
+                self.ip_address = resolved_ip
+                self.port = info.port
+        except Exception:
+            pass
+
+def resolve_hostname_dns_sd(hostname, timeout=2.0):
+    import re
+    cmd = ["dns-sd", "-G", "v4", hostname]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+        start = time.time()
+        while time.time() - start < timeout:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            line_str = line.strip()
+            if "Add" in line_str:
+                parts = line_str.split()
+                if len(parts) >= 6:
+                    ip = parts[5]
+                    if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip):
+                        proc.terminate()
+                        return ip
+            time.sleep(0.05)
+        proc.terminate()
+    except Exception:
+        pass
+    return None
+
+def resolve_instance_dns_sd(instance_name, service_type, timeout=2.0):
+    cmd = ["dns-sd", "-L", instance_name, service_type, "local."]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+        start = time.time()
+        while time.time() - start < timeout:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            line_str = line.strip()
+            if "can be reached at" in line_str:
+                reached_part = line_str.split("can be reached at")[1].strip()
+                host_port = reached_part.split()[0]
+                if ":" in host_port:
+                    host, port_str = host_port.rsplit(":", 1)
+                    port = int(port_str)
+                    proc.terminate()
+                    return host, port
+            time.sleep(0.05)
+        proc.terminate()
+    except Exception:
+        pass
+    return None, None
+
+def browse_dns_sd_loop(service_type, target_substring, target_ip, result_dict, stop_event, timeout):
+    import socket
+    
+    # Strip .local. or .local from service type for dns-sd command
+    dns_sd_service = service_type
+    if dns_sd_service.endswith(".local."):
+        dns_sd_service = dns_sd_service[:-7]
+    elif dns_sd_service.endswith(".local"):
+        dns_sd_service = dns_sd_service[:-6]
+        
+    cmd = ["dns-sd", "-B", dns_sd_service]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+        start_time = time.time()
+        while time.time() - start_time < timeout and not stop_event.is_set():
+            line = proc.stdout.readline()
+            if not line:
+                break
+            line_str = line.strip()
+            if "Add" in line_str:
+                parts = line_str.split()
+                if len(parts) >= 7:
+                    instance_name = " ".join(parts[6:])
+                    if target_substring is None or target_substring in instance_name:
+                        host, port = resolve_instance_dns_sd(instance_name, dns_sd_service)
+                        if host and port:
+                            ip = None
+                            try:
+                                ip = socket.gethostbyname(host)
+                            except Exception:
+                                ip = resolve_hostname_dns_sd(host)
+                            
+                            if ip:
+                                if target_ip is None or ip == target_ip:
+                                    result_dict["ip"] = ip
+                                    result_dict["port"] = port
+                                    stop_event.set()
+                                    proc.terminate()
+                                    return
+            time.sleep(0.05)
+        proc.terminate()
+    except Exception:
+        pass
+
+def discover_adb_service_hybrid(service_type, target_substring=None, target_ip=None, timeout=30.0, is_cancelled_fn=None):
+    from zeroconf import Zeroconf, ServiceBrowser
+    
+    result = {"ip": None, "port": None}
+    stop_event = threading.Event()
+    
+    # 1. Start Zeroconf browser in background (ensure type ends with .local.)
+    zc = None
+    browser = None
+    zc_type = service_type
+    if not zc_type.endswith("."):
+        zc_type += "."
+    if not zc_type.endswith(".local."):
+        if zc_type.endswith(".local"):
+            zc_type += "."
+        else:
+            zc_type += "local."
+            
+    try:
+        zc = Zeroconf()
+        listener = RobustAdbMdnsListener(target_substring, target_ip)
+        browser = ServiceBrowser(zc, zc_type, listener)
+    except Exception:
+        zc = None
+
+    # 2. Start native dns-sd fallback in background thread
+    dns_sd_thread = threading.Thread(
+        target=browse_dns_sd_loop,
+        args=(service_type, target_substring, target_ip, result, stop_event, timeout)
+    )
+    dns_sd_thread.daemon = True
+    dns_sd_thread.start()
+    
+    # 3. Wait loop
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        # Check for cancellation
+        if is_cancelled_fn and is_cancelled_fn():
+            stop_event.set()
+            break
+            
+        # Check if Zeroconf listener got it
+        if zc and listener.ip_address and listener.port:
+            result["ip"] = listener.ip_address
+            result["port"] = listener.port
+            stop_event.set()
+            break
+            
+        # Check if dns-sd got it
+        if result["ip"] and result["port"]:
+            break
+            
+        time.sleep(0.25)
+        
+    stop_event.set()
+    if browser:
+        try:
+            browser.cancel()
+        except Exception:
+            pass
+    if zc:
+        try:
+            zc.close()
+        except Exception:
+            pass
+            
+    return result["ip"], result["port"]
+
+def run_qr_pairing_flow(service_name, password):
+    global qr_pairing_state
+    try:
+        # 1. Discover the phone's pairing service
+        ip, port = discover_adb_service_hybrid(
+            "_adb-tls-pairing._tcp.local.",
+            target_substring=service_name,
+            timeout=45.0,
+            is_cancelled_fn=lambda: qr_pairing_state["status"] != "waiting"
+        )
+        
+        if qr_pairing_state["status"] != "waiting":
+            return # Cancelled or reset
+            
+        if not ip or not port:
+            qr_pairing_state["status"] = "error"
+            qr_pairing_state["message"] = "Scanning timeout. Please try generating a new QR code."
+            return
+            
+        # 2. Phone discovered, initiate pairing
+        qr_pairing_state["status"] = "pairing"
+        qr_pairing_state["message"] = f"Phone discovered at {ip}. Pairing..."
+        
+        ip_port = f"{ip}:{port}"
+        res_pair = subprocess.run(["adb", "pair", ip_port, password], capture_output=True, text=True, timeout=15)
+        stdout = res_pair.stdout or ""
+        stderr = res_pair.stderr or ""
+        
+        if "successfully paired to" not in stdout.lower() and "successfully paired to" not in stderr.lower():
+            qr_pairing_state["status"] = "error"
+            qr_pairing_state["message"] = f"Pairing failed: {stdout.strip()} {stderr.strip()}"
+            return
+            
+        # 3. Pairing succeeded
+        ConnectPhone.save_last_ip(ip)
+        qr_pairing_state["message"] = "Successfully paired! Discovering connection port..."
+        
+        # 4. Discover connecting service on the phone
+        conn_ip, conn_port = discover_adb_service_hybrid(
+            "_adb-tls-connect._tcp.local.",
+            target_ip=ip,
+            timeout=15.0,
+            is_cancelled_fn=lambda: qr_pairing_state["status"] not in ("pairing", "waiting")
+        )
+        
+        if qr_pairing_state["status"] not in ("pairing", "waiting"):
+            return # Cancelled
+            
+        if not conn_port:
+            qr_pairing_state["message"] = "mDNS port timeout. Scanning ports..."
+            target_port = scan_wireless_debug_port(ip)
+        else:
+            target_port = conn_port
+            
+        if target_port:
+            conn_ip_port = f"{ip}:{target_port}"
+            # Disconnect any old bindings first
+            subprocess.run(["adb", "disconnect", conn_ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            res_conn = subprocess.run(["adb", "connect", conn_ip_port], capture_output=True, text=True)
+            conn_out = res_conn.stdout or ""
+            if "connected to" in conn_out.lower() or "already connected to" in conn_out.lower():
+                qr_pairing_state["status"] = "connected"
+                qr_pairing_state["message"] = f"Successfully auto-connected to phone at {conn_ip_port}!"
+            else:
+                qr_pairing_state["status"] = "error"
+                qr_pairing_state["message"] = f"Paired successfully, but connection failed on port {target_port}: {conn_out.strip()}"
+        else:
+            qr_pairing_state["status"] = "error"
+            qr_pairing_state["message"] = "Paired successfully, but could not discover active connection port."
+            
+    except Exception as e:
+        qr_pairing_state["status"] = "error"
+        qr_pairing_state["message"] = f"Exception: {e}"
+
 def stop_scrcpy_bg():
     global scrcpy_proc, scrcpy_state
     if scrcpy_proc:
@@ -336,6 +649,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/api/settings/audio_devices':
             devices = ConnectPhone.get_macos_audio_devices()
             self.wfile.write(json.dumps({"success": True, "devices": devices}).encode('utf-8'))
+        elif self.path == '/api/pair/qr/status':
+            self.wfile.write(json.dumps({
+                "status": qr_pairing_state["status"],
+                "message": qr_pairing_state["message"]
+            }).encode('utf-8'))
         else:
             self.wfile.write(json.dumps({"error": "Unknown GET endpoint"}).encode('utf-8'))
 
@@ -361,7 +679,42 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         res_data = {"success": False, "message": ""}
         
         try:
-            if self.path == '/api/connect':
+            if self.path == '/api/pair/qr/start':
+                import qrcode
+                import io
+                import base64
+                import secrets
+                
+                alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+                service_name = "adb-cli-" + "".join(secrets.choice(alphabet) for _ in range(6))
+                password = "".join(secrets.choice(alphabet) for _ in range(6))
+                payload = f"WIFI:T:ADB;S:{service_name};P:{password};;"
+                
+                img = qrcode.make(payload)
+                buffered = io.BytesIO()
+                img.save(buffered, format="PNG")
+                qr_base64 = "data:image/png;base64," + base64.b64encode(buffered.getvalue()).decode('utf-8')
+                
+                qr_pairing_state["status"] = "waiting"
+                qr_pairing_state["message"] = "Ready to scan. Waiting for phone..."
+                qr_pairing_state["service_name"] = service_name
+                qr_pairing_state["password"] = password
+                
+                t = threading.Thread(target=run_qr_pairing_flow, args=(service_name, password))
+                t.daemon = True
+                t.start()
+                
+                res_data["success"] = True
+                res_data["image"] = qr_base64
+                res_data["message"] = "QR Code generated successfully. Scan it on your phone."
+                
+            elif self.path == '/api/pair/qr/cancel':
+                qr_pairing_state["status"] = "idle"
+                qr_pairing_state["message"] = "Pairing cancelled."
+                res_data["success"] = True
+                res_data["message"] = "Pairing process cancelled."
+
+            elif self.path == '/api/connect':
                 ip = data.get("ip", "").strip()
                 port = data.get("port", "5555").strip()
                 if not ip:
@@ -397,9 +750,17 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         except Exception:
                             return False
                     
-                    # 1. Check default port 5555 first
+                    # 1. Try mDNS discovery first for up to 1.5 seconds (extremely fast and lightweight)
+                    _, mdns_port = discover_adb_service_hybrid(
+                        "_adb-tls-connect._tcp.local.",
+                        target_ip=ip,
+                        timeout=1.5
+                    )
+                    
                     target_port = None
-                    if check_single_port(ip, 5555, 0.2):
+                    if mdns_port:
+                        target_port = mdns_port
+                    elif check_single_port(ip, 5555, 0.2):
                         target_port = 5555
                     else:
                         # 2. Concurrently scan dynamic range 30000 to 48000

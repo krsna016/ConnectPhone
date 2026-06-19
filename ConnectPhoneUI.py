@@ -377,6 +377,59 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     else:
                         res_data["message"] = f"Connection failed: {stdout.strip()}"
                         
+            elif self.path == '/api/connect/auto':
+                config = ConnectPhone.load_config()
+                ip = config.get("last_ip", "").strip()
+                if not ip:
+                    res_data["success"] = False
+                    res_data["message"] = "No previously paired IP address found in config. Connect manually first."
+                else:
+                    import socket
+                    import concurrent.futures
+                    
+                    def check_single_port(ip_addr, port_num, timeout_val):
+                        try:
+                            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            s.settimeout(timeout_val)
+                            result = s.connect_ex((ip_addr, port_num))
+                            s.close()
+                            return result == 0
+                        except Exception:
+                            return False
+                    
+                    # 1. Check default port 5555 first
+                    target_port = None
+                    if check_single_port(ip, 5555, 0.2):
+                        target_port = 5555
+                    else:
+                        # 2. Concurrently scan dynamic range 30000 to 48000
+                        ports = list(range(30000, 48000 + 1))
+                        found_port = None
+                        
+                        def worker(port):
+                            nonlocal found_port
+                            if found_port is not None:
+                                return
+                            if check_single_port(ip, port, 0.08):
+                                found_port = port
+                                
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=350) as executor:
+                            executor.map(worker, ports)
+                        target_port = found_port
+                    
+                    if target_port:
+                        ip_port = f"{ip}:{target_port}"
+                        subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+                        stdout = res.stdout or ""
+                        if "connected to" in stdout.lower() or "already connected to" in stdout.lower():
+                            res_data["success"] = True
+                            res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
+                        else:
+                            res_data["message"] = f"Port {target_port} found open, but connection failed: {stdout.strip()}"
+                    else:
+                        res_data["message"] = f"Auto-connect failed. No active wireless debugging ports found open on {ip}."
+                        
             elif self.path == '/api/disconnect':
                 res = subprocess.run(["adb", "disconnect"], capture_output=True, text=True)
                 res_data["success"] = True

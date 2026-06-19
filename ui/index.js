@@ -428,6 +428,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Settings Connections Bindings
+    const btnAutoConnect = document.getElementById('btn-conn-autoconnect');
+    if (btnAutoConnect) {
+        btnAutoConnect.addEventListener('click', () => {
+            showToast('Auto-scanning ports & connecting...', 'info');
+            postAction('/api/connect/auto');
+        });
+    }
+
     document.getElementById('btn-conn-connect').addEventListener('click', () => {
         const ip = document.getElementById('conn-ip').value.trim();
         const port = document.getElementById('conn-port').value.trim();

@@ -470,6 +470,11 @@ body {
     box-shadow: 0 4px 15px rgba(0, 217, 245, 0.25);
 }
 
+.btn-autoconnect {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
 .btn-danger {
     background-color: rgba(255, 90, 121, 0.15);
     border-color: rgba(255, 90, 121, 0.3);

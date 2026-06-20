@@ -1361,7 +1361,7 @@ body {
     background-color: var(--bg-card);
     border-radius: 12px;
     padding: 12px 16px;
-    box-shadow: var(--neu-inset);
+    box-shadow: var(--neu-extrude);
     border: none;
 }
 

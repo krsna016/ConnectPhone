@@ -191,26 +191,33 @@ document.addEventListener('DOMContentLoaded', () => {
                             const battery = match[2];
                             const storage = match[3];
                             
-                            activeDetailsBox.innerHTML = `
-                                <div class="active-device-details">
-                                    <div class="detail-item">
-                                        <span><i class="material-symbols-outlined">smartphone</i> Device Model</span>
-                                        <p>${model}</p>
-                                    </div>
-                                    <div class="detail-item">
-                                        <span><i class="material-symbols-outlined">battery_full</i> Battery Level</span>
-                                        <p>${battery}</p>
-                                    </div>
-                                    <div class="detail-item">
-                                        <span><i class="material-symbols-outlined">save</i> Available Storage</span>
-                                        <p>${storage}</p>
-                                    </div>
-                                    <div class="detail-item">
-                                        <span><i class="material-symbols-outlined">public</i> IP Address / Serial</span>
-                                        <p>${data.devices[0] || 'USB Connection'}</p>
-                                    </div>
-                                </div>
-                            `;
+                                    let displayActiveSerial = data.devices[0] || 'USB Connection';
+                                    if (displayActiveSerial.includes('._adb-tls-connect._tcp')) {
+                                        displayActiveSerial = displayActiveSerial.replace('._adb-tls-connect._tcp', '');
+                                        if (displayActiveSerial.startsWith('adb-')) displayActiveSerial = displayActiveSerial.substring(4);
+                                        displayActiveSerial = 'ID: ' + displayActiveSerial;
+                                    }
+                                    
+                                    activeDetailsBox.innerHTML = `
+                                        <div class="active-device-details">
+                                            <div class="detail-item">
+                                                <span><i class="material-symbols-outlined">smartphone</i> Device Model</span>
+                                                <p>${model}</p>
+                                            </div>
+                                            <div class="detail-item">
+                                                <span><i class="material-symbols-outlined">battery_full</i> Battery Level</span>
+                                                <p>${battery}</p>
+                                            </div>
+                                            <div class="detail-item">
+                                                <span><i class="material-symbols-outlined">save</i> Available Storage</span>
+                                                <p>${storage}</p>
+                                            </div>
+                                            <div class="detail-item">
+                                                <span><i class="material-symbols-outlined">public</i> IP Address / Serial</span>
+                                                <p>${displayActiveSerial}</p>
+                                            </div>
+                                        </div>
+                                    `;
                         } else {
                             activeDetailsBox.innerHTML = `<p class="status-placeholder">${cleanInfo}</p>`;
                         }
@@ -243,12 +250,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     const icon = isWireless ? '<i class="material-symbols-outlined">wifi</i>' : '<i class="material-symbols-outlined">cable</i>';
                     const statusText = device.status === 'device' ? 'online' : (device.status === 'unauthorized' ? 'unauthorized' : 'offline');
                     
+                    let displaySerial = device.serial;
+                    if (displaySerial.includes('._adb-tls-connect._tcp')) {
+                        displaySerial = displaySerial.replace('._adb-tls-connect._tcp', '');
+                        if (displaySerial.startsWith('adb-')) displaySerial = displaySerial.substring(4);
+                        displaySerial = 'ID: ' + displaySerial;
+                    }
+                    
                     row.innerHTML = `
                         <div class="device-info-left">
                             <span class="device-type-icon">${icon}</span>
                             <div class="device-meta">
                                 <h4>${device.model}</h4>
-                                <p>${device.serial} (${isWireless ? 'Wi-Fi' : 'USB'})</p>
+                                <p>${displaySerial} (${isWireless ? 'Wi-Fi' : 'USB'})</p>
                             </div>
                         </div>
                         <div class="device-info-right">

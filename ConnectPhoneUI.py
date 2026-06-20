@@ -1202,7 +1202,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 devices = ConnectPhone.check_adb_devices()
                 is_wireless = any(":" in d for d in devices) if devices else False
 
-                cmd = ["scrcpy"]
+                cmd = ["scrcpy", "--window-title", "ConnectPhone"]
                 a_buf = config.get("audio_buffer", "100")
                 cmd.append(f"--audio-buffer={a_buf}")
                 

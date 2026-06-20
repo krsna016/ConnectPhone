@@ -184,7 +184,7 @@ def run_scrcpy(args, is_camera=False):
 
         config = load_config()
         a_buf = config.get("audio_buffer", "100")
-        cmd = ["scrcpy", f"--audio-buffer={a_buf}"] + args
+        cmd = ["scrcpy", "--window-title", "ConnectPhone", f"--audio-buffer={a_buf}"] + args
         print(f"\n🚀 Running: {' '.join(cmd)}")
         print(f"{YELLOW}💡 Useful Tips:{RESET}")
         print(f"  👉 {BOLD}Flip Horizontally on-the-fly{RESET}: Press {CYAN}Alt + Shift + Left or Right Arrow{RESET} while the scrcpy window is active.")
@@ -881,7 +881,7 @@ def run_mirroring_flow(mode, config):
             if config.get("screen_off_enabled", False):
                 print(f"\n{YELLOW}🔑 Phone is locked. Launching scrcpy first to keep physical screen off...{RESET}")
                 try:
-                    cmd = ["scrcpy"] + args
+                    cmd = ["scrcpy", "--window-title", "ConnectPhone"] + args
                     print(f"\n🚀 Running: {' '.join(cmd)}")
                     print(f"{YELLOW}💡 Useful Tips:{RESET}")
                     print(f"  👉 {BOLD}Flip Horizontally on-the-fly{RESET}: Press {CYAN}Alt + Shift + Left or Right Arrow{RESET} while the scrcpy window is active.")

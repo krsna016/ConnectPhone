@@ -16,6 +16,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const headerDevice = document.getElementById('header-device-info');
     const btnRefresh = document.getElementById('btn-refresh');
     const toastContainer = document.getElementById('toast-container');
+    const btnHeaderUnlock = document.getElementById('btn-header-unlock');
+    const btnPhoneUnlock = document.getElementById('btn-phone-unlock');
     
     // Camera Control Elements
     const cameraOverlay = document.getElementById('camera-overlay');
@@ -131,10 +133,14 @@ document.addEventListener('DOMContentLoaded', () => {
             connStatus.className = 'connection-badge connected';
             connStatusText.textContent = 'Connected';
             headerDevice.textContent = cleanInfo || "Connected Device";
+            if (btnHeaderUnlock) btnHeaderUnlock.style.display = 'inline-flex';
+            if (btnPhoneUnlock) btnPhoneUnlock.disabled = false;
         } else {
             connStatus.className = 'connection-badge disconnected';
             connStatusText.textContent = 'Disconnected';
             headerDevice.textContent = 'Connection Center 🔗 Connect using USB or Wi-Fi IP';
+            if (btnHeaderUnlock) btnHeaderUnlock.style.display = 'none';
+            if (btnPhoneUnlock) btnPhoneUnlock.disabled = true;
         }
 
         // Populate ADB devices list in Connection Center
@@ -822,6 +828,21 @@ document.addEventListener('DOMContentLoaded', () => {
         btnCallHangup.addEventListener('click', () => {
             showToast("Ending call / rejecting...", "info");
             postAction('/api/device/call/hangup');
+        });
+    }
+
+    // Touch ID Unlock Button Listeners
+    if (btnHeaderUnlock) {
+        btnHeaderUnlock.addEventListener('click', () => {
+            showToast("Prompting Touch ID on Mac to unlock phone...", "info");
+            postAction('/api/device/unlock');
+        });
+    }
+
+    if (btnPhoneUnlock) {
+        btnPhoneUnlock.addEventListener('click', () => {
+            showToast("Prompting Touch ID on Mac to unlock phone...", "info");
+            postAction('/api/device/unlock');
         });
     }
 

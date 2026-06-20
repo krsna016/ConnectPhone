@@ -1230,6 +1230,20 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 success, msg = hangup_device_call()
                 res_data["success"] = success
                 res_data["message"] = msg
+            elif self.path == '/api/device/unlock':
+                config = ConnectPhone.load_config()
+                android_pin = config.get("android_pin", "")
+                if not android_pin:
+                    res_data["success"] = False
+                    res_data["message"] = "Android Backup PIN is not configured. Please enter your PIN in Preferences."
+                else:
+                    def run_touch_id_auth():
+                        ConnectPhone.unlock_device_with_touch_id(config, interactive=False)
+                    t_auth = threading.Thread(target=run_touch_id_auth)
+                    t_auth.daemon = True
+                    t_auth.start()
+                    res_data["success"] = True
+                    res_data["message"] = "Touch ID verification triggered! Verify fingerprint on Mac."
                 
             elif self.path == '/api/settings/save':
                 config = ConnectPhone.load_config()

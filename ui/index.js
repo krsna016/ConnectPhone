@@ -873,15 +873,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     data.files.forEach(filepath => {
                         const filename = filepath.split('/').pop();
                         const div = document.createElement('div');
-                        div.className = 'device-item';
+                        div.className = 'device-row';
+                        // Remove the hover animation by un-setting cursor if we just want it to be a list item
+                        div.style.cursor = 'default';
                         div.innerHTML = `
-                            <div class="device-item-info">
-                                <span class="device-item-icon">🖼️</span>
-                                <div class="device-item-text">
-                                    <div class="device-item-serial">${filename}</div>
+                            <div class="device-info-left">
+                                <span class="device-type-icon">🖼️</span>
+                                <div class="device-meta">
+                                    <h4>${filename}</h4>
                                 </div>
                             </div>
-                            <button class="btn btn-sm btn-primary">⬇️ Pull</button>
+                            <div class="device-info-right">
+                                <button class="btn btn-sm btn-primary">⬇️ Pull</button>
+                            </div>
                         `;
                         const pullBtn = div.querySelector('button');
                         pullBtn.addEventListener('click', async () => {

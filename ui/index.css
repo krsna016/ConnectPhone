@@ -623,10 +623,22 @@ body {
     align-items: start;
 }
 
+.settings-card h3 {
+    margin-top: 16px;
+    margin-bottom: 12px;
+    color: var(--color-primary);
+}
+
 .settings-card h4 {
     font-family: var(--font-heading);
     font-size: 14px;
     margin: 16px 0 8px 0;
+}
+
+.settings-card p {
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 12px;
 }
 
 .settings-form {
@@ -1237,27 +1249,43 @@ body {
     display: flex;
     align-items: center;
     gap: 14px;
+    min-width: 0; /* Important for flex children to allow text-overflow */
+    flex: 1; /* Allow left side to take remaining space */
 }
 
 .device-type-icon {
     font-size: 20px;
+    flex-shrink: 0;
+}
+
+.device-meta {
+    min-width: 0; /* Required for text-overflow to work inside flex */
 }
 
 .device-meta h4 {
     margin: 0 0 4px 0;
     font-size: 14px;
     font-family: var(--font-heading);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .device-meta p {
     margin: 0;
     font-size: 11px;
     color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .device-info-right {
     display: flex;
     align-items: center;
+    flex-shrink: 0; /* Prevent the button from shrinking */
+    margin-left: 12px;
+
     gap: 12px;
 }
 

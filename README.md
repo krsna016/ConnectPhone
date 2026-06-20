@@ -1,22 +1,29 @@
 # 📱 ConnectPhone
+<p align="center">
+  <img src="ui/logo.png" alt="ConnectPhone Logo" width="300" style="border-radius:24px;">
+</p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-blue.svg)]()
 [![Backend: Python 3](https://img.shields.io/badge/Language-Python%203-blue.svg)]()
 [![Bridges: Swift](https://img.shields.io/badge/Bridges-Swift-orange.svg)]()
 
-`ConnectPhone` is an industry-grade integration engine and desktop dashboard designed to seamlessly bridge your Android device with macOS. It leverages high-performance screen/camera mirroring (`scrcpy` core) and custom native macOS bindings (Swift APIs) to deliver bi-directional media controls, live HD recording, instant snapshotting, and real-time system metrics.
+## 📖 About The Project
 
-The software offers both an **interactive Terminal CLI Command Center** and a **Web UI Dashboard** loaded with visual stats, audio controls, and low-latency preference managers.
+`ConnectPhone` is an industry-grade integration engine and desktop dashboard designed to seamlessly bridge your Android device with macOS. Born from the need for a developer-centric, low-latency testing environment, it brings mobile app debugging, screen streaming, and system telemetry into a single, beautifully designed application.
+
+The project merges high-performance backend pipelines (`scrcpy` and `adb` cores) with a cutting-edge **Neumorphic, Dark-Mode User Interface**. It is built for developers, QA engineers, and content creators who need pixel-perfect mirroring, custom audio routing, and instant recording capabilities directly from their Mac.
 
 ---
 
 ## 🚀 Key Features
 
-* **🖥️ Screen & Camera Mirroring**: High-fidelity, low-latency screen and camera previews via USB or Wireless Debugging utilizing customized `scrcpy` pipes.
-* **🎙️ Audio Selection & Calibration**: Route sound from your phone's microphone, system audio, or Mac earbuds/bluetooth devices. Features dynamic audio buffer adjustments and sync offsets to eliminate latency desync.
-* **🎥 Live Media Controls**: Capture high-definition video clips or snapshot framebuffers directly from the mirroring stream to your Mac Desktop with a single click or keyboard command.
-* **📈 Live Device Metrics & Diagnostics**: View real-time device stats, battery wear, memory allocation, and connection status in a clean visual format.
+* **🖥️ Native macOS App Experience**: Run ConnectPhone as a standalone, windowed macOS Application (`.app`) without touching a terminal.
+* **📱 Zero-Latency Mirroring**: High-fidelity screen and camera previews via USB or Wireless Debugging utilizing customized `scrcpy` pipes.
+* **🎙️ Advanced Audio Routing**: Route sound from your phone's microphone, system audio, or Mac earbuds/bluetooth devices. Features dynamic audio buffer adjustments and sync offsets.
+* **🎥 Live Media Controls**: Capture high-definition video clips or snapshot framebuffers directly from the mirroring stream to your Mac Desktop with a single click.
+* **📊 Live System Telemetry**: View real-time device stats, battery wear, memory allocation, and connection status inside the sleek visual dashboard.
+* **🎨 Premium Dev-Aesthetic**: A stunning dark-mode UI with Space Grotesk typography, micro-animations, glowing metallic gradients, and Neumorphic design elements.
 
 ---
 
@@ -37,7 +44,7 @@ brew install android-platform-tools scrcpy ffmpeg
 
 ---
 
-## 🛠️ Installation & First-Time Setup
+## 🛠️ Installation & Setup
 
 1. **Clone the Repository**:
    ```bash
@@ -54,38 +61,46 @@ brew install android-platform-tools scrcpy ffmpeg
 
 ---
 
-## 🕹️ Project Architecture & Components
+## 🖥️ Running the Application
 
+### Option A: Standalone macOS App (Recommended)
+You can compile the Python UI into a native macOS `.app` bundle with a custom dock icon!
+```bash
+chmod +x build_mac.sh
+./build_mac.sh
 ```
-ConnectPhone/
-├── ConnectPhone.py         # Main Interactive Terminal CLI Command Center
-├── ConnectPhoneUI.py       # Local Web Dashboard Server (Python http.server)
-├── get_window_id.swift     # Swift source referencing Quartz Window Services
-├── requirements.txt         # Documentation of dependencies
-├── LICENSE                 # MIT License details
-└── ui/                     # Web UI Frontend Assets
-    ├── index.html          # Web dashboard structure
-    ├── index.css           # Vanilla CSS layout with premium design tokens
-    └── index.js            # Frontend control behaviors and metrics polling
+Once complete, you will find `ConnectPhone.app` in the `dist/` directory. Simply double-click it or drag it to your Applications folder!
+
+### Option B: Python Native Window
+Run the UI directly through PyWebView to spawn a native window:
+```bash
+python3 ConnectPhoneUI.py
+```
+
+### Option C: The Terminal Command Center
+Run the legacy interactive CLI command deck:
+```bash
+python3 ConnectPhone.py
 ```
 
 ---
 
-## 🖥️ Running the Application
+## 🕹️ Project Architecture
 
-### Option A: The Web Dashboard (Recommended)
-Launch the premium web interface containing live metrics, diagnostics, preferences, and connection configurations:
-```bash
-python3 ConnectPhoneUI.py
 ```
-This starts a lightweight server and opens http://localhost:8282 in your default browser.
-
-### Option B: The Terminal Command Center
-Run the interactive CLI command deck:
-```bash
-python3 ConnectPhone.py
+ConnectPhone/
+├── ConnectPhone.py         # Main Interactive Terminal CLI Command Center
+├── ConnectPhoneUI.py       # Desktop App Entry (PyWebView / HTTP Server)
+├── build_mac.sh            # macOS PyInstaller build script for .app generation
+├── get_window_id.swift     # Swift source referencing Quartz Window Services
+├── requirements.txt        # Documentation of dependencies
+├── LICENSE                 # MIT License details
+└── ui/                     # Web UI Frontend Assets
+    ├── index.html          # Web dashboard structure
+    ├── index.css           # Neumorphic CSS layout with premium design tokens
+    ├── index.js            # Frontend control behaviors and metrics polling
+    └── logo.png            # Official app branding
 ```
-This launches a command menu to test screen mirroring, run diagnostic logs, and adjust preferences.
 
 ---
 

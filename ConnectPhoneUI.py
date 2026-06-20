@@ -1762,7 +1762,7 @@ def run_server():
             print(f"\nℹ️ ConnectPhone UI Dashboard is already running on http://localhost:{PORT}")
             try:
                 import webview
-                webview.create_window('ConnectPhone Dashboard', f"http://localhost:{PORT}", width=1300, height=850, frameless=False)
+                webview.create_window('ConnectPhone Dashboard', f"http://localhost:{PORT}", width=1450, height=950, frameless=False)
                 webview.start()
             except ImportError:
                 webbrowser.open(f"http://localhost:{PORT}")
@@ -1793,7 +1793,7 @@ def run_server():
     try:
         import webview
         # Open as dedicated desktop app window
-        webview.create_window('ConnectPhone Dashboard', f"http://localhost:{PORT}", width=1300, height=850, frameless=False)
+        webview.create_window('ConnectPhone Dashboard', f"http://localhost:{PORT}", width=1450, height=950, frameless=False)
         webview.start()
     except ImportError:
         print("💡 pywebview not found, falling back to standard web browser.")

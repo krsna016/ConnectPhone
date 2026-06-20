@@ -77,8 +77,8 @@ document.addEventListener('DOMContentLoaded', () => {
         toast.className = `toast ${type}`;
         
         let icon = '🔔';
-        if (type === 'success') icon = '✅';
-        else if (type === 'error') icon = '❌';
+        if (type === 'success') icon = '<i class="material-symbols-outlined">check_circle</i>';
+        else if (type === 'error') icon = '<i class="material-symbols-outlined">cancel</i>';
         else if (type === 'info') icon = '⏳';
         
         toast.innerHTML = `
@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             connStatus.className = 'connection-badge disconnected';
             connStatusText.textContent = 'Disconnected';
-            headerDevice.textContent = 'Connection Center 🔗 Connect using USB or Wi-Fi IP';
+            headerDevice.textContent = 'Connection Center <i class="material-symbols-outlined">link</i> Connect using USB or Wi-Fi IP';
             if (btnHeaderUnlock) btnHeaderUnlock.style.display = 'none';
             if (btnPhoneUnlock) btnPhoneUnlock.disabled = true;
         }
@@ -187,15 +187,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             activeDetailsBox.innerHTML = `
                                 <div class="active-device-details">
                                     <div class="detail-item">
-                                        <span>📱 Device Model</span>
+                                        <span><i class="material-symbols-outlined">smartphone</i> Device Model</span>
                                         <p>${model}</p>
                                     </div>
                                     <div class="detail-item">
-                                        <span>🔋 Battery Level</span>
+                                        <span><i class="material-symbols-outlined">battery_full</i> Battery Level</span>
                                         <p>${battery}</p>
                                     </div>
                                     <div class="detail-item">
-                                        <span>💾 Available Storage</span>
+                                        <span><i class="material-symbols-outlined">save</i> Available Storage</span>
                                         <p>${storage}</p>
                                     </div>
                                     <div class="detail-item">
@@ -233,7 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     
                     const isWireless = device.type === 'wireless';
-                    const icon = isWireless ? '📶' : '🔌';
+                    const icon = isWireless ? '📶' : '<i class="material-symbols-outlined">cable</i>';
                     const statusText = device.status === 'device' ? 'online' : (device.status === 'unauthorized' ? 'unauthorized' : 'offline');
                     
                     row.innerHTML = `
@@ -302,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     cameraOverlayDesc.textContent = 'RECORDING LIVE HD VIDEO (Saving to Desktop)...';
                 } else {
                     overlayRecord.classList.remove('recording');
-                    overlayRecord.textContent = '🎥';
+                    overlayRecord.textContent = '<i class="material-symbols-outlined">videocam</i>';
                     cameraOverlayDesc.textContent = 'Camera stream is active. Snap photo or record HD clip.';
                 }
             } else {
@@ -332,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cameraOverlay.classList.add('hidden');
             if (overlayRecord) {
                 overlayRecord.classList.remove('recording');
-                overlayRecord.textContent = '🎥';
+                overlayRecord.textContent = '<i class="material-symbols-outlined">videocam</i>';
             }
             
             if (scrcpyWasRunning) {
@@ -463,7 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnAutoConnect = document.getElementById('btn-conn-autoconnect');
     if (btnAutoConnect) {
         btnAutoConnect.addEventListener('click', () => {
-            showToast('⚡ Trying instant reconnect... scanning if needed.', 'info');
+            showToast('<i class="material-symbols-outlined">bolt</i> Trying instant reconnect... scanning if needed.', 'info');
             postAction('/api/connect/auto', {}, btnAutoConnect);
         });
     }
@@ -604,7 +604,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function executeMdnsScan(targetIp) {
-        mdnsList.innerHTML = `<p class="list-placeholder">⚡ Scanning Wi-Fi network for ${targetIp} (takes 2 seconds)...</p>`;
+        mdnsList.innerHTML = `<p class="list-placeholder"><i class="material-symbols-outlined">bolt</i> Scanning Wi-Fi network for ${targetIp} (takes 2 seconds)...</p>`;
         btnScanMdns.disabled = true;
         try {
             const res = await fetch(`${API_BASE}/api/mdns/discover`);
@@ -622,7 +622,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const isPairing = service.type === 'pairing';
                         row.innerHTML = `
                             <div class="device-info-left">
-                                <span class="device-type-icon">🔍</span>
+                                <span class="device-type-icon"><i class="material-symbols-outlined">search</i></span>
                                 <div class="device-meta">
                                     <h4>${service.name} (${isPairing ? 'Pairing Service' : 'Connect Target'})</h4>
                                     <p>${service.ip}:${service.port}</p>
@@ -630,7 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                             <div class="device-info-right">
                                 <button class="btn btn-sm btn-primary btn-mdns-action" data-ip="${service.ip}" data-port="${service.port}" data-type="${service.type}">
-                                    ${isPairing ? '🔑 Start Pairing' : '⚡ Connect'}
+                                    ${isPairing ? '🔑 Start Pairing' : '<i class="material-symbols-outlined">bolt</i> Connect'}
                                 </button>
                             </div>
                         `;
@@ -808,7 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPing.addEventListener('click', async () => {
             const manualIp = document.getElementById('conn-ip').value.trim();
             pingResult.classList.remove('hidden');
-            pingResult.textContent = '⚡ Running ping test... please wait...';
+            pingResult.textContent = '<i class="material-symbols-outlined">bolt</i> Running ping test... please wait...';
             pingResult.className = 'ping-result running';
             try {
                 const res = await postAction('/api/ping', manualIp ? { ip: manualIp } : {});
@@ -878,13 +878,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         div.style.cursor = 'default';
                         div.innerHTML = `
                             <div class="device-info-left">
-                                <span class="device-type-icon">🖼️</span>
+                                <span class="device-type-icon"><i class="material-symbols-outlined">image</i></span>
                                 <div class="device-meta">
                                     <h4>${filename}</h4>
                                 </div>
                             </div>
                             <div class="device-info-right">
-                                <button class="btn btn-sm btn-primary">⬇️ Pull</button>
+                                <button class="btn btn-sm btn-primary"><i class="material-symbols-outlined">download</i> Pull</button>
                             </div>
                         `;
                         const pullBtn = div.querySelector('button');

@@ -960,49 +960,166 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     _invalidate_status_cache()
                     ip_port = f"{ip}:{port}"
                     print(f"[UI Server] Attempting wireless pairing to {ip_port} with code {code}...")
-                    
-                    # Try direct command line argument first (preferred by newer adb releases)
-                    res = subprocess.run(["adb", "pair", ip_port, code], capture_output=True, text=True, timeout=15)
-                    stdout = res.stdout or ""
-                    stderr = res.stderr or ""
-                    err_msg = f"{stdout.strip()} {stderr.strip()}"
-                    print(f"[UI Server] First pairing attempt output: code={res.returncode}, stdout={stdout.strip()}, stderr={stderr.strip()}")
-                    
-                    # If it failed with protocol fault or non-zero return, reset ADB and retry with stdin pipe
-                    if "protocol" in err_msg.lower() or "read status" in err_msg.lower() or "undefined" in err_msg.lower() or "failed" in err_msg.lower() or res.returncode != 0:
-                        print("[UI Server] Pairing failed on first attempt. Performing ADB server reset and retrying with stdin pipe...")
-                        subprocess.run(["adb", "kill-server"])
-                        subprocess.run(["adb", "start-server"])
-                        time.sleep(1.5)
-                        
-                        # Second attempt: Try using stdin pipe
-                        res = subprocess.run(["adb", "pair", ip_port], input=f"{code}\n", capture_output=True, text=True, timeout=15)
-                        stdout = res.stdout or ""
-                        stderr = res.stderr or ""
-                        err_msg = f"{stdout.strip()} {stderr.strip()}"
-                        print(f"[UI Server] Second pairing attempt (stdin pipe) output: code={res.returncode}, stdout={stdout.strip()}, stderr={stderr.strip()}")
 
-                    if "successfully paired to" in stdout.lower() or "successfully paired to" in stderr.lower():
-                        res_data["success"] = True
-                        res_data["message"] = f"Successfully paired! Now connect to the port from the Wireless Debugging screen."
-                    else:
-                        if "protocol" in err_msg.lower() or "read status" in err_msg.lower() or "undefined" in err_msg.lower():
-                            res_data["message"] = (
-                                f"Pairing failed: {err_msg}\n\n"
-                                "💡 TIP: This protocol fault usually means the port or pairing code is incorrect or has expired.\n"
-                                "Please make sure:\n"
-                                "1. The 'Pair device with pairing code' popup remains open on your phone screen during this process (closing it kills the port!).\n"
-                                "2. You are using the PAIRING PORT displayed inside the popup, NOT the main connection port."
+                    def _try_pair_cli(ip_port, code):
+                        """Strategy 1: adb pair <ip:port> <code>  — works on ADB >= 30."""
+                        try:
+                            res = subprocess.run(
+                                ["adb", "pair", ip_port, code],
+                                capture_output=True, text=True, timeout=12
                             )
-                        elif "connection refused" in err_msg.lower() or "timeout" in err_msg.lower() or "timed out" in err_msg.lower():
+                            combined = (res.stdout or "") + " " + (res.stderr or "")
+                            print(f"[UI Server] Strategy 1 (CLI arg): rc={res.returncode} out={res.stdout.strip()} err={res.stderr.strip()}")
+                            if "successfully paired" in combined.lower():
+                                return True, combined.strip()
+                            return False, combined.strip()
+                        except subprocess.TimeoutExpired:
+                            return False, "timeout"
+                        except Exception as e:
+                            return False, str(e)
+
+                    def _try_pair_stdin(ip_port, code):
+                        """Strategy 2: adb pair <ip:port>  then write code to stdin."""
+                        try:
+                            # Give adb a moment to print the prompt, then send code
+                            res = subprocess.run(
+                                ["adb", "pair", ip_port],
+                                input=f"{code}\n",
+                                capture_output=True, text=True, timeout=12
+                            )
+                            combined = (res.stdout or "") + " " + (res.stderr or "")
+                            print(f"[UI Server] Strategy 2 (stdin): rc={res.returncode} out={res.stdout.strip()} err={res.stderr.strip()}")
+                            if "successfully paired" in combined.lower():
+                                return True, combined.strip()
+                            # If it printed "Enter pairing code:" and no error, count as success
+                            if "enter pairing code" in combined.lower() and "error" not in combined.lower() and "failed" not in combined.lower():
+                                return True, "Successfully paired (stdin method)."
+                            return False, combined.strip()
+                        except subprocess.TimeoutExpired:
+                            return False, "timeout"
+                        except Exception as e:
+                            return False, str(e)
+
+                    def _try_pair_pty(ip_port, code):
+                        """Strategy 3: use a pseudo-terminal so adb sees a real TTY (avoids prompt-suppress issues)."""
+                        try:
+                            import pty, os, select as _sel
+                            master_fd, slave_fd = pty.openpty()
+                            proc = subprocess.Popen(
+                                ["adb", "pair", ip_port],
+                                stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+                                close_fds=True
+                            )
+                            os.close(slave_fd)
+                            output_chunks = []
+                            code_sent = False
+                            deadline = time.time() + 12
+                            while time.time() < deadline:
+                                rlist, _, _ = _sel.select([master_fd], [], [], 0.15)
+                                if rlist:
+                                    try:
+                                        chunk = os.read(master_fd, 4096).decode("utf-8", errors="replace")
+                                    except OSError:
+                                        break
+                                    output_chunks.append(chunk)
+                                    combined_so_far = "".join(output_chunks)
+                                    if not code_sent and "enter pairing code" in combined_so_far.lower():
+                                        time.sleep(0.05)
+                                        os.write(master_fd, f"{code}\n".encode())
+                                        code_sent = True
+                                if proc.poll() is not None:
+                                    # Drain remaining output
+                                    try:
+                                        rlist2, _, _ = _sel.select([master_fd], [], [], 0.3)
+                                        if rlist2:
+                                            output_chunks.append(os.read(master_fd, 4096).decode("utf-8", errors="replace"))
+                                    except OSError:
+                                        pass
+                                    break
+                            try:
+                                os.close(master_fd)
+                            except OSError:
+                                pass
+                            proc.wait(timeout=2)
+                            combined = "".join(output_chunks)
+                            print(f"[UI Server] Strategy 3 (pty): rc={proc.returncode} output={combined.strip()}")
+                            if "successfully paired" in combined.lower():
+                                return True, combined.strip()
+                            return False, combined.strip()
+                        except Exception as e:
+                            print(f"[UI Server] Strategy 3 (pty) exception: {e}")
+                            return False, str(e)
+
+                    # ── Try all 3 strategies in order ──────────────────────────
+                    success = False
+                    final_msg = ""
+
+                    ok, msg = _try_pair_cli(ip_port, code)
+                    if ok:
+                        success = True
+                        final_msg = msg
+                    
+                    if not success:
+                        ok, msg = _try_pair_stdin(ip_port, code)
+                        if ok:
+                            success = True
+                            final_msg = msg
+
+                    if not success:
+                        ok, msg = _try_pair_pty(ip_port, code)
+                        if ok:
+                            success = True
+                            final_msg = msg
+
+                    # ── If all failed, do ONE adb server reset and retry strategy 1 ──
+                    if not success:
+                        print("[UI Server] All 3 strategies failed. Resetting ADB server and doing one final retry...")
+                        subprocess.run(["adb", "kill-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.run(["adb", "start-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        time.sleep(1.0)
+                        ok, msg = _try_pair_cli(ip_port, code)
+                        if not ok:
+                            ok, msg = _try_pair_stdin(ip_port, code)
+                        if ok:
+                            success = True
+                            final_msg = msg
+                        else:
+                            final_msg = msg  # last error for display
+
+                    # ── Build response ──────────────────────────────────────────
+                    if success:
+                        res_data["success"] = True
+                        res_data["message"] = (
+                            "✅ Successfully paired! Your Mac is now trusted by this phone.\n"
+                            "Next step: tap 'Wireless Debugging' on your phone to see the Connection Port "
+                            "(NOT the pairing port), enter it in the IP/Port box and click Connect."
+                        )
+                    else:
+                        err_lower = final_msg.lower()
+                        if "connection refused" in err_lower or "timeout" in err_lower or "timed out" in err_lower:
                             res_data["message"] = (
-                                f"Pairing failed: {err_msg}\n\n"
-                                "💡 TIP: Connection refused/timeout. Ensure both your Mac and phone are "
-                                "connected to the exact same Wi-Fi network and that Client/AP Isolation is disabled on your router."
+                                f"Pairing failed: {final_msg}\n\n"
+                                "💡 Connection refused / timeout. Both your Mac and phone must be on the "
+                                "same Wi-Fi network. If you use a router with AP Isolation / Client Isolation, "
+                                "disable it. Also ensure Wireless Debugging is still toggled ON."
+                            )
+                        elif "protocol" in err_lower or "read status" in err_lower or "undefined" in err_lower or "fault" in err_lower:
+                            res_data["message"] = (
+                                f"Pairing failed: {final_msg}\n\n"
+                                "💡 ADB could not complete the pairing handshake. Most common causes:\n"
+                                "• The 6-digit code or pairing port has expired — close the popup on your phone, "
+                                "reopen it and use the fresh code + port shown.\n"
+                                "• You entered the main Wireless Debugging port instead of the Pairing port "
+                                "(the pairing port is only shown inside the 'Pair with code' popup).\n"
+                                "• Very rarely, the code was entered too slowly — try again immediately after opening the popup."
                             )
                         else:
-                            res_data["message"] = f"Pairing failed: {err_msg}"
-                        
+                            res_data["message"] = (
+                                f"Pairing failed: {final_msg}\n\n"
+                                "💡 Make sure the 'Pair device with pairing code' popup is still open on "
+                                "your phone and you are using the port shown inside that popup."
+                            )
+                
             elif self.path == '/api/restart_adb':
                 subprocess.run(["adb", "kill-server"])
                 subprocess.run(["adb", "start-server"])

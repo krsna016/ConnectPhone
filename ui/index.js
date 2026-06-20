@@ -400,6 +400,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (config.last_ip) {
             document.getElementById('conn-ip').value = config.last_ip;
         }
+        
+        // Populate saved IPs datalist
+        if (config.saved_ips && config.saved_ips.length > 0) {
+            const dataList = document.getElementById('saved-ips-list');
+            if (dataList) {
+                dataList.innerHTML = '';
+                config.saved_ips.forEach(ip => {
+                    const option = document.createElement('option');
+                    option.value = ip;
+                    dataList.appendChild(option);
+                });
+            }
+        }
     }
 
     // Post to endpoint helper (with button loading state)

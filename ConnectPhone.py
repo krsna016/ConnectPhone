@@ -125,6 +125,11 @@ def save_last_ip(ip):
     if is_valid_ip(ip):
         config = load_config()
         config["last_ip"] = ip
+        saved_ips = config.get("saved_ips", [])
+        if ip in saved_ips:
+            saved_ips.remove(ip)
+        saved_ips.insert(0, ip)
+        config["saved_ips"] = saved_ips[:5]
         save_config(config)
 
 def check_adb_devices():

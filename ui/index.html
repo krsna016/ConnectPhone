@@ -213,7 +213,8 @@
                                     <div class="form-row">
                                         <div class="form-group">
                                             <label for="conn-ip">IP Address:</label>
-                                            <input type="text" id="conn-ip" placeholder="e.g. 192.168.29.201">
+                                            <input type="text" id="conn-ip" list="saved-ips-list" placeholder="e.g. 192.168.29.201">
+                                            <datalist id="saved-ips-list"></datalist>
                                         </div>
                                         <div class="form-group">
                                             <label for="conn-port">Port:</label>
@@ -683,6 +684,7 @@
                     type="text"
                     id="modal-ip-input"
                     class="modal-ip-input"
+                    list="saved-ips-list"
                     placeholder="e.g. 192.168.1.45"
                     autocomplete="off"
                     spellcheck="false"

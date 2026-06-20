@@ -940,6 +940,20 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
+
+    const btnRestartApp = document.getElementById('btn-restart-app');
+    if (btnRestartApp) {
+        btnRestartApp.addEventListener('click', () => {
+            btnRestartApp.disabled = true;
+            btnRestartApp.innerHTML = '⏳ Restarting...';
+            showToast("Restarting application...", "info");
+            fetch(`${API_BASE}/api/app/restart`, { method: 'POST' }).catch(e => console.error(e));
+            // Reload the window automatically after the backend spins back up
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+        });
+    }
     // -------------------------------------
 
     // Run Initial Status queries

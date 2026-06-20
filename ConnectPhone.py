@@ -1464,20 +1464,13 @@ def unlock_device_with_touch_id(config, interactive=True, wake_screen=True):
             print("Device/App was already unlocked manually. Aborting automated PIN entry.")
             return
         
-        # 1. Wake screen if off
+        # 1. Wake screen if off or in Ambient Display
         if wake_screen:
             try:
-                power_state = subprocess.check_output(["adb", "shell", "dumpsys", "power"], stderr=subprocess.DEVNULL).decode("utf-8")
-                is_screen_on = False
-                for line in power_state.split("\n"):
-                    if "mwakefulness=" in line.lower().replace(" ", ""):
-                        is_screen_on = "awake" in line.lower()
-                        break
-                if not is_screen_on:
-                    is_screen_on = "mholdingdisplaysuspendblocker=true" in power_state.lower() or "state=on" in power_state.lower()
-                if not is_screen_on:
-                    subprocess.run(["adb", "shell", "input", "keyevent", "224"])
-                    time.sleep(0.1)
+                # Unconditionally send wake up event. If already awake, this is safely ignored.
+                # If in AOD/Ambient mode (where screen is 'on' but unresponsive to swipes), this wakes it fully.
+                subprocess.run(["adb", "shell", "input", "keyevent", "224"])
+                time.sleep(0.3) # Give it slightly more time to wake and animate before swiping
             except Exception:
                 pass
             

@@ -850,19 +850,84 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Touch ID Unlock Button Listeners
-    if (btnHeaderUnlock) {
-        btnHeaderUnlock.addEventListener('click', () => {
-            showToast("Prompting Touch ID on Mac to unlock phone...", "info");
-            postAction('/api/device/unlock');
-        });
-    }
-
     if (btnPhoneUnlock) {
         btnPhoneUnlock.addEventListener('click', () => {
             showToast("Prompting Touch ID on Mac to unlock phone...", "info");
             postAction('/api/device/unlock');
         });
     }
+
+    // --- Media & Clipboard Sync Logic ---
+    const btnRefreshScreenshots = document.getElementById('btn-refresh-screenshots');
+    const screenshotsList = document.getElementById('screenshots-list');
+    
+    if (btnRefreshScreenshots) {
+        btnRefreshScreenshots.addEventListener('click', async () => {
+            btnRefreshScreenshots.disabled = true;
+            screenshotsList.innerHTML = '<p class="list-placeholder">Fetching screenshots...</p>';
+            try {
+                const res = await fetch(`${API_BASE}/api/screenshots/list`);
+                const data = await res.json();
+                if (data.success && data.files && data.files.length > 0) {
+                    screenshotsList.innerHTML = '';
+                    data.files.forEach(filepath => {
+                        const filename = filepath.split('/').pop();
+                        const div = document.createElement('div');
+                        div.className = 'device-item';
+                        div.innerHTML = `
+                            <div class="device-item-info">
+                                <span class="device-item-icon">🖼️</span>
+                                <div class="device-item-text">
+                                    <div class="device-item-serial">${filename}</div>
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-primary">⬇️ Pull</button>
+                        `;
+                        const pullBtn = div.querySelector('button');
+                        pullBtn.addEventListener('click', async () => {
+                            const originalText = pullBtn.innerHTML;
+                            pullBtn.innerHTML = '⏳';
+                            pullBtn.disabled = true;
+                            const pullRes = await postAction('/api/screenshots/pull', { path: filepath });
+                            if (pullRes && pullRes.success) {
+                                showToast(pullRes.message, "success");
+                            } else {
+                                showToast(pullRes ? pullRes.message : "Failed to pull", "error");
+                            }
+                            pullBtn.innerHTML = originalText;
+                            pullBtn.disabled = false;
+                        });
+                        screenshotsList.appendChild(div);
+                    });
+                } else {
+                    screenshotsList.innerHTML = `<p class="list-placeholder">No screenshots found or error: ${data.error || 'None'}</p>`;
+                }
+            } catch (err) {
+                screenshotsList.innerHTML = `<p class="list-placeholder error">Error: ${err.message}</p>`;
+            } finally {
+                btnRefreshScreenshots.disabled = false;
+            }
+        });
+    }
+
+    const btnSyncClipboardStart = document.getElementById('btn-sync-clipboard-start');
+    const btnSyncClipboardStop = document.getElementById('btn-sync-clipboard-stop');
+
+    if (btnSyncClipboardStart) {
+        btnSyncClipboardStart.addEventListener('click', () => {
+            postAction('/api/clipboard/sync/start').then(res => {
+                if(res && res.success) showToast(res.message, "success");
+            });
+        });
+    }
+    if (btnSyncClipboardStop) {
+        btnSyncClipboardStop.addEventListener('click', () => {
+            postAction('/api/clipboard/sync/stop').then(res => {
+                if(res && res.success) showToast(res.message, "success");
+            });
+        });
+    }
+    // -------------------------------------
 
     // Run Initial Status queries
     if (window.location.protocol === 'file:') {

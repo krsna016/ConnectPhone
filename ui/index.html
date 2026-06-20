@@ -41,7 +41,9 @@
                 <button class="nav-btn" data-tab="metrics">
                     <span class="btn-icon">📈</span> Live Metrics
                 </button>
-
+                <button class="nav-btn" data-tab="sync">
+                    <span class="btn-icon">📁</span> Media & Sync
+                </button>
                 <button class="nav-btn" data-tab="settings">
                     <span class="btn-icon">⚙️</span> Preferences
                 </button>
@@ -404,6 +406,38 @@
 
 
                 <!-- Tab: Preferences and Connection Settings -->
+                <!-- Tab: Media & Sync -->
+                <section class="tab-pane" id="pane-sync">
+                    <div class="pane-header">
+                        <h2>📁 Media & Clipboard Sync</h2>
+                        <p>Pull latest screenshots and sync clipboards between your phone and Mac</p>
+                    </div>
+                    
+                    <div class="connection-layout">
+                        <!-- Screenshots Card -->
+                        <div class="card connection-main">
+                            <div class="card-header-row">
+                                <h3>📸 Latest 10 Screenshots</h3>
+                                <button class="btn btn-sm btn-accent" id="btn-refresh-screenshots">🔄 Fetch Latest</button>
+                            </div>
+                            <p class="card-desc">Pull any of the most recent screenshots straight to your Mac Desktop.</p>
+                            <div class="devices-list-container" id="screenshots-list">
+                                <p class="list-placeholder">Click 'Fetch Latest' to scan phone for screenshots.</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Clipboard Sync Card -->
+                        <div class="card connection-side">
+                            <h3>📋 Universal Clipboard</h3>
+                            <p>Seamlessly copy text on your Android and paste it on your Mac (and vice versa).</p>
+                            <br>
+                            <button class="btn btn-primary" id="btn-sync-clipboard-start">▶️ Start Clipboard Sync</button>
+                            <br><br>
+                            <button class="btn btn-danger" id="btn-sync-clipboard-stop">⏹️ Stop Sync</button>
+                        </div>
+                    </div>
+                </section>
+                
                 <section class="tab-pane" id="pane-settings">
                     <div class="settings-layout-single">
                         <!-- Device Connection Center has been moved to its own dedicated tab -->

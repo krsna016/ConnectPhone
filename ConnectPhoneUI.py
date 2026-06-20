@@ -778,6 +778,16 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/api/mdns/discover':
             discovered = discover_all_mdns_services()
             self.wfile.write(json.dumps({"success": True, "services": discovered}).encode('utf-8'))
+        elif self.path == '/api/screenshots/list':
+            try:
+                # Find screenshots from common paths and sort by newest first
+                cmd = "adb shell 'ls -t /sdcard/DCIM/Screenshots/* /sdcard/Pictures/Screenshots/* 2>/dev/null'"
+                out = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode("utf-8")
+                lines = [line.strip() for line in out.split('\n') if line.strip()]
+                latest = lines[:10]
+                self.wfile.write(json.dumps({"success": True, "files": latest}).encode('utf-8'))
+            except Exception as e:
+                self.wfile.write(json.dumps({"success": False, "files": [], "error": str(e)}).encode('utf-8'))
         else:
             self.wfile.write(json.dumps({"error": "Unknown GET endpoint"}).encode('utf-8'))
 
@@ -1399,6 +1409,49 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 res_data["success"] = True
                 res_data["message"] = "Preferences saved successfully!"
                 
+            elif self.path == '/api/screenshots/pull':
+                filepath = str(data.get("path", "")).strip()
+                if not filepath:
+                    res_data["message"] = "File path is required."
+                else:
+                    desk_path = os.path.expanduser("~/Desktop")
+                    try:
+                        subprocess.run(["adb", "pull", filepath, desk_path], check=True, capture_output=True)
+                        res_data["success"] = True
+                        res_data["message"] = f"Saved to Desktop: {os.path.basename(filepath)}"
+                    except Exception as e:
+                        res_data["message"] = f"Failed to pull screenshot: {e}"
+
+            elif self.path == '/api/clipboard/sync/start':
+                global scrcpy_clipboard_proc
+                if 'scrcpy_clipboard_proc' in globals() and scrcpy_clipboard_proc and scrcpy_clipboard_proc.poll() is None:
+                    res_data["success"] = True
+                    res_data["message"] = "Clipboard sync is already running."
+                else:
+                    try:
+                        scrcpy_clipboard_proc = subprocess.Popen(
+                            ["scrcpy", "--no-video", "--no-audio", "--no-window"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        )
+                        res_data["success"] = True
+                        res_data["message"] = "Clipboard sync started seamlessly in background!"
+                    except Exception as e:
+                        res_data["message"] = f"Failed to start sync: {e}"
+
+            elif self.path == '/api/clipboard/sync/stop':
+                if 'scrcpy_clipboard_proc' in globals() and scrcpy_clipboard_proc:
+                    try:
+                        scrcpy_clipboard_proc.terminate()
+                        scrcpy_clipboard_proc.wait(timeout=2)
+                    except Exception:
+                        pass
+                    scrcpy_clipboard_proc = None
+                    res_data["success"] = True
+                    res_data["message"] = "Clipboard sync stopped."
+                else:
+                    res_data["success"] = True
+                    res_data["message"] = "Clipboard sync was not running."
+
             else:
                 res_data["message"] = "Unknown POST endpoint."
                 

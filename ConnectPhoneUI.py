@@ -782,7 +782,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             try:
                 # Find screenshots from common paths and sort by newest first
                 cmd = "adb shell 'ls -t /sdcard/DCIM/Screenshots/* /sdcard/Pictures/Screenshots/* 2>/dev/null'"
-                out = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode("utf-8")
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                # Even if one directory doesn't exist (exit code 1), the other might succeed and print to stdout
+                out = res.stdout or ""
                 lines = [line.strip() for line in out.split('\n') if line.strip()]
                 latest = lines[:10]
                 self.wfile.write(json.dumps({"success": True, "files": latest}).encode('utf-8'))

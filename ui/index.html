@@ -573,24 +573,65 @@
                     </div>
                     
                     <div class="settings-layout">
+                        <!-- Setup & Connection -->
                         <div class="card settings-card" style="grid-column: 1 / -1;">
-                            <h3>Getting Started (Wireless)</h3>
-                            <p>1. Ensure your Mac and Android phone are on the <strong>same Wi-Fi network</strong>.</p>
-                            <p>2. On your phone, go to <strong>Settings &gt; Developer Options</strong> and enable <strong>Wireless Debugging</strong>.</p>
-                            <p>3. First time only: Tap "Pair device with pairing code". Enter the Pairing Port and Code in the Connection Center here.</p>
-                            <p>4. After pairing, click "Scan Network" or manually enter the standard port to connect!</p>
+                            <h3><i class="material-symbols-outlined">wifi</i> Connection Setup Guide</h3>
+                            <p>ConnectPhone supports both high-speed USB and seamless Wireless connections. For the best experience, we recommend pairing wirelessly over a 5GHz network.</p>
                             
-                            <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
+                            <h4>Prerequisites</h4>
+                            <p>1. Go to your phone's <strong>Settings > About Phone</strong> and tap "Build Number" 7 times to unlock Developer Options.</p>
+                            <p>2. Navigate to <strong>Settings > System > Developer Options</strong>.</p>
+                            <p>3. Enable <strong>USB Debugging</strong> and <strong>Wireless Debugging</strong>.</p>
+                            <p>4. <em>Important for Mac control:</em> You must also enable <strong>"USB debugging (Security settings)"</strong> to allow macOS to simulate screen taps and keystrokes.</p>
                             
-                            <h3>Mac Touch ID Unlock (Biometric Daemon)</h3>
-                            <p>ConnectPhone can automatically use your Mac's Touch ID to unlock your Android lockscreen or app locks.</p>
-                            <p><strong>Requirements:</strong> Your phone must have <strong>"USB debugging (Security settings)"</strong> toggled ON in Developer Options to allow input simulation.</p>
-                            <p>To use: Just leave the dashboard running. When your phone screen turns on and shows a lockscreen, the dashboard will prompt you for Touch ID automatically!</p>
+                            <h4>Wireless Pairing (First Time)</h4>
+                            <p>1. Ensure your Mac and phone are on the exact same Wi-Fi network.</p>
+                            <p>2. Tap directly on the text "Wireless Debugging" on your phone to open its menu.</p>
+                            <p>3. Tap <strong>"Pair device with pairing code"</strong>. A pop-up will show an IP address, Port, and a 6-digit Wi-Fi pairing code.</p>
+                            <p>4. In ConnectPhone's <em>Connection Center</em>, type these exact details into the Pairing section and click Pair.</p>
                             
-                            <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
+                            <h4>Connecting (Subsequent Uses)</h4>
+                            <p>Once paired, you never need to pair again. Simply ensure Wireless Debugging is turned on, go to the Connection Center, and click <strong>Scan Network</strong> to magically find and connect your phone!</p>
+                        </div>
+
+                        <!-- Mirroring & Media -->
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3><i class="material-symbols-outlined">desktop_windows</i> Screen Mirroring & Audio</h3>
+                            <p>Control your phone with zero latency right from your Mac using our built-in mirroring engine powered by <code>scrcpy</code>.</p>
                             
-                            <h3>Mirroring & Audio</h3>
-                            <p>When you click "Start Mirroring", you can control your phone using your Mac's mouse and keyboard. If audio routing is enabled, your phone's audio will play through your Mac speakers.</p>
+                            <h4>Controls & Hotkeys</h4>
+                            <p>• <strong>Right Click:</strong> Acts as the "Back" button.</p>
+                            <p>• <strong>Middle Click:</strong> Acts as the "Home" button.</p>
+                            <p>• <strong>Scroll Wheel:</strong> Scrolls lists and pages natively.</p>
+                            <p>• <strong>Cmd + O:</strong> Turns your phone's physical screen off while keeping the mirror active (saves battery!).</p>
+                            
+                            <h4>Audio Routing</h4>
+                            <p>By default, Android 11+ routes device audio directly into your Mac. You can disable this or change the target audio output device (like AirPods) from the Preferences tab before starting a mirror.</p>
+                        </div>
+                        
+                        <!-- Clipboard & Media Sync -->
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3><i class="material-symbols-outlined">sync</i> Universal Clipboard & Media</h3>
+                            
+                            <h4>Pulling Screenshots</h4>
+                            <p>In the Media & Sync tab, click <strong>Fetch Latest</strong>. ConnectPhone will scan your phone's standard screenshot directories (DCIM/Screenshots and Pictures/Screenshots). Clicking "Pull" will instantly download the image directly to your Mac's Desktop!</p>
+                            
+                            <h4>Background Clipboard Sync</h4>
+                            <p>Clicking "Start Background Sync" creates a headless, invisible bridge between your devices.</p>
+                            <p><strong>Phone to Mac:</strong> Instantly copy text on your Android and press <code>Cmd + V</code> on your Mac.</p>
+                            <p><strong>Mac to Phone Workaround:</strong> Since Android 10, Google severely restricts background apps from altering the clipboard for security reasons. To get text from your Mac to your phone without opening a mirror window, we provided the <strong>"Type Mac Clipboard on Phone"</strong> button. Simply tap a text field on your phone and click the button to inject your Mac's clipboard as secure keystrokes.</p>
+                        </div>
+
+                        <!-- Touch ID -->
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3><i class="material-symbols-outlined">fingerprint</i> macOS Touch ID Integration</h3>
+                            <p>The Biometric Daemon is an exclusive ConnectPhone feature that bridges Apple's Secure Enclave with Android's lockscreen.</p>
+                            
+                            <h4>How it Works</h4>
+                            <p>If you have this preference enabled, the dashboard continuously monitors your phone's screen state. The moment you wake up your phone to the lockscreen, or encounter an App Lock (like WhatsApp or Banking apps requiring a PIN), your Mac will instantly prompt you for Touch ID. Upon successful authentication, it decrypts and securely injects your Android PIN to unlock it instantly.</p>
+                            
+                            <h4>Setup & Troubleshooting</h4>
+                            <p>Make sure you have saved your correct Android PIN in the Preferences tab. If the daemon stops responding, simply turn your phone screen off and on again to re-trigger the wake event.</p>
                         </div>
                     </div>
                 </section>

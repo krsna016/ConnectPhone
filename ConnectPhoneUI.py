@@ -625,7 +625,22 @@ def get_detailed_adb_devices():
                     "model": model,
                     "product": product
                 })
-        return devices_list
+        # Deduplicate devices if they are the exact same phone (same model and product)
+        # Prefer IP-based (wireless) connections over mDNS or USB if both exist
+        unique_devices = {}
+        for dev in devices_list:
+            key = f"{dev['model']}_{dev['product']}"
+            if key not in unique_devices:
+                unique_devices[key] = dev
+            else:
+                # We already have a device with this model.
+                # Prefer IP-based over mDNS/USB
+                current_is_ip = ":" in unique_devices[key]["serial"] and "._adb-tls-connect" not in unique_devices[key]["serial"]
+                new_is_ip = ":" in dev["serial"] and "._adb-tls-connect" not in dev["serial"]
+                if new_is_ip and not current_is_ip:
+                    unique_devices[key] = dev
+                    
+        return list(unique_devices.values())
     except Exception:
         return []
 

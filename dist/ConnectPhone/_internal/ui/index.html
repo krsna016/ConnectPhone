@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ConnectPhone - Dashboard</title>
+    <!-- Google Fonts Outfit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    
+    <!-- Protocol/Security Warning Banner -->
+    <div id="protocol-warning-banner" class="protocol-warning" style="display: none;">
+        <i class="material-symbols-outlined">warning</i> <strong>Security Warning:</strong> You opened this dashboard as a local file (<code>file://</code>). Web browsers block local files from talking to the background server. Please open <a href="http://localhost:8282" target="_blank"><strong>http://localhost:8282</strong></a> instead!
+    </div>
+    
+    <!-- Main App Container -->
+    <div class="app-container">
+        
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon-container">
+                    <i class="material-symbols-outlined">terminal</i>
+                </div>
+                <div class="brand-text">
+                    <h1>ConnectPhone</h1>
+                    <span class="version">CONNECT.DEBUG.DEPLOY</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-tab="connection">
+                    <span class="btn-icon"><i class="material-symbols-outlined">link</i></span> Connection Center
+                </button>
+                <button class="nav-btn" data-tab="mirroring">
+                    <span class="btn-icon"><i class="material-symbols-outlined">desktop_windows</i></span> Mirror & Stream
+                </button>
+                <button class="nav-btn" data-tab="metrics">
+                    <span class="btn-icon"><i class="material-symbols-outlined">monitoring</i></span> Live Metrics
+                </button>
+                <button class="nav-btn" data-tab="sync">
+                    <span class="btn-icon"><i class="material-symbols-outlined">folder</i></span> Media & Sync
+                </button>
+                <button class="nav-btn" data-tab="settings">
+                    <span class="btn-icon"><i class="material-symbols-outlined">settings</i></span> Preferences
+                </button>
+                <button class="nav-btn" data-tab="docs">
+                    <span class="btn-icon"><i class="material-symbols-outlined">menu_book</i></span> Documentation
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="btn btn-sm btn-danger" id="btn-restart-app" style="width: 100%; margin-bottom: 12px; border-radius: 8px;">
+                    <span class="btn-icon"><i class="material-symbols-outlined">refresh</i></span> Restart App
+                </button>
+                <p>Designed for macOS Native Integration</p>
+            </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Dynamic Connection Header -->
+            <header class="app-header">
+                <div class="header-left">
+                    <div class="connection-badge disconnected" id="connection-status">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Disconnected</span>
+                    </div>
+                    <div class="device-details" id="header-device-info">
+                        Select Connection Settings in Preferences or connect using Wi-Fi IP
+                    </div>
+                </div>
+                
+                <div class="header-right">
+                    <button class="header-btn" id="btn-refresh" title="Scan devices">
+                        <span class="icon"><i class="material-symbols-outlined">refresh</i></span> Scan Devices
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Quick Camera Overlay (Visible when camera mirror is active) -->
+            <div class="camera-control-overlay hidden" id="camera-overlay">
+                <div class="overlay-left">
+                    <span class="live-indicator-dot"></span>
+                    <div class="overlay-text">
+                        <h3 id="camera-overlay-title">Live Camera Feed</h3>
+                        <p id="camera-overlay-desc">Camera stream is active. Snap photo or record HD clip.</p>
+                    </div>
+                </div>
+                <div class="overlay-right">
+                    <button class="action-btn-circle capture-btn" id="overlay-capture" title="Capture Snapshot">
+                        <i class="material-symbols-outlined">photo_camera</i>
+                    </button>
+                    <button class="action-btn-circle record-btn" id="overlay-record" title="Start HD Record">
+                        <i class="material-symbols-outlined">videocam</i>
+                    </button>
+                    <button class="action-btn-circle stop-btn" id="overlay-stop" title="Stop camera stream">
+                        <i class="material-symbols-outlined">stop_circle</i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Tab Pages Container -->
+            <div class="tab-content-container">
+                
+                <!-- Tab: Connection Center -->
+                <section class="tab-pane active" id="pane-connection">
+                    <div class="pane-header">
+                        <h2><i class="material-symbols-outlined">link</i> Device Connection Center</h2>
+                        <p>Manage USB and wireless connections, pair debugging ports, and inspect online status</p>
+                    </div>
+                    
+                    <div class="connection-layout">
+                        <!-- Left Main Panel: Devices list and discovery -->
+                        <div class="connection-main">
+                            <!-- Active Connection Summary -->
+                            <div class="card active-device-card">
+                                <div class="device-status-header">
+                                    <div class="pulse-indicator disconnected" id="device-pulse-indicator"></div>
+                                    <h3>Active Device Status</h3>
+                                </div>
+                                <div class="device-status-body" id="active-device-details-box">
+                                    <p class="status-placeholder">No Android device is currently selected or active. Connect a device below or scan for local wireless debug targets.</p>
+                                </div>
+                                <div id="security-settings-warning" class="security-warning-box hidden">
+                                    <i class="material-symbols-outlined">warning</i> <strong>Input Injection Blocked:</strong> Your phone is rejecting keyboard and touch input simulations.
+                                    For Touch ID unlocking and remote controls to work:
+                                    <ol>
+                                        <li>Go to <strong>Settings > Additional Settings > Developer Options</strong>.</li>
+                                        <li>Toggle ON <strong>"USB debugging (Security settings)"</strong> (requires SIM card / Mi login).</li>
+                                        <li><strong>Reboot your phone</strong> to apply changes, then retry mirroring.</li>
+                                    </ol>
+                                </div>
+                            </div>
+                            
+                            <!-- Step-by-Step Guide Card -->
+                            <div class="card guide-card">
+                                <h3><i class="material-symbols-outlined">lightbulb</i> Wireless Connection Quick Guide</h3>
+                                <div class="guide-steps-grid">
+                                    <div class="step-item">
+                                        <div class="step-badge">1</div>
+                                        <div class="step-content">
+                                            <h4>Enable Wireless Debugging</h4>
+                                            <p>Go to settings > Developer options > Toggle "Wireless Debugging" ON.</p>
+                                        </div>
+                                    </div>
+                                    <div class="step-item">
+                                        <div class="step-badge">2</div>
+                                        <div class="step-content">
+                                            <h4>Scan Network (mDNS)</h4>
+                                            <p>Click "Scan Network" below to auto-discover your phone IP and connection port.</p>
+                                        </div>
+                                    </div>
+                                    <div class="step-item">
+                                        <div class="step-badge">3</div>
+                                        <div class="step-content">
+                                            <h4>First-Time Pairing</h4>
+                                            <p>Tap "Pair device with pairing code". Keep it open, enter its Pairing Port & Code on the right, and click "Pair Wireless Device".</p>
+                                        </div>
+                                    </div>
+                                    <div class="step-item">
+                                        <div class="step-badge">4</div>
+                                        <div class="step-content">
+                                            <h4>Connect</h4>
+                                            <p>Once paired, enter the connection port from the phone's main Wireless Debugging screen, and click "Connect Device".</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Connected Devices List -->
+                            <div class="card connected-devices-card">
+                                <div class="card-header-row">
+                                    <h3><i class="material-symbols-outlined">smartphone</i> Attached ADB Devices</h3>
+                                    <button class="btn btn-sm btn-refresh-list" id="btn-refresh-devices-list"><i class="material-symbols-outlined">refresh</i> Refresh List</button>
+                                </div>
+                                <div class="devices-list-container" id="adb-devices-list">
+                                    <p class="list-placeholder">Scanning for attached USB or Wi-Fi devices...</p>
+                                </div>
+                            </div>
+                            
+                            <!-- mDNS Discovery Card -->
+                            <div class="card mdns-discovery-card">
+                                <div class="card-header-row">
+                                    <h3><i class="material-symbols-outlined">wifi</i> Wireless Auto-Discovery (mDNS)</h3>
+                                    <button class="btn btn-sm btn-scan-mdns" id="btn-scan-mdns-devices"><i class="material-symbols-outlined">search</i> Scan Network</button>
+                                </div>
+                                <p class="card-desc">Discovers phones broadcasting Wireless Debugging on your local subnet automatically.</p>
+                                <div id="scan-target-badge" class="scan-target-badge hidden">
+                                    <span class="scan-target-dot"></span>
+                                    <span>Scanning: <strong id="scan-target-ip-text">—</strong></span>
+                                    <button class="scan-target-change" id="btn-scan-change-ip">Change</button>
+                                </div>
+                                <div class="mdns-devices-list" id="mdns-discovered-list">
+                                    <p class="list-placeholder">Click 'Scan Network' to find local wireless debugging broadcasts.</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Right Side Panel: Connection controls and Diagnostics -->
+                        <div class="connection-side">
+                            <!-- Quick Connect Card -->
+                            <div class="card connection-controls-card">
+                                <h3><i class="material-symbols-outlined">bolt</i> Manual Wireless Connect</h3>
+                                <p>Connect to your phone using its Wireless Debugging IP and Port.</p>
+                                <div class="settings-form">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="conn-ip">IP Address:</label>
+                                            <input type="text" id="conn-ip" placeholder="e.g. 192.168.29.201">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="conn-port">Port:</label>
+                                            <input type="text" id="conn-port" value="5555">
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-accent btn-autoconnect" id="btn-conn-autoconnect"><i class="material-symbols-outlined">bolt</i> Auto-Connect Device (Port Scan)</button>
+                                    <button class="btn btn-primary" id="btn-conn-connect">Connect Device</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Wireless Debugging Pairing -->
+                            <div class="card pairing-controls-card">
+                                <h3><i class="material-symbols-outlined">key</i> Wireless Debugging Pairing</h3>
+                                <p>Pair your phone with this Mac (required once per Wi-Fi network).</p>
+                                <div class="settings-form">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="pair-port">Pairing Port:</label>
+                                            <input type="text" id="pair-port" placeholder="e.g. 40561">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="pair-code">Pairing Code:</label>
+                                            <input type="text" id="pair-code" placeholder="e.g. 129035">
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-primary" id="btn-conn-pair">Pair Wireless Device</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Diagnostics Card -->
+                            <div class="card diagnostics-card">
+                                <h3><i class="material-symbols-outlined">build</i> Diagnostics Toolkit</h3>
+                                <div class="diagnostic-actions">
+                                    <button class="btn btn-warning" id="btn-restart-adb">Restart ADB Server</button>
+                                    <button class="btn btn-danger" id="btn-disconnect-all">Disconnect All Devices</button>
+                                    <button class="btn btn-primary" id="btn-ping-test"><i class="material-symbols-outlined">bolt</i> Run Connection Ping Test</button>
+                                    <button class="btn btn-accent" id="btn-phone-unlock"><i class="material-symbols-outlined">key</i> Unlock Phone (Mac Touch ID)</button>
+                                </div>
+                                <div id="ping-test-result" class="ping-result hidden"></div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Tab: Mirroring -->
+                <section class="tab-pane" id="pane-mirroring">
+                    <div class="pane-header">
+                        <h2>Mirroring & Camera Modes</h2>
+                        <p>Stream your phone screen, sensor camera, or record session natively</p>
+                    </div>
+                    
+                    <div class="mirror-grid">
+                        <!-- Mode 1: Standard Mirror -->
+                        <div class="card mirror-card" data-mode="screen">
+                            <div class="card-icon"><i class="material-symbols-outlined">desktop_windows</i></div>
+                            <h3>Standard Screen Mirroring</h3>
+                            <p>Interact with your phone screen directly on your Mac. Seamless audio streaming output.</p>
+                            <button class="btn btn-primary start-mirror-btn" data-type="screen">Start Screen Mirror</button>
+                        </div>
+                        
+                        <!-- Mode 2: Camera Feed -->
+                        <div class="card mirror-card highlight" data-mode="camera">
+                            <div class="card-badge">PRO</div>
+                            <div class="card-icon"><i class="material-symbols-outlined">camera</i></div>
+                            <h3>Live Camera Feed</h3>
+                            <p>Stream front or back camera directly to your Mac. Supports mic merging and live controls.</p>
+                            
+                            <div class="mirror-form-group">
+                                <label for="cam-facing">Camera Sensor:</label>
+                                <select id="cam-facing">
+                                    <option value="back">Back Camera</option>
+                                    <option value="front">Front Camera</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mirror-form-group">
+                                <label for="cam-res">Resolution:</label>
+                                <select id="cam-res">
+                                    <option value="1080p">1080p Full HD (Recommended)</option>
+                                    <option value="4k">4k Ultra HD (Wired Only)</option>
+                                    <option value="720p">720p HD (High FPS)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mirror-checkbox-group">
+                                <input type="checkbox" id="cam-no-audio">
+                                <label for="cam-no-audio">Mute audio capture</label>
+                            </div>
+                            
+                            <button class="btn btn-accent start-mirror-btn" data-type="camera">Start Camera Stream</button>
+                        </div>
+                        
+                        <!-- Mode 3: Audio Only -->
+                        <div class="card mirror-card" data-mode="audio">
+                            <div class="card-icon"><i class="material-symbols-outlined">volume_up</i></div>
+                            <h3>Audio-Only Mirroring</h3>
+                            <p>Listen directly to the Android microphone or system audio stream without rendering video.</p>
+                            <button class="btn btn-primary start-mirror-btn" data-type="audio">Listen to Mic</button>
+                        </div>
+                        
+                        <!-- Mode 4: Record Session -->
+                        <div class="card mirror-card" data-mode="record">
+                            <div class="card-icon"><i class="material-symbols-outlined">videocam</i></div>
+                            <h3>Mirror & Record Session</h3>
+                            <p>Launches standard screen mirror and records the entire session as an MP4 directly to your Mac Desktop.</p>
+                            <button class="btn btn-primary start-mirror-btn" data-type="record">Mirror & Record Session</button>
+                        </div>
+                    </div>
+                </section>
+                
+
+                
+
+                <!-- Tab: Live Metrics & Diagnostics -->
+                <section class="tab-pane" id="pane-metrics">
+                    <div class="pane-header">
+                        <h2><i class="material-symbols-outlined">monitoring</i> Live Device Metrics & Diagnostics</h2>
+                        <p>Real-time resource utilization, thermal indicators, battery wear, and system diagnostics.</p>
+                    </div>
+                    
+                    <div class="metrics-grid">
+                        <!-- Battery Card -->
+                        <div class="card metrics-card battery-card">
+                            <h3><i class="material-symbols-outlined">battery_full</i> Battery & Power</h3>
+                            <div class="metric-visual">
+                                <div class="battery-level-container">
+                                    <div class="battery-fill" id="metric-bat-fill" style="width: 0%;"></div>
+                                    <span class="battery-percentage" id="metric-bat-pct">--%</span>
+                                </div>
+                            </div>
+                            <div class="metric-stats">
+                                <div class="stat-row"><span>Status:</span> <strong id="metric-bat-status">--</strong></div>
+                                <div class="stat-row"><span>Health:</span> <strong id="metric-bat-health">--</strong></div>
+                                <div class="stat-row"><span>Temperature:</span> <strong id="metric-bat-temp">--°C</strong></div>
+                                <div class="stat-row"><span>Voltage:</span> <strong id="metric-bat-voltage">-- V</strong></div>
+                                <div class="stat-row"><span>Technology:</span> <strong id="metric-bat-tech">--</strong></div>
+                            </div>
+                        </div>
+
+                        <!-- RAM Card -->
+                        <div class="card metrics-card ram-card">
+                            <h3><i class="material-symbols-outlined">memory</i> System Memory (RAM)</h3>
+                            <div class="metric-visual">
+                                <div class="progress-bar-container">
+                                    <div class="progress-fill" id="metric-ram-fill" style="width: 0%;"></div>
+                                </div>
+                                <div class="progress-labels">
+                                    <span id="metric-ram-used">0 GB Used</span>
+                                    <span id="metric-ram-pct">0%</span>
+                                </div>
+                            </div>
+                            <div class="metric-stats">
+                                <div class="stat-row"><span>Total Memory:</span> <strong id="metric-ram-total">-- GB</strong></div>
+                                <div class="stat-row"><span>Available:</span> <strong id="metric-ram-avail">-- GB</strong></div>
+                            </div>
+                        </div>
+
+                        <!-- Storage Card -->
+                        <div class="card metrics-card storage-card">
+                            <h3><i class="material-symbols-outlined">save</i> Internal Storage</h3>
+                            <div class="metric-visual">
+                                <div class="progress-bar-container">
+                                    <div class="progress-fill" id="metric-storage-fill" style="width: 0%;"></div>
+                                </div>
+                                <div class="progress-labels">
+                                    <span id="metric-storage-used">0 GB Used</span>
+                                    <span id="metric-storage-pct">0%</span>
+                                </div>
+                            </div>
+                            <div class="metric-stats">
+                                <div class="stat-row"><span>Total Storage:</span> <strong id="metric-storage-total">-- GB</strong></div>
+                                <div class="stat-row"><span>Free Space:</span> <strong id="metric-storage-avail">-- GB</strong></div>
+                            </div>
+                        </div>
+
+                        <!-- Network Card -->
+                        <div class="card metrics-card network-card">
+                            <h3><i class="material-symbols-outlined">public</i> Network & System</h3>
+                            <div class="metric-stats">
+                                <div class="stat-row"><span>Device IP Address:</span> <strong id="metric-net-ip">--</strong></div>
+                                <div class="stat-row"><span>Connection Type:</span> <strong id="metric-net-type">--</strong></div>
+                                <div class="stat-row"><span>System Uptime:</span> <strong id="metric-sys-uptime">--</strong></div>
+                                <div class="stat-row"><span>System Load:</span> <strong id="metric-sys-load">--</strong></div>
+                            </div>
+                            <div class="ping-section">
+                                <button class="btn btn-accent" id="btn-ping-test"><i class="material-symbols-outlined">bolt</i> Run Connection Ping Test</button>
+                                <div class="ping-result" id="ping-test-result">Click test to calculate round-trip latency.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+
+
+
+                <!-- Tab: Preferences and Connection Settings -->
+                <!-- Tab: Media & Sync -->
+                <section class="tab-pane" id="pane-sync">
+                    <div class="pane-header">
+                        <h2><i class="material-symbols-outlined">folder</i> Media & Clipboard Sync</h2>
+                        <p>Pull latest screenshots and sync clipboards between your phone and Mac</p>
+                    </div>
+                    
+                    <div class="connection-layout">
+                        <!-- Screenshots Card -->
+                        <div class="card connection-main">
+                            <div class="card-header-row">
+                                <h3><i class="material-symbols-outlined">photo_camera</i> Latest 10 Screenshots</h3>
+                                <button class="btn btn-sm btn-accent" id="btn-refresh-screenshots"><i class="material-symbols-outlined">refresh</i> Fetch Latest</button>
+                            </div>
+                            <p class="card-desc">Pull any of the most recent screenshots straight to your Mac Desktop.</p>
+                            <div class="devices-list-container" id="screenshots-list">
+                                <p class="list-placeholder">Click 'Fetch Latest' to scan phone for screenshots.</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Clipboard Sync Card -->
+                        <div class="card connection-side">
+                            <h3><i class="material-symbols-outlined">content_paste</i> Universal Clipboard</h3>
+                            <p>Copy on Phone -> Paste on Mac (Runs automatically in background).</p>
+                            <br>
+                            <button class="btn btn-primary" id="btn-sync-clipboard-start"><i class="material-symbols-outlined">play_arrow</i> Start Background Sync</button>
+                            <button class="btn btn-danger" id="btn-sync-clipboard-stop" style="margin-top: 10px;"><i class="material-symbols-outlined">stop</i> Stop Sync</button>
+                            
+                            <hr style="margin: 20px 0; border-color: var(--border-color); opacity: 0.3;">
+                            
+                            <h3>Mac ➔ Phone (Type directly)</h3>
+                            <p>Because Android blocks background clipboard writing, click this to instantly type your Mac's clipboard into your phone's active text box.</p>
+                            <br>
+                            <button class="btn btn-accent" id="btn-type-mac-clipboard"><i class="material-symbols-outlined">keyboard</i> Type Mac Clipboard on Phone</button>
+                        </div>
+                    </div>
+                </section>
+                
+                <section class="tab-pane" id="pane-settings">
+                    <div class="settings-layout-single">
+                        <!-- Device Connection Center has been moved to its own dedicated tab -->
+                        
+                        <!-- Codec settings column -->
+                        <div class="card settings-card">
+                            <h3><i class="material-symbols-outlined">settings</i> Mirroring Preferences</h3>
+                            <p>Customize high-speed parameters and save them locally.</p>
+                            
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="pref-codec">Video Codec:</label>
+                                    <select id="pref-codec">
+                                        <option value="h265">H.265 (Recommended - Low Bitrate)</option>
+                                        <option value="h264">H.264 (Standard Compatibility)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="pref-bitrate">Bitrate limit:</label>
+                                        <select id="pref-bitrate">
+                                            <option value="32M">32 Mbps (Extreme Quality)</option>
+                                            <option value="16M">16 Mbps (High Quality)</option>
+                                            <option value="8M">8 Mbps (Medium Quality)</option>
+                                            <option value="4M">4 Mbps (Efficient)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pref-fps">FPS Cap:</label>
+                                        <select id="pref-fps">
+                                            <option value="60">60 FPS (Super Smooth)</option>
+                                            <option value="120">120 FPS (High Speed)</option>
+                                            <option value="240">240 FPS (Ultra Slow-Mo)</option>
+                                            <option value="30">30 FPS (Standard Power Save)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pref-audio-preset">Audio Output Profile:</label>
+                                    <select id="pref-audio-preset">
+                                        <option value="voice_communication">Voice Communication (Noise Suppression)</option>
+                                        <option value="studio_unprocessed">Studio Unprocessed (Raw High-Fidelity)</option>
+                                        <option value="camcorder">Camcorder Preset</option>
+                                        <option value="output">Device Output Mirroring</option>
+                                        <option value="mac_mic">Mac Microphone Override (Podcast sync)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pref-sync-delay">Mac Mic Audio Sync Delay (seconds):</label>
+                                    <input type="number" id="pref-sync-delay" step="0.05" value="0.80">
+                                </div>
+                                
+                                <div class="form-group" id="pref-mac-mic-group">
+                                    <label for="pref-mac-mic-device">Mac Input Microphone Device:</label>
+                                    <select id="pref-mac-mic-device">
+                                        <option value="default">Default System Audio Input</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pref-audio-buffer">Audio Buffer Delay (ms):</label>
+                                    <input type="number" id="pref-audio-buffer" min="10" max="2000" step="10" value="100" title="Higher buffer sizes prevent pops & static noise, particularly over Wi-Fi connections.">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pref-keyboard">Keyboard Input Mode:</label>
+                                    <select id="pref-keyboard">
+                                        <option value="uhid">Physical Simulation (UHID - Recommended, Hides Gboard)</option>
+                                        <option value="sdk">Standard Injection (SDK - Shows Gboard)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="pref-pin">Android Lockscreen PIN:</label>
+                                        <input type="password" id="pref-pin" placeholder="Enter PIN (Saved locally)">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pref-applock">App Lock PIN:</label>
+                                        <input type="password" id="pref-applock" placeholder="Enter App Lock PIN">
+                                    </div>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-mirror-enabled" checked>
+                                    <label for="pref-mirror-enabled">Align Screen Orientation Automatically</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-screen-off">
+                                    <label for="pref-screen-off">Turn physical phone screen off during mirror</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-stay-awake">
+                                    <label for="pref-stay-awake">Keep Android awake during mirroring</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-show-touches">
+                                    <label for="pref-show-touches">Show touchscreen touch indicators</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-biometric-daemon">
+                                    <label for="pref-biometric-daemon">Auto-Prompt macOS Touch ID for Android Lockscreen & App Locks</label>
+                                </div>
+                                
+                                <button class="btn btn-accent" id="btn-save-pref">Save Preferences</button>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </section>
+                
+                <!-- Tab: Documentation -->
+                <section class="tab-pane" id="pane-docs">
+                    <div class="pane-header">
+                        <h2><i class="material-symbols-outlined">menu_book</i> Documentation & Help</h2>
+                        <p>User guide and troubleshooting for ConnectPhone</p>
+                    </div>
+                    
+                    <div class="settings-layout">
+                        <!-- Setup & Connection -->
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3><i class="material-symbols-outlined">wifi</i> Connection Setup Guide</h3>
+                            <p>ConnectPhone supports both high-speed USB and seamless Wireless connections. For the best experience, we recommend pairing wirelessly over a 5GHz network.</p>
+                            
+                            <h4>Prerequisites</h4>
+                            <p>1. Go to your phone's <strong>Settings > About Phone</strong> and tap "Build Number" 7 times to unlock Developer Options.</p>
+                            <p>2. Navigate to <strong>Settings > System > Developer Options</strong>.</p>
+                            <p>3. Enable <strong>USB Debugging</strong> and <strong>Wireless Debugging</strong>.</p>
+                            <p>4. <em>Important for Mac control:</em> You must also enable <strong>"USB debugging (Security settings)"</strong> to allow macOS to simulate screen taps and keystrokes.</p>
+                            
+                            <h4>Wireless Pairing (First Time)</h4>
+                            <p>1. Ensure your Mac and phone are on the exact same Wi-Fi network.</p>
+                            <p>2. Tap directly on the text "Wireless Debugging" on your phone to open its menu.</p>
+                            <p>3. Tap <strong>"Pair device with pairing code"</strong>. A pop-up will show an IP address, Port, and a 6-digit Wi-Fi pairing code.</p>
+                            <p>4. In ConnectPhone's <em>Connection Center</em>, type these exact details into the Pairing section and click Pair.</p>
+                            
+                            <h4>Connecting (Subsequent Uses)</h4>
+                            <p>Once paired, you never need to pair again. Simply ensure Wireless Debugging is turned on, go to the Connection Center, and click <strong>Scan Network</strong> to magically find and connect your phone!</p>
+                        </div>
+
+                        <!-- Mirroring & Media -->
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3><i class="material-symbols-outlined">desktop_windows</i> Screen Mirroring & Audio</h3>
+                            <p>Control your phone with zero latency right from your Mac using our built-in mirroring engine powered by <code>scrcpy</code>.</p>
+                            
+                            <h4>Controls & Hotkeys</h4>
+                            <p>• <strong>Right Click:</strong> Acts as the "Back" button.</p>
+                            <p>• <strong>Middle Click:</strong> Acts as the "Home" button.</p>
+                            <p>• <strong>Scroll Wheel:</strong> Scrolls lists and pages natively.</p>
+                            <p>• <strong>Cmd + O:</strong> Turns your phone's physical screen off while keeping the mirror active (saves battery!).</p>
+                            
+                            <h4>Audio Routing</h4>
+                            <p>By default, Android 11+ routes device audio directly into your Mac. You can disable this or change the target audio output device (like AirPods) from the Preferences tab before starting a mirror.</p>
+                        </div>
+                        
+                        <!-- Clipboard & Media Sync -->
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3><i class="material-symbols-outlined">sync</i> Universal Clipboard & Media</h3>
+                            
+                            <h4>Pulling Screenshots</h4>
+                            <p>In the Media & Sync tab, click <strong>Fetch Latest</strong>. ConnectPhone will scan your phone's standard screenshot directories (DCIM/Screenshots and Pictures/Screenshots). Clicking "Pull" will instantly download the image directly to your Mac's Desktop!</p>
+                            
+                            <h4>Background Clipboard Sync</h4>
+                            <p>Clicking "Start Background Sync" creates a headless, invisible bridge between your devices.</p>
+                            <p><strong>Phone to Mac:</strong> Instantly copy text on your Android and press <code>Cmd + V</code> on your Mac.</p>
+                            <p><strong>Mac to Phone Workaround:</strong> Since Android 10, Google severely restricts background apps from altering the clipboard for security reasons. To get text from your Mac to your phone without opening a mirror window, we provided the <strong>"Type Mac Clipboard on Phone"</strong> button. Simply tap a text field on your phone and click the button to inject your Mac's clipboard as secure keystrokes.</p>
+                        </div>
+
+                        <!-- Touch ID -->
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3><i class="material-symbols-outlined">fingerprint</i> macOS Touch ID Integration</h3>
+                            <p>The Biometric Daemon is an exclusive ConnectPhone feature that bridges Apple's Secure Enclave with Android's lockscreen.</p>
+                            
+                            <h4>How it Works</h4>
+                            <p>If you have this preference enabled, the dashboard continuously monitors your phone's screen state. The moment you wake up your phone to the lockscreen, or encounter an App Lock (like WhatsApp or Banking apps requiring a PIN), your Mac will instantly prompt you for Touch ID. Upon successful authentication, it decrypts and securely injects your Android PIN to unlock it instantly.</p>
+                            
+                            <h4>Setup & Troubleshooting</h4>
+                            <p>Make sure you have saved your correct Android PIN in the Preferences tab. If the daemon stops responding, simply turn your phone screen off and on again to re-trigger the wake event.</p>
+                        </div>
+                    </div>
+                </section>
+                
+            </div>
+            
+        </main>
+        
+    </div>
+    
+    <!-- Toast Message Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Scan Network IP Modal -->
+    <div id="scan-ip-modal" class="modal-overlay" aria-hidden="true">
+        <div class="modal-card" role="dialog" aria-labelledby="modal-title">
+            <div class="modal-header">
+                <div class="modal-icon"><i class="material-symbols-outlined">wifi</i></div>
+                <div>
+                    <h3 id="modal-title">Network Scan Target</h3>
+                    <p class="modal-subtitle">Which phone do you want to discover?</p>
+                </div>
+            </div>
+
+            <!-- Saved IP Chip (shown when IP is known) -->
+            <div id="modal-saved-ip-row" class="modal-saved-ip-row hidden">
+                <div class="saved-ip-chip">
+                    <span class="saved-ip-icon"><i class="material-symbols-outlined">smartphone</i></span>
+                    <div class="saved-ip-info">
+                        <span class="saved-ip-label">Last used device</span>
+                        <span class="saved-ip-value" id="modal-saved-ip-text">—</span>
+                    </div>
+                </div>
+                <button class="btn-chip-change" id="btn-modal-change-ip">Change device</button>
+            </div>
+
+            <!-- Manual IP Input (shown first time or when changing) -->
+            <div id="modal-ip-input-row" class="modal-ip-input-row">
+                <label class="modal-input-label" for="modal-ip-input">
+                    <i class="material-symbols-outlined">location_on</i> Phone IP Address
+                    <span class="modal-input-hint">Find it in Settings › Developer Options › Wireless Debugging</span>
+                </label>
+                <input
+                    type="text"
+                    id="modal-ip-input"
+                    class="modal-ip-input"
+                    placeholder="e.g. 192.168.1.45"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-primary modal-scan-btn" id="btn-modal-scan"><i class="material-symbols-outlined">search</i> Scan this Device</button>
+                <button class="btn btn-ghost" id="btn-modal-cancel">Cancel</button>
+            </div>
+
+            <p class="modal-tip"><i class="material-symbols-outlined">lightbulb</i> Your IP is saved automatically — next time scan starts instantly.</p>
+        </div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>

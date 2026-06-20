@@ -26,7 +26,14 @@ for path in common_paths:
 os.environ["PATH"] = current_path
 
 # Add project dir to path to import ConnectPhone
-PROJECT_DIR = os.path.dirname(os.path.realpath(__file__))
+if getattr(sys, 'frozen', False):
+    # If the application is run as a bundle, the PyInstaller bootloader
+    # extends the sys module by a flag frozen=True and sets the app 
+    # path into variable _MEIPASS'.
+    PROJECT_DIR = sys._MEIPASS
+else:
+    PROJECT_DIR = os.path.dirname(os.path.realpath(__file__))
+
 sys.path.append(PROJECT_DIR)
 
 # Try to raise the file descriptor limit (prevents "Too many open files" socket errors on macOS)

@@ -7,6 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let statusInterval = null;
     let scrcpyWasRunning = false;
     let isRecording = false;
+    let _actionInFlight = false;  // pause polling during long operations
+
 
     // DOM Elements
     const navButtons = document.querySelectorAll('.nav-btn');
@@ -102,11 +104,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`${API_BASE}/api/status`);
             if (!res.ok) throw new Error("HTTP connection error");
             const data = await res.json();
-            
             updateConnectionUI(data);
             updatePreferencesForm(data.config);
             updateCameraOverlayUI(data);
-            
             if (isManual) {
                 if (data.connected) {
                     showToast('Devices scanned successfully. Phone is connected.', 'success');
@@ -381,8 +381,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Post to endpoint helper
-    async function postAction(url, bodyData = {}) {
+    // Post to endpoint helper (with button loading state)
+    async function postAction(url, bodyData = {}, btnEl = null) {
+        const origText = btnEl ? btnEl.innerHTML : null;
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.innerHTML = `<span class="btn-spinner"></span> ${btnEl.textContent.trim()}`;
+        }
         try {
             const res = await fetch(`${API_BASE}${url}`, {
                 method: 'POST',
@@ -396,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 showToast(data.message || 'Action failed', 'error');
             }
+            // Immediately fetch fresh status after any action
             fetchStatus();
             return data;
         } catch (err) {
@@ -404,6 +410,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 errorMsg = 'Cannot reach Python API server. Please run ConnectPhoneUI.app or start ConnectPhoneUI.py in terminal.';
             }
             showToast(`Error: ${errorMsg}`, 'error');
+        } finally {
+            if (btnEl && origText !== null) {
+                btnEl.disabled = false;
+                btnEl.innerHTML = origText;
+            }
         }
     }
 
@@ -449,16 +460,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Settings Connections Bindings
-    // Settings Connections Bindings
     const btnAutoConnect = document.getElementById('btn-conn-autoconnect');
     if (btnAutoConnect) {
         btnAutoConnect.addEventListener('click', () => {
-            showToast('Auto-scanning ports & connecting...', 'info');
-            postAction('/api/connect/auto');
+            showToast('⚡ Trying instant reconnect... scanning if needed.', 'info');
+            postAction('/api/connect/auto', {}, btnAutoConnect);
         });
     }
 
-    document.getElementById('btn-conn-connect').addEventListener('click', () => {
+    const btnConnect = document.getElementById('btn-conn-connect');
+    if (btnConnect) btnConnect.addEventListener('click', () => {
         const ip = document.getElementById('conn-ip').value.trim();
         const port = document.getElementById('conn-port').value.trim();
         if (!ip) {
@@ -466,10 +477,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         showToast(`Connecting to ${ip}:${port}...`, 'info');
-        postAction('/api/connect', { ip: ip, port: port });
+        postAction('/api/connect', { ip: ip, port: port }, btnConnect);
     });
 
-    document.getElementById('btn-conn-pair').addEventListener('click', () => {
+    const btnPair = document.getElementById('btn-conn-pair');
+    if (btnPair) btnPair.addEventListener('click', () => {
         const ip = document.getElementById('conn-ip').value.trim();
         const port = document.getElementById('pair-port').value.trim();
         const code = document.getElementById('pair-code').value.trim();
@@ -478,16 +490,18 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         showToast('Pairing wirelessly with device...', 'info');
-        postAction('/api/pair', { ip: ip, port: port, code: code });
+        postAction('/api/pair', { ip: ip, port: port, code: code }, btnPair);
     });
 
-    document.getElementById('btn-disconnect-all').addEventListener('click', () => {
-        postAction('/api/disconnect');
+    const btnDisconnectAll = document.getElementById('btn-disconnect-all');
+    if (btnDisconnectAll) btnDisconnectAll.addEventListener('click', () => {
+        postAction('/api/disconnect', {}, btnDisconnectAll);
     });
 
-    document.getElementById('btn-restart-adb').addEventListener('click', () => {
+    const btnRestartAdb = document.getElementById('btn-restart-adb');
+    if (btnRestartAdb) btnRestartAdb.addEventListener('click', () => {
         showToast('Restarting ADB server...', 'info');
-        postAction('/api/restart_adb');
+        postAction('/api/restart_adb', {}, btnRestartAdb);
     });
 
     // mDNS Auto-Discovery Bindings
@@ -759,7 +773,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function initDashboard() {
         await loadMacAudioDevices();
         fetchStatus();
-        statusInterval = setInterval(fetchStatus, 2000);
+        // Poll every 800 ms — cache on backend makes this free (< 1 ms per response)
+        statusInterval = setInterval(fetchStatus, 800);
     }
     
     initDashboard();

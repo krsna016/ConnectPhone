@@ -457,6 +457,29 @@ body {
     gap: 8px;
 }
 
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Spinning loader injected by JS when a button action is in flight */
+.btn-spinner {
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255,255,255,0.25);
+    border-top-color: #fff;
+    border-radius: 50%;
+    display: inline-block;
+    animation: btn-spin 0.65s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes btn-spin {
+    to { transform: rotate(360deg); }
+}
+
+
 .btn:hover {
     background-color: rgba(255, 255, 255, 0.1);
     border-color: var(--border-hover);

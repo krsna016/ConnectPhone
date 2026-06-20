@@ -59,14 +59,75 @@ scrcpy_state = {
 sync_watcher_thread = None
 sync_watcher_active = False
 
+# ─── Fast Status Cache ────────────────────────────────────────────────────────
+# Background thread keeps this refreshed so /api/status returns instantly.
+_status_cache = None
+_status_cache_lock = threading.Lock()
+_status_cache_event = threading.Event()   # set when a fresh refresh is wanted
+
+def _build_status_payload():
+    """Build the full /api/status payload. Called from background thread."""
+    global scrcpy_proc, scrcpy_state, sync_watcher_active
+    devices_detailed = get_detailed_adb_devices()
+    active_device = check_and_autoselect_device(devices_detailed)
+    device_connected = len(devices_detailed) > 0 and any(d["status"] == "device" for d in devices_detailed)
+
+    # Run slow ADB calls in parallel
+    device_info = None
+    input_injection_granted = True
+    if device_connected:
+        results = {}
+        def _get_info():
+            results["info"] = ConnectPhone.get_device_info()
+        def _get_perm():
+            results["perm"] = ConnectPhone.check_input_injection_permission()
+        t1 = threading.Thread(target=_get_info, daemon=True)
+        t2 = threading.Thread(target=_get_perm, daemon=True)
+        t1.start(); t2.start()
+        t1.join(timeout=4); t2.join(timeout=4)
+        device_info = results.get("info")
+        input_injection_granted = results.get("perm", True)
+
+    scrcpy_running = scrcpy_proc is not None and scrcpy_proc.poll() is None
+    return {
+        "connected": device_connected,
+        "devices": [d["serial"] for d in devices_detailed],
+        "devices_detailed": devices_detailed,
+        "active_device": active_device,
+        "device_info": device_info,
+        "scrcpy_running": scrcpy_running,
+        "recording_active": scrcpy_state["recording_active"],
+        "sync_watcher_active": sync_watcher_active,
+        "mirror_type": scrcpy_state["mirror_type"],
+        "input_injection_granted": input_injection_granted,
+        "config": ConnectPhone.load_config()
+    }
+
+def _status_cache_worker():
+    """Background thread: refresh cache every 1.2 s or immediately on demand."""
+    global _status_cache
+    while True:
+        try:
+            payload = _build_status_payload()
+            with _status_cache_lock:
+                _status_cache = payload
+        except Exception as e:
+            print(f"[StatusCache] Error: {e}")
+        # Wait up to 1.2 s, but wake immediately if signalled
+        _status_cache_event.wait(timeout=1.2)
+        _status_cache_event.clear()
+
+def _invalidate_status_cache():
+    """Signal the background thread to refresh immediately."""
+    _status_cache_event.set()
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-def scan_and_connect_wireless_debug(ip, timeout=0.15):
+
+def scan_and_connect_wireless_debug(ip, timeout=0.12, last_known_port=None):
     import socket
     import concurrent.futures
-    import subprocess
-    import threading
-    
+
     def check_single_port(ip_addr, port_num, timeout_val):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -76,39 +137,51 @@ def scan_and_connect_wireless_debug(ip, timeout=0.15):
             return result == 0
         except Exception:
             return False
-            
-    # 1. Check default port 5555 first
-    if check_single_port(ip, 5555, 0.2):
-        subprocess.run(["adb", "disconnect", f"{ip}:5555"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        res = subprocess.run(["adb", "connect", f"{ip}:5555"], capture_output=True, text=True)
-        out = res.stdout or ""
-        if "connected to" in out.lower() or "already connected to" in out.lower():
-            return 5555
-            
-    # 2. Concurrently scan range
-    ports = list(range(30000, 48000 + 1))
-    found_ports = []
-    lock = threading.Lock()
-    
-    def worker(port):
-        if check_single_port(ip, port, timeout):
-            with lock:
-                found_ports.append(port)
-                
-    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
-        executor.map(worker, ports)
-        
-    found_ports.sort()
-    
-    # 3. Try to connect to each found port
-    for port in found_ports:
+
+    def try_connect(port):
         ip_port = f"{ip}:{port}"
         subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
         out = res.stdout or ""
-        if "connected to" in out.lower() or "already connected to" in out.lower():
-            return port
-            
+        return port if ("connected to" in out.lower() or "already connected to" in out.lower()) else None
+
+    # 0. Try last-known port instantly (no scan needed if device kept same port)
+    if last_known_port and last_known_port not in (5555,):
+        if check_single_port(ip, last_known_port, 0.25):
+            result = try_connect(last_known_port)
+            if result:
+                return result
+
+    # 1. Check default port 5555
+    if check_single_port(ip, 5555, 0.2):
+        result = try_connect(5555)
+        if result:
+            return result
+
+    # 2. Parallel scan of wireless-debug port range (30000-49999)
+    ports = list(range(30000, 50000))
+    found_ports = []
+    lock = threading.Lock()
+    stop_flag = threading.Event()
+
+    def worker(port):
+        if stop_flag.is_set():
+            return
+        if check_single_port(ip, port, timeout):
+            with lock:
+                found_ports.append(port)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=256) as executor:
+        executor.map(worker, ports)
+
+    found_ports.sort()
+
+    # 3. Try each found port
+    for port in found_ports:
+        result = try_connect(port)
+        if result:
+            return result
+
     return None
 
 class RobustAdbMdnsListener:
@@ -680,40 +753,21 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(500, f"Internal Server Error: {e}")
 
     def handle_api_get(self):
-        global scrcpy_proc, scrcpy_state, sync_watcher_active
-        
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        
+
         if self.path == '/api/status':
-            devices_detailed = get_detailed_adb_devices()
-            active_device = check_and_autoselect_device(devices_detailed)
-            device_connected = len(devices_detailed) > 0 and any(d["status"] == "device" for d in devices_detailed)
-            device_info = ConnectPhone.get_device_info() if device_connected else None
-            
-            # Check input event injection permission
-            input_injection_granted = True
-            if device_connected:
-                input_injection_granted = ConnectPhone.check_input_injection_permission()
-                
-            scrcpy_running = scrcpy_proc is not None and scrcpy_proc.poll() is None
-            
-            response = {
-                "connected": device_connected,
-                "devices": [d["serial"] for d in devices_detailed],
-                "devices_detailed": devices_detailed,
-                "active_device": active_device,
-                "device_info": device_info,
-                "scrcpy_running": scrcpy_running,
-                "recording_active": scrcpy_state["recording_active"],
-                "sync_watcher_active": sync_watcher_active,
-                "mirror_type": scrcpy_state["mirror_type"],
-                "input_injection_granted": input_injection_granted,
-                "config": ConnectPhone.load_config()
-            }
-            self.wfile.write(json.dumps(response).encode('utf-8'))
+            # Serve from cache (refreshed every ~1.2 s in background) — sub-millisecond response
+            with _status_cache_lock:
+                payload = _status_cache
+            if payload is None:
+                # First boot: build synchronously once
+                payload = _build_status_payload()
+                with _status_cache_lock:
+                    _status_cache = payload
+            self.wfile.write(json.dumps(payload).encode('utf-8'))
         elif self.path == '/api/metrics':
             res_metrics = get_live_metrics()
             self.wfile.write(json.dumps(res_metrics).encode('utf-8'))
@@ -771,6 +825,14 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     if "connected to" in output.lower() or "already connected to" in output.lower():
                         res_data["success"] = True
                         res_data["message"] = f"Successfully connected to {ip_port}!"
+                        # Cache this port for lightning reconnect
+                        try:
+                            cfg = ConnectPhone.load_config()
+                            cfg["last_port"] = int(port)
+                            ConnectPhone.save_config(cfg)
+                        except Exception:
+                            pass
+                        _invalidate_status_cache()
                     else:
                         res_data["message"] = (
                             f"Connection failed: {output}\n\n"
@@ -783,57 +845,92 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             elif self.path == '/api/connect/auto':
                 config = ConnectPhone.load_config()
                 ip = config.get("last_ip", "").strip()
+                last_port = config.get("last_port", None)
+                if last_port:
+                    try:
+                        last_port = int(last_port)
+                    except Exception:
+                        last_port = None
                 if not ip:
                     res_data["success"] = False
                     res_data["message"] = "No previously paired IP address found in config. Connect manually first."
                 else:
-                    # 1. Try mDNS discovery first for up to 3.0 seconds (extremely fast and lightweight)
-                    _, mdns_port = discover_adb_service_hybrid(
-                        "_adb-tls-connect._tcp.local.",
-                        target_ip=ip,
-                        timeout=3.0
-                    )
-                    
                     connected = False
-                    if mdns_port:
-                        ip_port = f"{ip}:{mdns_port}"
-                        subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
-                        stdout = res.stdout or ""
-                        if "connected to" in stdout.lower() or "already connected to" in stdout.lower():
-                            res_data["success"] = True
-                            res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
-                            connected = True
-                            
+
+                    # 0. Lightning path: try the last-known port directly (< 300 ms if phone kept same port)
+                    if last_port and last_port not in (5555,):
+                        import socket as _sock
+                        try:
+                            s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                            s.settimeout(0.25)
+                            open_result = s.connect_ex((ip, last_port))
+                            s.close()
+                        except Exception:
+                            open_result = 1
+                        if open_result == 0:
+                            ip_port = f"{ip}:{last_port}"
+                            subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+                            if "connected to" in (res.stdout or "").lower() or "already connected to" in (res.stdout or "").lower():
+                                res_data["success"] = True
+                                res_data["message"] = f"⚡ Instantly reconnected to {ip_port}!"
+                                connected = True
+                                _invalidate_status_cache()
+
+                    # 1. mDNS discovery (1.5 s timeout — usually resolves in < 200 ms)
                     if not connected:
-                        # 2. Fallback to scanning and connecting on the verified open port
-                        target_port = scan_and_connect_wireless_debug(ip)
+                        _, mdns_port = discover_adb_service_hybrid(
+                            "_adb-tls-connect._tcp.local.",
+                            target_ip=ip,
+                            timeout=1.5
+                        )
+                        if mdns_port:
+                            ip_port = f"{ip}:{mdns_port}"
+                            subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+                            stdout = res.stdout or ""
+                            if "connected to" in stdout.lower() or "already connected to" in stdout.lower():
+                                res_data["success"] = True
+                                res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
+                                connected = True
+                                # Remember this port for the lightning path next time
+                                config["last_port"] = mdns_port
+                                ConnectPhone.save_config(config)
+                                _invalidate_status_cache()
+
+                    # 2. Parallel port scan fallback
+                    if not connected:
+                        target_port = scan_and_connect_wireless_debug(ip, last_known_port=last_port)
                         if target_port:
                             res_data["success"] = True
                             res_data["message"] = f"Successfully auto-connected to phone at {ip}:{target_port}!"
+                            connected = True
+                            config["last_port"] = target_port
+                            ConnectPhone.save_config(config)
+                            _invalidate_status_cache()
+
+                    if not connected:
+                        import platform
+                        ping_param = "-n" if platform.system().lower() == "windows" else "-c"
+                        ping_res = subprocess.run(["ping", ping_param, "1", "-t", "1", ip], capture_output=True)
+                        if ping_res.returncode == 0:
+                            res_data["message"] = (
+                                f"Auto-connect failed. No active wireless debugging ports found open on {ip}.\n\n"
+                                "💡 DIAGNOSIS:\n"
+                                "Your phone is online and responding, but the connection was refused. This usually means:\n"
+                                "• The Wireless Debugging service is toggled OFF on your phone.\n"
+                                "• The device has not been paired with this computer yet.\n\n"
+                                "🔧 HOW TO FIX:\n"
+                                "1. Verify that 'Wireless Debugging' is toggled ON under Developer Options.\n"
+                                "2. If it is already ON, try toggling it OFF and back ON to refresh the service port.\n"
+                                "3. If this is a new phone, please pair it using the Wireless Debugging Pairing section (enter port and code) to establish trust."
+                            )
                         else:
-                            # 3. Both failed, diagnose the problem
-                            import platform
-                            ping_param = "-n" if platform.system().lower() == "windows" else "-c"
-                            ping_res = subprocess.run(["ping", ping_param, "1", "-t", "1", ip], capture_output=True)
-                            if ping_res.returncode == 0:
-                                res_data["message"] = (
-                                    f"Auto-connect failed. No active wireless debugging ports found open on {ip}.\n\n"
-                                    "💡 DIAGNOSIS:\n"
-                                    "Your phone is online and responding, but the connection was refused. This usually means:\n"
-                                    "• The Wireless Debugging service is toggled OFF on your phone.\n"
-                                    "• The device has not been paired with this computer yet.\n\n"
-                                    "🔧 HOW TO FIX:\n"
-                                    "1. Verify that 'Wireless Debugging' is toggled ON under Developer Options.\n"
-                                    "2. If it is already ON, try toggling it OFF and back ON to refresh the service port.\n"
-                                    "3. If this is a new phone, please pair it using the Wireless Debugging Pairing section (enter port and code) to establish trust."
-                                )
-                            else:
-                                res_data["message"] = (
-                                    f"Auto-connect failed. Could not reach your phone at {ip}.\n\n"
-                                    "💡 DIAGNOSIS: The device is offline/unreachable. Your phone's IP address might have changed, "
-                                    "or Wi-Fi is disconnected. Please check the current IP Address listed under Wireless Debugging on your phone."
-                                )
+                            res_data["message"] = (
+                                f"Auto-connect failed. Could not reach your phone at {ip}.\n\n"
+                                "💡 DIAGNOSIS: The device is offline/unreachable. Your phone's IP address might have changed, "
+                                "or Wi-Fi is disconnected. Please check the current IP Address listed under Wireless Debugging on your phone."
+                            )
                         
             elif self.path == '/api/disconnect':
                 target_ip = str(data.get("ip", "")).strip() if data and data.get("ip") is not None else ""
@@ -850,7 +947,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = "Disconnected from all devices."
                     stop_scrcpy_bg()
                 res_data["success"] = True
-                
+                _invalidate_status_cache()
+
             elif self.path == '/api/pair':
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "")).strip()
@@ -859,6 +957,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = "IP, Port, and Pairing Code are all required."
                 else:
                     ConnectPhone.save_last_ip(ip)
+                    _invalidate_status_cache()
                     ip_port = f"{ip}:{port}"
                     print(f"[UI Server] Attempting wireless pairing to {ip_port} with code {code}...")
                     
@@ -1459,6 +1558,10 @@ def run_server():
             sys.exit(0)
         else:
             raise e
+
+    # Start fast status-cache background refresher
+    cache_thread = threading.Thread(target=_status_cache_worker, daemon=True)
+    cache_thread.start()
 
     # Start background Biometric Watcher Daemon for UI App
     daemon_thread = threading.Thread(target=ConnectPhone.biometric_daemon_loop)

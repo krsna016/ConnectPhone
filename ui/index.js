@@ -923,18 +923,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnSyncClipboardStart = document.getElementById('btn-sync-clipboard-start');
     const btnSyncClipboardStop = document.getElementById('btn-sync-clipboard-stop');
+    const clipboardSyncStatus = document.getElementById('clipboard-sync-status');
+
+    function updateClipboardBadge(active) {
+        if (!clipboardSyncStatus) return;
+        if (active) {
+            clipboardSyncStatus.style.background = 'rgba(16, 185, 129, 0.1)';
+            clipboardSyncStatus.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+            clipboardSyncStatus.style.color = 'var(--color-success)';
+            clipboardSyncStatus.innerHTML = '<i class="material-symbols-outlined" style="font-size: 16px;">sync</i> <span>Status: Actively Syncing</span>';
+        } else {
+            clipboardSyncStatus.style.background = 'rgba(239, 68, 68, 0.1)';
+            clipboardSyncStatus.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+            clipboardSyncStatus.style.color = 'var(--color-danger)';
+            clipboardSyncStatus.innerHTML = '<i class="material-symbols-outlined" style="font-size: 16px;">sync_disabled</i> <span>Status: Inactive</span>';
+        }
+    }
 
     if (btnSyncClipboardStart) {
         btnSyncClipboardStart.addEventListener('click', () => {
             postAction('/api/clipboard/sync/start').then(res => {
-                if(res && res.success) showToast(res.message, "success");
+                if(res && res.success) {
+                    showToast(res.message, "success");
+                    updateClipboardBadge(true);
+                }
             });
         });
     }
     if (btnSyncClipboardStop) {
         btnSyncClipboardStop.addEventListener('click', () => {
             postAction('/api/clipboard/sync/stop').then(res => {
-                if(res && res.success) showToast(res.message, "success");
+                if(res && res.success) {
+                    showToast(res.message, "success");
+                    updateClipboardBadge(false);
+                }
             });
         });
     }

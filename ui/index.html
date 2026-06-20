@@ -99,7 +99,7 @@
                         <i class="material-symbols-outlined">videocam</i>
                     </button>
                     <button class="action-btn-circle stop-btn" id="overlay-stop" title="Stop camera stream">
-                        🛑
+                        <i class="material-symbols-outlined">stop_circle</i>
                     </button>
                 </div>
             </div>
@@ -139,7 +139,7 @@
                             
                             <!-- Step-by-Step Guide Card -->
                             <div class="card guide-card">
-                                <h3>💡 Wireless Connection Quick Guide</h3>
+                                <h3><i class="material-symbols-outlined">lightbulb</i> Wireless Connection Quick Guide</h3>
                                 <div class="guide-steps-grid">
                                     <div class="step-item">
                                         <div class="step-badge">1</div>
@@ -186,7 +186,7 @@
                             <!-- mDNS Discovery Card -->
                             <div class="card mdns-discovery-card">
                                 <div class="card-header-row">
-                                    <h3>📶 Wireless Auto-Discovery (mDNS)</h3>
+                                    <h3><i class="material-symbols-outlined">wifi</i> Wireless Auto-Discovery (mDNS)</h3>
                                     <button class="btn btn-sm btn-scan-mdns" id="btn-scan-mdns-devices"><i class="material-symbols-outlined">search</i> Scan Network</button>
                                 </div>
                                 <p class="card-desc">Discovers phones broadcasting Wireless Debugging on your local subnet automatically.</p>
@@ -225,7 +225,7 @@
                             
                             <!-- Wireless Debugging Pairing -->
                             <div class="card pairing-controls-card">
-                                <h3>🔑 Wireless Debugging Pairing</h3>
+                                <h3><i class="material-symbols-outlined">key</i> Wireless Debugging Pairing</h3>
                                 <p>Pair your phone with this Mac (required once per Wi-Fi network).</p>
                                 <div class="settings-form">
                                     <div class="form-row">
@@ -244,12 +244,12 @@
                             
                             <!-- Diagnostics Card -->
                             <div class="card diagnostics-card">
-                                <h3>🛠️ Diagnostics Toolkit</h3>
+                                <h3><i class="material-symbols-outlined">build</i> Diagnostics Toolkit</h3>
                                 <div class="diagnostic-actions">
                                     <button class="btn btn-warning" id="btn-restart-adb">Restart ADB Server</button>
                                     <button class="btn btn-danger" id="btn-disconnect-all">Disconnect All Devices</button>
                                     <button class="btn btn-primary" id="btn-ping-test"><i class="material-symbols-outlined">bolt</i> Run Connection Ping Test</button>
-                                    <button class="btn btn-accent" id="btn-phone-unlock">🔑 Unlock Phone (Mac Touch ID)</button>
+                                    <button class="btn btn-accent" id="btn-phone-unlock"><i class="material-symbols-outlined">key</i> Unlock Phone (Mac Touch ID)</button>
                                 </div>
                                 <div id="ping-test-result" class="ping-result hidden"></div>
                             </div>
@@ -276,7 +276,7 @@
                         <!-- Mode 2: Camera Feed -->
                         <div class="card mirror-card highlight" data-mode="camera">
                             <div class="card-badge">PRO</div>
-                            <div class="card-icon">📷</div>
+                            <div class="card-icon"><i class="material-symbols-outlined">camera</i></div>
                             <h3>Live Camera Feed</h3>
                             <p>Stream front or back camera directly to your Mac. Supports mic merging and live controls.</p>
                             
@@ -307,7 +307,7 @@
                         
                         <!-- Mode 3: Audio Only -->
                         <div class="card mirror-card" data-mode="audio">
-                            <div class="card-icon">🔊</div>
+                            <div class="card-icon"><i class="material-symbols-outlined">volume_up</i></div>
                             <h3>Audio-Only Mirroring</h3>
                             <p>Listen directly to the Android microphone or system audio stream without rendering video.</p>
                             <button class="btn btn-primary start-mirror-btn" data-type="audio">Listen to Mic</button>
@@ -354,7 +354,7 @@
 
                         <!-- RAM Card -->
                         <div class="card metrics-card ram-card">
-                            <h3>🧠 System Memory (RAM)</h3>
+                            <h3><i class="material-symbols-outlined">memory</i> System Memory (RAM)</h3>
                             <div class="metric-visual">
                                 <div class="progress-bar-container">
                                     <div class="progress-fill" id="metric-ram-fill" style="width: 0%;"></div>
@@ -390,7 +390,7 @@
 
                         <!-- Network Card -->
                         <div class="card metrics-card network-card">
-                            <h3>🌐 Network & System</h3>
+                            <h3><i class="material-symbols-outlined">public</i> Network & System</h3>
                             <div class="metric-stats">
                                 <div class="stat-row"><span>Device IP Address:</span> <strong id="metric-net-ip">--</strong></div>
                                 <div class="stat-row"><span>Connection Type:</span> <strong id="metric-net-type">--</strong></div>
@@ -608,7 +608,7 @@
     <div id="scan-ip-modal" class="modal-overlay" aria-hidden="true">
         <div class="modal-card" role="dialog" aria-labelledby="modal-title">
             <div class="modal-header">
-                <div class="modal-icon">📶</div>
+                <div class="modal-icon"><i class="material-symbols-outlined">wifi</i></div>
                 <div>
                     <h3 id="modal-title">Network Scan Target</h3>
                     <p class="modal-subtitle">Which phone do you want to discover?</p>
@@ -630,7 +630,7 @@
             <!-- Manual IP Input (shown first time or when changing) -->
             <div id="modal-ip-input-row" class="modal-ip-input-row">
                 <label class="modal-input-label" for="modal-ip-input">
-                    📍 Phone IP Address
+                    <i class="material-symbols-outlined">location_on</i> Phone IP Address
                     <span class="modal-input-hint">Find it in Settings › Developer Options › Wireless Debugging</span>
                 </label>
                 <input
@@ -648,7 +648,7 @@
                 <button class="btn btn-ghost" id="btn-modal-cancel">Cancel</button>
             </div>
 
-            <p class="modal-tip">💡 Your IP is saved automatically — next time scan starts instantly.</p>
+            <p class="modal-tip"><i class="material-symbols-outlined">lightbulb</i> Your IP is saved automatically — next time scan starts instantly.</p>
         </div>
     </div>
 

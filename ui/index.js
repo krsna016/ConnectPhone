@@ -76,10 +76,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         
-        let icon = '🔔';
+        let icon = '<i class="material-symbols-outlined">notifications</i>';
         if (type === 'success') icon = '<i class="material-symbols-outlined">check_circle</i>';
         else if (type === 'error') icon = '<i class="material-symbols-outlined">cancel</i>';
-        else if (type === 'info') icon = '⏳';
+        else if (type === 'info') icon = '<i class="material-symbols-outlined">hourglass_empty</i>';
         
         toast.innerHTML = `
             <span class="toast-icon">${icon}</span>
@@ -199,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         <p>${storage}</p>
                                     </div>
                                     <div class="detail-item">
-                                        <span>🌐 IP Address / Serial</span>
+                                        <span><i class="material-symbols-outlined">public</i> IP Address / Serial</span>
                                         <p>${data.devices[0] || 'USB Connection'}</p>
                                     </div>
                                 </div>
@@ -233,7 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     
                     const isWireless = device.type === 'wireless';
-                    const icon = isWireless ? '📶' : '<i class="material-symbols-outlined">cable</i>';
+                    const icon = isWireless ? '<i class="material-symbols-outlined">wifi</i>' : '<i class="material-symbols-outlined">cable</i>';
                     const statusText = device.status === 'device' ? 'online' : (device.status === 'unauthorized' ? 'unauthorized' : 'offline');
                     
                     row.innerHTML = `
@@ -298,7 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (isRecording) {
                     overlayRecord.classList.add('recording');
-                    overlayRecord.textContent = '🔴';
+                    overlayRecord.textContent = '<i class="material-symbols-outlined">circle</i>';
                     cameraOverlayDesc.textContent = 'RECORDING LIVE HD VIDEO (Saving to Desktop)...';
                 } else {
                     overlayRecord.classList.remove('recording');
@@ -630,7 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                             <div class="device-info-right">
                                 <button class="btn btn-sm btn-primary btn-mdns-action" data-ip="${service.ip}" data-port="${service.port}" data-type="${service.type}">
-                                    ${isPairing ? '🔑 Start Pairing' : '<i class="material-symbols-outlined">bolt</i> Connect'}
+                                    ${isPairing ? '<i class="material-symbols-outlined">key</i> Start Pairing' : '<i class="material-symbols-outlined">bolt</i> Connect'}
                                 </button>
                             </div>
                         `;
@@ -890,7 +890,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const pullBtn = div.querySelector('button');
                         pullBtn.addEventListener('click', async () => {
                             const originalText = pullBtn.innerHTML;
-                            pullBtn.innerHTML = '⏳';
+                            pullBtn.innerHTML = '<i class="material-symbols-outlined">hourglass_empty</i>';
                             pullBtn.disabled = true;
                             const pullRes = await postAction('/api/screenshots/pull', { path: filepath });
                             if (pullRes && pullRes.success) {
@@ -945,7 +945,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnRestartApp) {
         btnRestartApp.addEventListener('click', () => {
             btnRestartApp.disabled = true;
-            btnRestartApp.innerHTML = '⏳ Restarting...';
+            btnRestartApp.innerHTML = '<i class="material-symbols-outlined">hourglass_empty</i> Restarting...';
             showToast("Restarting application...", "info");
             fetch(`${API_BASE}/api/app/restart`, { method: 'POST' }).catch(e => console.error(e));
             // Reload the window automatically after the backend spins back up

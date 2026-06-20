@@ -504,19 +504,119 @@ document.addEventListener('DOMContentLoaded', () => {
         postAction('/api/restart_adb', {}, btnRestartAdb);
     });
 
-    // mDNS Auto-Discovery Bindings
+    // mDNS Auto-Discovery & Scan Target IP Logic
     const btnScanMdns = document.getElementById('btn-scan-mdns-devices');
     const mdnsList = document.getElementById('mdns-discovered-list');
+    
+    // Modal Elements
+    const scanModal = document.getElementById('scan-ip-modal');
+    const modalIpInput = document.getElementById('modal-ip-input');
+    const modalSavedRow = document.getElementById('modal-saved-ip-row');
+    const modalInputRow = document.getElementById('modal-ip-input-row');
+    const modalSavedText = document.getElementById('modal-saved-ip-text');
+    const btnModalChangeIp = document.getElementById('btn-modal-change-ip');
+    const btnModalScan = document.getElementById('btn-modal-scan');
+    const btnModalCancel = document.getElementById('btn-modal-cancel');
+
+    // Badge Elements
+    const scanTargetBadge = document.getElementById('scan-target-badge');
+    const scanTargetText = document.getElementById('scan-target-ip-text');
+    const btnScanChangeIp = document.getElementById('btn-scan-change-ip');
+
+    let currentScanTargetIp = '';
+
+    function openScanModal(forceInput = false) {
+        // Try to get known IP from our local state or the backend config
+        const knownIp = currentScanTargetIp || (window.currentStatus && window.currentStatus.config && window.currentStatus.config.last_ip);
+        
+        if (knownIp && !forceInput) {
+            modalSavedText.textContent = knownIp;
+            modalSavedRow.classList.remove('hidden');
+            modalInputRow.classList.add('hidden');
+        } else {
+            modalSavedRow.classList.add('hidden');
+            modalInputRow.classList.remove('hidden');
+            modalIpInput.value = knownIp || '';
+            setTimeout(() => modalIpInput.focus(), 100);
+        }
+        scanModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeScanModal() {
+        scanModal.setAttribute('aria-hidden', 'true');
+    }
+
+    if (btnModalCancel) {
+        btnModalCancel.addEventListener('click', closeScanModal);
+    }
+
+    if (btnModalChangeIp) {
+        btnModalChangeIp.addEventListener('click', () => {
+            openScanModal(true);
+        });
+    }
+
+    if (btnScanChangeIp) {
+        btnScanChangeIp.addEventListener('click', () => {
+            openScanModal(true);
+        });
+    }
+
     if (btnScanMdns && mdnsList) {
-        btnScanMdns.addEventListener('click', async () => {
-            mdnsList.innerHTML = '<p class="list-placeholder">⚡ Scanning Wi-Fi network for Wireless Debugging services (takes 2 seconds)...</p>';
-            btnScanMdns.disabled = true;
-            try {
-                const res = await fetch(`${API_BASE}/api/mdns/discover`);
-                const data = await res.json();
-                mdnsList.innerHTML = '';
-                if (data.success && data.services && data.services.length > 0) {
-                    data.services.forEach(service => {
+        btnScanMdns.addEventListener('click', () => {
+            const knownIp = currentScanTargetIp || (window.currentStatus && window.currentStatus.config && window.currentStatus.config.last_ip);
+            // If the badge is already visible and we have the IP, we can just scan directly without modal
+            if (knownIp && !scanTargetBadge.classList.contains('hidden')) {
+                executeMdnsScan(knownIp);
+            } else {
+                openScanModal(false);
+            }
+        });
+    }
+
+    if (btnModalScan) {
+        btnModalScan.addEventListener('click', () => {
+            let ipToScan = '';
+            if (!modalInputRow.classList.contains('hidden')) {
+                ipToScan = modalIpInput.value.trim();
+            } else {
+                ipToScan = modalSavedText.textContent.trim();
+            }
+
+            if (!ipToScan) {
+                showToast('Please enter a valid IP address.', 'error');
+                return;
+            }
+
+            currentScanTargetIp = ipToScan;
+            
+            // Auto-fill the manual connection IP box for convenience
+            const connIpInput = document.getElementById('conn-ip');
+            if (connIpInput) connIpInput.value = ipToScan;
+
+            // Show the target badge
+            scanTargetBadge.classList.remove('hidden');
+            scanTargetText.textContent = ipToScan;
+
+            closeScanModal();
+            executeMdnsScan(ipToScan);
+        });
+    }
+
+    async function executeMdnsScan(targetIp) {
+        mdnsList.innerHTML = `<p class="list-placeholder">⚡ Scanning Wi-Fi network for ${targetIp} (takes 2 seconds)...</p>`;
+        btnScanMdns.disabled = true;
+        try {
+            const res = await fetch(`${API_BASE}/api/mdns/discover`);
+            const data = await res.json();
+            mdnsList.innerHTML = '';
+            
+            if (data.success && data.services && data.services.length > 0) {
+                // Filter the results for the target IP only
+                const filteredServices = data.services.filter(s => s.ip === targetIp);
+                
+                if (filteredServices.length > 0) {
+                    filteredServices.forEach(service => {
                         const row = document.createElement('div');
                         row.className = 'device-row';
                         const isPairing = service.type === 'pairing';
@@ -553,15 +653,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         mdnsList.appendChild(row);
                     });
                 } else {
-                    mdnsList.innerHTML = '<p class="list-placeholder">No active wireless debugging services discovered on local network. Verify "Wireless Debugging" is toggled ON in Developer Options.</p>';
+                    mdnsList.innerHTML = `<p class="list-placeholder error">No services found for ${targetIp}. (Found ${data.services.length} other devices). Check IP and ensure Wireless Debugging is ON.</p>`;
                 }
-            } catch (err) {
-                console.error("mDNS scan error:", err);
-                mdnsList.innerHTML = `<p class="list-placeholder error">Scan failed: ${err.message}</p>`;
-            } finally {
-                btnScanMdns.disabled = false;
+            } else {
+                mdnsList.innerHTML = '<p class="list-placeholder">No active wireless debugging services discovered on local network. Verify "Wireless Debugging" is toggled ON in Developer Options.</p>';
             }
-        });
+        } catch (err) {
+            console.error("mDNS scan error:", err);
+            mdnsList.innerHTML = `<p class="list-placeholder error">Scan failed: ${err.message}</p>`;
+        } finally {
+            btnScanMdns.disabled = false;
+        }
     }
 
     const btnRefreshList = document.getElementById('btn-refresh-devices-list');

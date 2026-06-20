@@ -1,25 +1,33 @@
-/* Design System & Tokens - Neon Tech Edition */
+/* Design System & Tokens - Dark Neumorphic Edition */
 :root {
-    --bg-main: #020617; /* Pure dark navy/black */
-    --bg-app: rgba(15, 23, 42, 0.95); /* Deep slate */
-    --bg-card: rgba(30, 41, 59, 0.6); /* Slate card */
-    --bg-input: #020617; /* Darkest for inputs */
+    --bg-main: #242731; /* Matte slate grey/blue */
+    --bg-app: #242731;
+    --bg-card: #242731;
+    --bg-input: #242731;
     
-    --border-color: #1e293b; /* Subtle slate border */
-    --border-hover: #38bdf8; /* Neon blue hover */
-    --border-highlight: #38bdf8; /* Neon blue highlight */
+    --border-color: transparent; /* Neumorphism relies on shadows, not borders */
+    --border-hover: transparent;
+    --border-highlight: transparent;
     
-    --text-primary: #f8fafc;
+    --text-primary: #e2e8f0;
     --text-secondary: #94a3b8;
-    --text-muted: #475569;
+    --text-muted: #64748b;
     
-    --color-primary: #38bdf8; /* Neon Blue */
-    --color-primary-glow: rgba(56, 189, 248, 0.5);
-    --color-accent: #0ea5e9; /* Sky Blue */
-    --color-accent-glow: rgba(14, 165, 233, 0.5);
+    --color-primary: #00e6e6; /* Vibrant Cyan */
+    --color-primary-glow: rgba(0, 230, 230, 0.4);
+    --color-accent: #00c4c4; /* Slightly darker cyan */
+    --color-accent-glow: rgba(0, 196, 196, 0.4);
     --color-success: #10B981;
     --color-warning: #F59E0B;
     --color-danger: #EF4444;
+    
+    --shadow-light: rgba(255, 255, 255, 0.06);
+    --shadow-dark: rgba(0, 0, 0, 0.4);
+    
+    --neu-extrude: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light);
+    --neu-extrude-hover: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light);
+    --neu-inset: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
+    --neu-inset-deep: inset 6px 6px 12px var(--shadow-dark), inset -6px -6px 12px var(--shadow-light);
     
     --font-heading: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -48,7 +56,7 @@ body {
     position: relative;
 }
 
-/* Dynamic Background - Neon Tech */
+/* Background - Neumorphic */
 .glass-bg {
     position: absolute;
     top: 0;
@@ -57,9 +65,8 @@ body {
     height: 100vh;
     z-index: -1;
     background-color: var(--bg-main);
-    background-image: 
-        radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.1) 0%, transparent 60%),
-        radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.05) 0%, transparent 60%);
+    /* Remove gradient for solid neumorphic base */
+    background-image: none;
 }
 
 /* App Container */
@@ -69,9 +76,9 @@ body {
     max-width: 1400px;
     max-height: 900px;
     background-color: var(--bg-app);
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(56, 189, 248, 0.1);
+    border: none;
+    border-radius: 24px;
+    box-shadow: var(--neu-extrude);
     display: flex;
     overflow: hidden;
     animation: zoomIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
@@ -80,11 +87,13 @@ body {
 /* Sidebar Styling */
 .sidebar {
     width: 250px;
-    background-color: rgba(12, 14, 20, 0.5);
-    border-right: 1px solid var(--border-color);
+    background-color: var(--bg-app);
+    border-right: none;
+    box-shadow: 4px 0 10px rgba(0,0,0,0.2);
     display: flex;
     flex-direction: column;
     padding: 24px;
+    z-index: 10;
 }
 
 .brand {
@@ -128,8 +137,8 @@ body {
     align-items: center;
     gap: 12px;
     padding: 12px 16px;
-    background: transparent;
-    border: 1px solid transparent;
+    background-color: var(--bg-app);
+    border: none;
     border-radius: 12px;
     color: var(--text-secondary);
     font-family: var(--font-heading);
@@ -138,19 +147,18 @@ body {
     cursor: pointer;
     text-align: left;
     transition: var(--transition-smooth);
+    box-shadow: none;
 }
 
 .nav-btn:hover {
     color: var(--text-primary);
-    background-color: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.05);
+    box-shadow: var(--neu-extrude);
 }
 
 .nav-btn.active {
     color: var(--color-primary);
-    background-color: rgba(56, 189, 248, 0.1);
-    border-color: rgba(56, 189, 248, 0.4);
-    box-shadow: inset 0 0 10px rgba(56, 189, 248, 0.15);
+    background-color: var(--bg-app);
+    box-shadow: var(--neu-inset);
 }
 
 .nav-btn .btn-icon {
@@ -177,11 +185,13 @@ body {
 .app-header {
     min-height: 80px;
     padding: 12px 32px;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background-color: rgba(12, 14, 20, 0.2);
+    background-color: var(--bg-app);
+    z-index: 5;
 }
 
 .header-left {
@@ -382,23 +392,24 @@ body {
 
 .card {
     background-color: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border: none;
+    border-radius: 16px;
     padding: 24px;
     position: relative;
     overflow: hidden;
     transition: var(--transition-smooth);
+    box-shadow: var(--neu-extrude);
 }
 
 .card:hover {
-    border-color: var(--border-highlight);
-    box-shadow: 0 0 20px var(--color-primary-glow), inset 0 0 10px rgba(56, 189, 248, 0.1);
+    box-shadow: var(--neu-extrude-hover);
 }
 
 .card-icon {
     font-size: 32px;
     margin-bottom: 16px;
-    filter: drop-shadow(0 0 8px var(--color-primary-glow));
+    color: var(--color-primary);
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
 }
 
 .card h3 {
@@ -420,37 +431,35 @@ body {
     position: absolute;
     top: 16px;
     right: 16px;
-    background-color: var(--color-primary);
-    color: var(--bg-main);
+    background-color: var(--bg-app);
+    color: var(--color-primary);
     font-size: 10px;
     font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 6px;
+    padding: 6px 12px;
+    border-radius: 12px;
     letter-spacing: 0.5px;
-    box-shadow: 0 0 10px var(--color-primary-glow);
+    box-shadow: var(--neu-inset);
 }
 
 .card.highlight {
-    background-color: rgba(15, 23, 42, 0.9);
-    border-color: var(--color-primary);
-    box-shadow: inset 0 0 15px rgba(56, 189, 248, 0.15);
+    box-shadow: var(--neu-inset);
 }
 
 .card.highlight:hover {
-    box-shadow: 0 0 25px var(--color-primary-glow), inset 0 0 20px rgba(56, 189, 248, 0.2);
+    box-shadow: var(--neu-inset-deep);
 }
 
 /* Button UI */
 .btn {
     width: 100%;
-    background-color: transparent;
-    border: 1px solid var(--border-color);
+    background-color: var(--bg-app);
+    border: none;
     color: var(--text-secondary);
     padding: 12px 18px;
     font-family: var(--font-heading);
     font-size: 14px;
     font-weight: 600;
-    border-radius: 6px; /* Crisper edges for tech feel */
+    border-radius: 12px;
     cursor: pointer;
     transition: var(--transition-smooth);
     display: inline-flex;
@@ -459,20 +468,19 @@ body {
     gap: 8px;
     position: relative;
     overflow: hidden;
+    box-shadow: var(--neu-extrude);
 }
 
 .btn:active {
     transform: scale(0.98);
+    box-shadow: var(--neu-inset);
 }
 
 .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     pointer-events: none;
-    border-color: var(--border-color) !important;
-    background-color: transparent !important;
-    color: var(--text-muted) !important;
-    box-shadow: none !important;
+    box-shadow: var(--neu-inset) !important;
 }
 
 /* Spinning loader injected by JS when a button action is in flight */
@@ -492,50 +500,45 @@ body {
 }
 
 .btn:hover {
-    border-color: var(--color-primary);
     color: var(--color-primary);
-    background-color: rgba(56, 189, 248, 0.05);
-    box-shadow: 0 0 10px var(--color-primary-glow), inset 0 0 10px rgba(56, 189, 248, 0.1);
+    box-shadow: var(--neu-extrude-hover);
 }
 
 .btn-sm {
     width: auto !important;
     padding: 8px 14px;
     font-size: 13px;
-    border-radius: 4px;
+    border-radius: 8px;
     flex-shrink: 0;
 }
 
 .btn-primary {
     background-color: var(--color-primary);
-    border: 1px solid var(--color-primary);
     color: var(--bg-main);
-    box-shadow: 0 0 15px var(--color-primary-glow);
+    box-shadow: 4px 4px 10px rgba(0, 230, 230, 0.3), -2px -2px 6px rgba(255,255,255,0.1);
 }
 
 .btn-primary .btn-spinner {
-    border-color: rgba(2, 6, 23, 0.3);
+    border-color: rgba(36, 39, 49, 0.3);
     border-top-color: var(--bg-main);
 }
 
 .btn-primary:hover {
-    background-color: #0ea5e9; /* Slightly darker/different shade */
-    border-color: #0ea5e9;
+    background-color: var(--color-accent);
     color: var(--bg-main);
-    box-shadow: 0 0 25px rgba(14, 165, 233, 0.6);
+    box-shadow: 2px 2px 6px rgba(0, 230, 230, 0.4), -1px -1px 4px rgba(255,255,255,0.1);
+}
+
+.btn-primary:active {
+    box-shadow: inset 4px 4px 8px rgba(0,0,0,0.2), inset -4px -4px 8px rgba(255,255,255,0.2);
 }
 
 .btn-accent {
-    background-color: transparent;
-    border: 1px solid var(--color-accent);
-    color: var(--color-accent);
-    box-shadow: 0 0 10px var(--color-accent-glow);
+    color: var(--color-primary);
 }
 
 .btn-accent:hover {
-    background-color: var(--color-accent);
-    color: var(--bg-main);
-    box-shadow: 0 0 20px var(--color-accent-glow);
+    color: var(--color-accent);
 }
 
 .btn-autoconnect {
@@ -655,20 +658,19 @@ body {
 .form-group input, 
 .form-group select {
     background-color: var(--bg-input);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border: none;
+    border-radius: 10px;
     color: var(--text-primary);
     padding: 12px 16px;
     font-size: 14px;
     transition: var(--transition-smooth);
+    box-shadow: var(--neu-inset);
 }
 
 .form-group input:focus, 
 .form-group select:focus {
     outline: none;
-    border-color: var(--color-primary);
-    background-color: var(--bg-input);
-    box-shadow: 0 0 15px var(--color-primary-glow), inset 0 0 5px rgba(56, 189, 248, 0.1);
+    box-shadow: var(--neu-inset-deep), 0 0 0 2px rgba(0, 230, 230, 0.3);
 }
 
 .form-group input::placeholder {
@@ -701,19 +703,18 @@ body {
 .mirror-form-group select {
     width: 100%;
     background-color: var(--bg-input);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border: none;
+    border-radius: 10px;
     color: var(--text-primary);
     padding: 12px 16px;
     font-size: 14px;
     transition: var(--transition-smooth);
+    box-shadow: var(--neu-inset);
 }
 
 .mirror-form-group select:focus {
     outline: none;
-    border-color: var(--color-primary);
-    background-color: var(--bg-input);
-    box-shadow: 0 0 15px var(--color-primary-glow), inset 0 0 5px rgba(56, 189, 248, 0.1);
+    box-shadow: var(--neu-inset-deep), 0 0 0 2px rgba(0, 230, 230, 0.3);
 }
 
 .mirror-checkbox-group {

@@ -127,7 +127,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.connected) {
             connStatus.className = 'connection-badge connected';
             connStatusText.textContent = 'Connected';
-            headerDevice.textContent = cleanInfo || "Connected Device";
+            
+            // Header display
+            const isWireless = data.active_device && data.active_device.includes(':');
+            if (isWireless) {
+                headerDevice.innerHTML = `<span style="font-size:12px; color: var(--text-secondary);"><i class="material-symbols-outlined" style="font-size:12px">wifi</i> Connected over Wi-Fi</span>`;
+            } else {
+                headerDevice.innerHTML = `<span style="font-size:12px; color: var(--text-secondary);"><i class="material-symbols-outlined" style="font-size:12px">cable</i> Connected via USB</span>`;
+            }
             if (btnHeaderUnlock) btnHeaderUnlock.style.display = 'inline-flex';
             if (btnPhoneUnlock) btnPhoneUnlock.disabled = false;
         } else {

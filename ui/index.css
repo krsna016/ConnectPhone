@@ -1528,3 +1528,28 @@ body {
     color: var(--text-secondary);
     margin: 0;
 }
+
+/* Security Warning Box for Input Injection Denials */
+.security-warning-box {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(255, 90, 121, 0.12), rgba(255, 120, 0, 0.08));
+    border: 1px solid rgba(255, 90, 121, 0.3);
+    color: #ff5a79;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.security-warning-box.hidden {
+    display: none;
+}
+
+.security-warning-box ol {
+    margin: 8px 0 0 18px;
+    padding: 0;
+}
+
+.security-warning-box li {
+    margin-bottom: 4px;
+}

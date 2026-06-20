@@ -123,6 +123,15 @@
                                 <div class="device-status-body" id="active-device-details-box">
                                     <p class="status-placeholder">No Android device is currently selected or active. Connect a device below or scan for local wireless debug targets.</p>
                                 </div>
+                                <div id="security-settings-warning" class="security-warning-box hidden">
+                                    ⚠️ <strong>Input Injection Blocked:</strong> Your phone is rejecting keyboard and touch input simulations.
+                                    For Touch ID unlocking and remote controls to work:
+                                    <ol>
+                                        <li>Go to <strong>Settings > Additional Settings > Developer Options</strong>.</li>
+                                        <li>Toggle ON <strong>"USB debugging (Security settings)"</strong> (requires SIM card / Mi login).</li>
+                                        <li><strong>Reboot your phone</strong> to apply changes, then retry mirroring.</li>
+                                    </ol>
+                                </div>
                             </div>
                             
                             <!-- Step-by-Step Guide Card -->

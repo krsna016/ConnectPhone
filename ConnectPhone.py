@@ -1380,6 +1380,16 @@ def is_keyguard_locked():
     except Exception:
         return False
 
+def check_input_injection_permission():
+    try:
+        res = subprocess.run(["adb", "shell", "input", "keyevent", "0"], capture_output=True, text=True, timeout=1.5)
+        output = (res.stdout or "") + (res.stderr or "")
+        if "SecurityException" in output or "injectInputEvent" in output:
+            return False
+        return True
+    except Exception:
+        return True
+
 def is_fingerprint_active():
     try:
         out = subprocess.check_output(["adb", "shell", "dumpsys", "fingerprint"], stderr=subprocess.DEVNULL).decode("utf-8")

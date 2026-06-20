@@ -752,6 +752,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             device_connected = len(devices_detailed) > 0 and any(d["status"] == "device" for d in devices_detailed)
             device_info = ConnectPhone.get_device_info() if device_connected else None
             
+            # Check input event injection permission
+            input_injection_granted = True
+            if device_connected:
+                input_injection_granted = ConnectPhone.check_input_injection_permission()
+                
             scrcpy_running = scrcpy_proc is not None and scrcpy_proc.poll() is None
             
             response = {
@@ -764,6 +769,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 "recording_active": scrcpy_state["recording_active"],
                 "sync_watcher_active": sync_watcher_active,
                 "mirror_type": scrcpy_state["mirror_type"],
+                "input_injection_granted": input_injection_granted,
                 "config": ConnectPhone.load_config()
             }
             self.wfile.write(json.dumps(response).encode('utf-8'))

@@ -143,6 +143,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btnPhoneUnlock) btnPhoneUnlock.disabled = true;
         }
 
+        // Toggle input event injection security warning box
+        const secWarning = document.getElementById('security-settings-warning');
+        if (secWarning) {
+            if (data.connected && data.input_injection_granted === false) {
+                secWarning.classList.remove('hidden');
+            } else {
+                secWarning.classList.add('hidden');
+            }
+        }
+
         // Populate ADB devices list in Connection Center
         const adbList = document.getElementById('adb-devices-list');
         const pulseIndicator = document.getElementById('device-pulse-indicator');

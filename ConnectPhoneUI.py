@@ -1664,6 +1664,14 @@ def adb_keepalive_loop():
             pass
         time.sleep(30)
 
+def start_server_in_thread(httpd):
+    try:
+        httpd.serve_forever()
+    except Exception:
+        pass
+    finally:
+        stop_scrcpy_bg()
+
 def run_server():
     socketserver.TCPServer.allow_reuse_address = True
     try:
@@ -1672,7 +1680,12 @@ def run_server():
         # errno 48 is Address already in use on macOS
         if e.errno == 48 or "already in use" in str(e).lower():
             print(f"\nℹ️ ConnectPhone UI Dashboard is already running on http://localhost:{PORT}")
-            webbrowser.open(f"http://localhost:{PORT}")
+            try:
+                import webview
+                webview.create_window('ConnectPhone Dashboard', f"http://localhost:{PORT}", width=1300, height=850, frameless=False)
+                webview.start()
+            except ImportError:
+                webbrowser.open(f"http://localhost:{PORT}")
             sys.exit(0)
         else:
             raise e
@@ -1691,15 +1704,27 @@ def run_server():
     keepalive_thread.daemon = True
     keepalive_thread.start()
 
-    with httpd:
-        print(f"\n🚀 ConnectPhone UI Dashboard Running on http://localhost:{PORT}")
+    print(f"\n🚀 ConnectPhone UI Dashboard Running on http://localhost:{PORT}")
+    
+    server_thread = threading.Thread(target=start_server_in_thread, args=(httpd,))
+    server_thread.daemon = True
+    server_thread.start()
+
+    try:
+        import webview
+        # Open as dedicated desktop app window
+        webview.create_window('ConnectPhone Dashboard', f"http://localhost:{PORT}", width=1300, height=850, frameless=False)
+        webview.start()
+    except ImportError:
+        print("💡 pywebview not found, falling back to standard web browser.")
         webbrowser.open(f"http://localhost:{PORT}")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\nShutting down UI server...")
-        finally:
-            stop_scrcpy_bg()
+            pass
+    finally:
+        httpd.shutdown()
+        stop_scrcpy_bg()
 
 if __name__ == "__main__":
     run_server()

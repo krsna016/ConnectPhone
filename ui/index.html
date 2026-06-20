@@ -45,6 +45,9 @@
                 <button class="nav-btn" data-tab="settings">
                     <span class="btn-icon">⚙️</span> Preferences
                 </button>
+                <button class="nav-btn" data-tab="docs">
+                    <span class="btn-icon">📚</span> Documentation
+                </button>
             </nav>
             
             <div class="sidebar-footer">
@@ -519,6 +522,36 @@
                             </div>
                         </div>
                         
+                    </div>
+                </section>
+                
+                <!-- Tab: Documentation -->
+                <section class="tab-pane" id="pane-docs">
+                    <div class="pane-header">
+                        <h2>📚 Documentation & Help</h2>
+                        <p>User guide and troubleshooting for ConnectPhone</p>
+                    </div>
+                    
+                    <div class="settings-layout">
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3>Getting Started (Wireless)</h3>
+                            <p>1. Ensure your Mac and Android phone are on the <strong>same Wi-Fi network</strong>.</p>
+                            <p>2. On your phone, go to <strong>Settings &gt; Developer Options</strong> and enable <strong>Wireless Debugging</strong>.</p>
+                            <p>3. First time only: Tap "Pair device with pairing code". Enter the Pairing Port and Code in the Connection Center here.</p>
+                            <p>4. After pairing, click "Scan Network" or manually enter the standard port to connect!</p>
+                            
+                            <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
+                            
+                            <h3>Mac Touch ID Unlock (Biometric Daemon)</h3>
+                            <p>ConnectPhone can automatically use your Mac's Touch ID to unlock your Android lockscreen or app locks.</p>
+                            <p><strong>Requirements:</strong> Your phone must have <strong>"USB debugging (Security settings)"</strong> toggled ON in Developer Options to allow input simulation.</p>
+                            <p>To use: Just leave the dashboard running. When your phone screen turns on and shows a lockscreen, the dashboard will prompt you for Touch ID automatically!</p>
+                            
+                            <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
+                            
+                            <h3>Mirroring & Audio</h3>
+                            <p>When you click "Start Mirroring", you can control your phone using your Mac's mouse and keyboard. If audio routing is enabled, your phone's audio will play through your Mac speakers.</p>
+                        </div>
                     </div>
                 </section>
                 

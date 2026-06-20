@@ -1358,10 +1358,11 @@ body {
 }
 
 .detail-item {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 10px 14px;
+    background-color: var(--bg-card);
+    border-radius: 12px;
+    padding: 12px 16px;
+    box-shadow: var(--neu-inset);
+    border: none;
 }
 
 .detail-item span {

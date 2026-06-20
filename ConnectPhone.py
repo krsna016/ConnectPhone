@@ -1495,16 +1495,20 @@ def unlock_device_with_touch_id(config, interactive=True, wake_screen=True):
             locked = is_keyguard_locked()
             if locked:
                 print("Detected Lock Screen. Swiping up...")
+                # Tap to ensure display is interactive before swipe (in case it was dimmed)
+                subprocess.run(["adb", "shell", "input", "tap", "500", "500"])
+                time.sleep(0.1)
+                
                 subprocess.run(["adb", "shell", "input", "swipe", "500", "1800", "500", "200", "250"])
-                time.sleep(0.4)
+                time.sleep(0.8) # Increased to allow PIN pad animation to finish
                 
                 print("Clearing any existing input...")
                 clear_input_field(10)
-                time.sleep(0.05)
+                time.sleep(0.1)
                 
                 print("Typing PIN...")
                 send_pin_via_keyevents(android_pin)
-                time.sleep(0.05)
+                time.sleep(0.1)
                 
                 subprocess.run(["adb", "shell", "input", "keyevent", "66"])
                 print(f"{GREEN}🎉 Keypresses sent!{RESET}")
@@ -2081,11 +2085,6 @@ def run_files_menu():
             break
 
 def main():
-    # Start background Biometric Watcher Daemon (Disabled to prevent loop issues and unexpected prompts)
-    daemon_thread = threading.Thread(target=biometric_daemon_loop)
-    daemon_thread.daemon = True
-    daemon_thread.start()
-    
     while True:
         devices = check_adb_devices()
         

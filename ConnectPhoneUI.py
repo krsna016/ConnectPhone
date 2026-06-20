@@ -1788,11 +1788,6 @@ def run_server():
     cache_thread = threading.Thread(target=_status_cache_worker, daemon=True)
     cache_thread.start()
 
-    # Start background Biometric Watcher Daemon for UI App
-    daemon_thread = threading.Thread(target=ConnectPhone.biometric_daemon_loop)
-    daemon_thread.daemon = True
-    daemon_thread.start()
-
     # Start background ADB Keep-Alive Watcher for OnePlus/Oppo devices
     keepalive_thread = threading.Thread(target=adb_keepalive_loop)
     keepalive_thread.daemon = True

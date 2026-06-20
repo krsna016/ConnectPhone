@@ -98,6 +98,9 @@ body {
 /* Sidebar Styling */
 .sidebar {
     width: 270px;
+    min-width: 270px;
+    max-width: 270px;
+    flex-shrink: 0;
     background-color: var(--bg-app);
     border-right: none;
     box-shadow: 4px 0 10px rgba(0,0,0,0.2);

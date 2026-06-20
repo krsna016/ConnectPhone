@@ -916,20 +916,40 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     ConnectPhone.save_last_ip(ip)
                     ip_port = f"{ip}:{port}"
+                    print(f"[UI Server] Attempting wireless pairing to {ip_port} with code {code}...")
+                    
+                    # Try direct command line argument first (preferred by newer adb releases)
                     res = subprocess.run(["adb", "pair", ip_port, code], capture_output=True, text=True, timeout=15)
                     stdout = res.stdout or ""
                     stderr = res.stderr or ""
+                    err_msg = f"{stdout.strip()} {stderr.strip()}"
+                    print(f"[UI Server] First pairing attempt output: code={res.returncode}, stdout={stdout.strip()}, stderr={stderr.strip()}")
+                    
+                    # If it failed with protocol fault or non-zero return, reset ADB and retry with stdin pipe
+                    if "protocol" in err_msg.lower() or "read status" in err_msg.lower() or "undefined" in err_msg.lower() or "failed" in err_msg.lower() or res.returncode != 0:
+                        print("[UI Server] Pairing failed on first attempt. Performing ADB server reset and retrying with stdin pipe...")
+                        subprocess.run(["adb", "kill-server"])
+                        subprocess.run(["adb", "start-server"])
+                        time.sleep(1.5)
+                        
+                        # Second attempt: Try using stdin pipe
+                        res = subprocess.run(["adb", "pair", ip_port], input=f"{code}\n", capture_output=True, text=True, timeout=15)
+                        stdout = res.stdout or ""
+                        stderr = res.stderr or ""
+                        err_msg = f"{stdout.strip()} {stderr.strip()}"
+                        print(f"[UI Server] Second pairing attempt (stdin pipe) output: code={res.returncode}, stdout={stdout.strip()}, stderr={stderr.strip()}")
+
                     if "successfully paired to" in stdout.lower() or "successfully paired to" in stderr.lower():
                         res_data["success"] = True
                         res_data["message"] = f"Successfully paired! Now connect to the port from the Wireless Debugging screen."
                     else:
-                        err_msg = f"{stdout.strip()} {stderr.strip()}"
-                        if "protocol fault" in err_msg.lower() or "couldn't read status message" in err_msg.lower():
+                        if "protocol" in err_msg.lower() or "read status" in err_msg.lower() or "undefined" in err_msg.lower():
                             res_data["message"] = (
                                 f"Pairing failed: {err_msg}\n\n"
-                                "💡 TIP: This protocol fault usually means you entered the wrong port. "
-                                "Make sure you open the 'Pair device with pairing code' popup on your phone, "
-                                "and use the PAIRING PORT displayed inside the popup, NOT the main connection port."
+                                "💡 TIP: This protocol fault usually means the port or pairing code is incorrect or has expired.\n"
+                                "Please make sure:\n"
+                                "1. The 'Pair device with pairing code' popup remains open on your phone screen during this process (closing it kills the port!).\n"
+                                "2. You are using the PAIRING PORT displayed inside the popup, NOT the main connection port."
                             )
                         elif "connection refused" in err_msg.lower() or "timeout" in err_msg.lower() or "timed out" in err_msg.lower():
                             res_data["message"] = (

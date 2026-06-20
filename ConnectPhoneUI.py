@@ -1454,6 +1454,25 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["success"] = True
                     res_data["message"] = "Clipboard sync was not running."
 
+            elif self.path == '/api/clipboard/type':
+                try:
+                    # Get Mac clipboard
+                    mac_clipboard = subprocess.check_output(["pbpaste"]).decode("utf-8")
+                    if not mac_clipboard:
+                        res_data["message"] = "Mac clipboard is empty!"
+                    else:
+                        # Type it on Android (requires escaping special characters, 
+                        # but base64 typing requires an app. A safe subset is replacing spaces and using single quotes)
+                        # We use ADB keyboard text. For robust typing, we escape spaces as %s
+                        safe_text = mac_clipboard.replace(' ', '%s')
+                        # Note: characters like ", ', &, (, ) will fail if not escaped properly in bash,
+                        # so we pass it safely as an array argument to subprocess.
+                        subprocess.run(["adb", "shell", "input", "text", safe_text], check=True)
+                        res_data["success"] = True
+                        res_data["message"] = "Typed Mac clipboard onto phone!"
+                except Exception as e:
+                    res_data["message"] = f"Failed to type clipboard: {e}"
+
             else:
                 res_data["message"] = "Unknown POST endpoint."
                 

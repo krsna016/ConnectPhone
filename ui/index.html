@@ -429,11 +429,17 @@
                         <!-- Clipboard Sync Card -->
                         <div class="card connection-side">
                             <h3>📋 Universal Clipboard</h3>
-                            <p>Seamlessly copy text on your Android and paste it on your Mac (and vice versa).</p>
+                            <p>Copy on Phone -> Paste on Mac (Runs automatically in background).</p>
                             <br>
-                            <button class="btn btn-primary" id="btn-sync-clipboard-start">▶️ Start Clipboard Sync</button>
-                            <br><br>
-                            <button class="btn btn-danger" id="btn-sync-clipboard-stop">⏹️ Stop Sync</button>
+                            <button class="btn btn-primary" id="btn-sync-clipboard-start">▶️ Start Background Sync</button>
+                            <button class="btn btn-danger" id="btn-sync-clipboard-stop" style="margin-top: 10px;">⏹️ Stop Sync</button>
+                            
+                            <hr style="margin: 20px 0; border-color: var(--border-color); opacity: 0.3;">
+                            
+                            <h3>Mac ➔ Phone (Type directly)</h3>
+                            <p>Because Android blocks background clipboard writing, click this to instantly type your Mac's clipboard into your phone's active text box.</p>
+                            <br>
+                            <button class="btn btn-accent" id="btn-type-mac-clipboard">⌨️ Type Mac Clipboard on Phone</button>
                         </div>
                     </div>
                 </section>

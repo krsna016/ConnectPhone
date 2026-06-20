@@ -927,6 +927,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
+
+    const btnTypeMacClipboard = document.getElementById('btn-type-mac-clipboard');
+    if (btnTypeMacClipboard) {
+        btnTypeMacClipboard.addEventListener('click', () => {
+            postAction('/api/clipboard/type').then(res => {
+                if(res && res.success) showToast(res.message, "success");
+            });
+        });
+    }
     // -------------------------------------
 
     // Run Initial Status queries

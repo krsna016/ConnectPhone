@@ -573,9 +573,9 @@ def get_device_info():
         # Get Model
         model = subprocess.check_output(["adb", "shell", "getprop ro.product.model"], stderr=subprocess.DEVNULL).decode("utf-8").strip()
         
-        return f"{GREEN}{BOLD}📱 Device: {model} | 🔋 Battery: {level} | 💾 Storage: {storage_info}{RESET}"
+        return f"{GREEN}{BOLD}Device: {model} | Battery: {level} | Storage: {storage_info}{RESET}"
     except Exception:
-        return f"{GREEN}{BOLD}📱 Connected: Android Device{RESET}"
+        return f"{GREEN}{BOLD}Connected: Android Device{RESET}"
 
 def pair_wireless_device():
     while True:

@@ -753,6 +753,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(500, f"Internal Server Error: {e}")
 
     def handle_api_get(self):
+        global _status_cache
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -763,7 +764,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             with _status_cache_lock:
                 payload = _status_cache
             if payload is None:
-                # First boot: build synchronously once
+                # First boot: build synchronously once, then store in global
                 payload = _build_status_payload()
                 with _status_cache_lock:
                     _status_cache = payload

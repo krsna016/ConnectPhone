@@ -801,7 +801,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": "Unknown GET endpoint"}).encode('utf-8'))
 
     def handle_api_post(self):
-        global scrcpy_proc, scrcpy_state, sync_watcher_thread, sync_watcher_active
+        global scrcpy_proc, scrcpy_state, sync_watcher_thread, sync_watcher_active, scrcpy_clipboard_proc
         
         content_length_header = self.headers.get('Content-Length')
         content_length = int(content_length_header) if content_length_header is not None else 0
@@ -1446,6 +1446,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         res_data["message"] = "Clipboard sync started seamlessly in background!"
                     except Exception as e:
                         res_data["message"] = f"Failed to start sync: {e}"
+
+            elif self.path == '/api/clipboard/sync/status':
+                is_running = False
+                if 'scrcpy_clipboard_proc' in globals() and scrcpy_clipboard_proc and scrcpy_clipboard_proc.poll() is None:
+                    is_running = True
+                res_data["success"] = True
+                res_data["is_running"] = is_running
 
             elif self.path == '/api/clipboard/sync/stop':
                 if 'scrcpy_clipboard_proc' in globals() and scrcpy_clipboard_proc:

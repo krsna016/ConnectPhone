@@ -961,6 +961,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Check initial status on load
+    if (clipboardSyncStatus) {
+        fetch('/api/clipboard/sync/status', { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if(res && res.success) updateClipboardBadge(res.is_running);
+            }).catch(e => console.error(e));
+        
+        // Poll every 5 seconds to ensure accuracy
+        setInterval(() => {
+            fetch('/api/clipboard/sync/status', { method: 'POST' })
+                .then(r => r.json())
+                .then(res => {
+                    if(res && res.success) updateClipboardBadge(res.is_running);
+                }).catch(e => console.error(e));
+        }, 5000);
+    }
+
     const btnTypeMacClipboard = document.getElementById('btn-type-mac-clipboard');
     if (btnTypeMacClipboard) {
         btnTypeMacClipboard.addEventListener('click', () => {

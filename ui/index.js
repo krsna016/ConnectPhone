@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             connStatus.className = 'connection-badge disconnected';
             connStatusText.textContent = 'Disconnected';
-            headerDevice.textContent = 'Connection Center <i class="material-symbols-outlined">link</i> Connect using USB or Wi-Fi IP';
+            headerDevice.innerHTML = 'Connection Center <i class="material-symbols-outlined">link</i> Connect using USB or Wi-Fi IP';
             if (btnHeaderUnlock) btnHeaderUnlock.style.display = 'none';
             if (btnPhoneUnlock) btnPhoneUnlock.disabled = true;
         }
@@ -298,11 +298,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (isRecording) {
                     overlayRecord.classList.add('recording');
-                    overlayRecord.textContent = '<i class="material-symbols-outlined">circle</i>';
+                    overlayRecord.innerHTML = '<i class="material-symbols-outlined">circle</i>';
                     cameraOverlayDesc.textContent = 'RECORDING LIVE HD VIDEO (Saving to Desktop)...';
                 } else {
                     overlayRecord.classList.remove('recording');
-                    overlayRecord.textContent = '<i class="material-symbols-outlined">videocam</i>';
+                    overlayRecord.innerHTML = '<i class="material-symbols-outlined">videocam</i>';
                     cameraOverlayDesc.textContent = 'Camera stream is active. Snap photo or record HD clip.';
                 }
             } else {
@@ -332,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cameraOverlay.classList.add('hidden');
             if (overlayRecord) {
                 overlayRecord.classList.remove('recording');
-                overlayRecord.textContent = '<i class="material-symbols-outlined">videocam</i>';
+                overlayRecord.innerHTML = '<i class="material-symbols-outlined">videocam</i>';
             }
             
             if (scrcpyWasRunning) {
@@ -808,7 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPing.addEventListener('click', async () => {
             const manualIp = document.getElementById('conn-ip').value.trim();
             pingResult.classList.remove('hidden');
-            pingResult.textContent = '<i class="material-symbols-outlined">bolt</i> Running ping test... please wait...';
+            pingResult.innerHTML = '<i class="material-symbols-outlined">bolt</i> Running ping test... please wait...';
             pingResult.className = 'ping-result running';
             try {
                 const res = await postAction('/api/ping', manualIp ? { ip: manualIp } : {});

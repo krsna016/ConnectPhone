@@ -17,3 +17,9 @@ get_window_id
 *.aac
 *.png
 *.jpg
+
+# Pyinstaller
+dist/
+build/
+*.spec
+*.app

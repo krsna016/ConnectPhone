@@ -34,6 +34,9 @@ pyinstaller --noconfirm \
     --windowed \
     --icon "ui/ConnectPhone.icns" \
     --add-data "ui:ui" \
+    --add-binary "touch_id_helper:." \
+    --add-data "touch_id.swift:." \
+    --add-data "get_window_id.swift:." \
     ConnectPhoneUI.py
 
 echo "🧹 Cleaning up temporary build files..."

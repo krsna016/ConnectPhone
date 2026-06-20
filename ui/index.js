@@ -29,6 +29,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const overlayRecord = document.getElementById('overlay-record');
     const overlayStop = document.getElementById('overlay-stop');
 
+    // Dropdown change listeners
+    const savedIpsDropdown = document.getElementById('saved-ips-dropdown');
+    if (savedIpsDropdown) {
+        savedIpsDropdown.addEventListener('change', (e) => {
+            if (e.target.value) {
+                document.getElementById('conn-ip').value = e.target.value;
+                e.target.value = ''; // Reset dropdown selection visually
+            }
+        });
+    }
+    
+    const modalSavedIpsDropdown = document.getElementById('modal-saved-ips-dropdown');
+    if (modalSavedIpsDropdown) {
+        modalSavedIpsDropdown.addEventListener('change', (e) => {
+            if (e.target.value) {
+                document.getElementById('modal-ip-input').value = e.target.value;
+                e.target.value = ''; // Reset dropdown selection visually
+            }
+        });
+    }
+
     // Sidebar navigation switching
     navButtons.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -401,18 +422,21 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('conn-ip').value = config.last_ip;
         }
         
-        // Populate saved IPs datalist
-        if (config.saved_ips && config.saved_ips.length > 0) {
-            const dataList = document.getElementById('saved-ips-list');
-            if (dataList) {
-                dataList.innerHTML = '';
+        // Populate saved IPs dropdowns
+        const dropdown1 = document.getElementById('saved-ips-dropdown');
+        const dropdown2 = document.getElementById('modal-saved-ips-dropdown');
+        
+        [dropdown1, dropdown2].forEach(dropdown => {
+            if (dropdown && config.saved_ips && config.saved_ips.length > 0) {
+                dropdown.innerHTML = '<option value="" disabled selected>▼</option>';
                 config.saved_ips.forEach(ip => {
                     const option = document.createElement('option');
                     option.value = ip;
-                    dataList.appendChild(option);
+                    option.textContent = ip;
+                    dropdown.appendChild(option);
                 });
             }
-        }
+        });
     }
 
     // Post to endpoint helper (with button loading state)

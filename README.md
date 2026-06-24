@@ -59,6 +59,11 @@ brew install android-platform-tools scrcpy ffmpeg
      2. Tap **Pair device with pairing code** or check connection details to note IP and Port.
      3. Start `ConnectPhone` and navigate to the connection manager to input connection coordinates.
 
+### 🔒 macOS Security Permissions
+ConnectPhone relies on PyWebView and ADB to inject input commands and mirror screens. To ensure flawless operation, you must grant the following macOS Privacy permissions to your Terminal (or the compiled `ConnectPhone.app`):
+1. **Accessibility**: Open `System Settings > Privacy & Security > Accessibility` and toggle ON for Terminal/ConnectPhone. (Required for executing ADB keystrokes and unlocking the device).
+2. **Screen Recording**: Open `System Settings > Privacy & Security > Screen Recording` and toggle ON. (Required for PyWebView to seamlessly render the scrcpy window layers).
+
 ---
 
 ## 🖥️ Running the Application
@@ -87,18 +92,27 @@ python3 ConnectPhone.py
 
 ## 🕹️ Project Architecture
 
+```mermaid
+graph LR
+    UI[Desktop Web UI] <-->|PyWebView| Controller[Python UI Controller]
+    Controller <-->|subprocess| ADB[ADB Client Engine]
+    ADB -->|TCP/IP or USB| Android[Android Device]
+    ADB -->|scrcpy| Screen[Video Stream]
 ```
+
+```text
 ConnectPhone/
 ├── ConnectPhone.py         # Main Interactive Terminal CLI Command Center
+├── adb_client.py           # Core ADB network and device communication engine
+├── ui_controller.py        # CLI interface and menu routing logic
 ├── ConnectPhoneUI.py       # Desktop App Entry (PyWebView / HTTP Server)
 ├── build_mac.sh            # macOS PyInstaller build script for .app generation
-├── get_window_id.swift     # Swift source referencing Quartz Window Services
 ├── requirements.txt        # Documentation of dependencies
 ├── LICENSE                 # MIT License details
 └── ui/                     # Web UI Frontend Assets
     ├── index.html          # Web dashboard structure
-    ├── index.css           # Neumorphic CSS layout with premium design tokens
-    ├── index.js            # Frontend control behaviors and metrics polling
+    ├── index.css           # Neumorphic CSS layout
+    ├── index.js            # Frontend control behaviors
     └── logo.png            # Official app branding
 ```
 

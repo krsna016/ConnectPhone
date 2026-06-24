@@ -1,4 +1,4 @@
-# 📱 ConnectPhone
+# ConnectPhone
 <p align="center">
   <img src="ui/logo.png" alt="ConnectPhone Logo" width="300" style="border-radius:24px;">
 </p>
@@ -8,7 +8,7 @@
 [![Backend: Python 3](https://img.shields.io/badge/Language-Python%203-blue.svg)]()
 [![Bridges: Swift](https://img.shields.io/badge/Bridges-Swift-orange.svg)]()
 
-## 📖 About The Project
+## About The Project
 
 `ConnectPhone` is an industry-grade integration engine and desktop dashboard designed to seamlessly bridge your Android device with macOS. Born from the need for a developer-centric, low-latency testing environment, it brings mobile app debugging, screen streaming, and system telemetry into a single, beautifully designed application.
 
@@ -16,18 +16,18 @@ The project merges high-performance backend pipelines (`scrcpy` and `adb` cores)
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
-* **🖥️ Native macOS App Experience**: Run ConnectPhone as a standalone, windowed macOS Application (`.app`) without touching a terminal.
-* **📱 Zero-Latency Mirroring**: High-fidelity screen and camera previews via USB or Wireless Debugging utilizing customized `scrcpy` pipes.
-* **🎙️ Advanced Audio Routing**: Route sound from your phone's microphone, system audio, or Mac earbuds/bluetooth devices. Features dynamic audio buffer adjustments and sync offsets.
-* **🎥 Live Media Controls**: Capture high-definition video clips or snapshot framebuffers directly from the mirroring stream to your Mac Desktop with a single click.
-* **📊 Live System Telemetry**: View real-time device stats, battery wear, memory allocation, and connection status inside the sleek visual dashboard.
-* **🎨 Premium Dev-Aesthetic**: A stunning dark-mode UI with Space Grotesk typography, micro-animations, glowing metallic gradients, and Neumorphic design elements.
+* **Native macOS App Experience**: Run ConnectPhone as a standalone, windowed macOS Application (`.app`) without touching a terminal.
+* **Zero-Latency Mirroring**: High-fidelity screen and camera previews via USB or Wireless Debugging utilizing customized `scrcpy` pipes.
+* **Advanced Audio Routing**: Route sound from your phone's microphone, system audio, or Mac earbuds/bluetooth devices. Features dynamic audio buffer adjustments and sync offsets.
+* **Live Media Controls**: Capture high-definition video clips or snapshot framebuffers directly from the mirroring stream to your Mac Desktop with a single click.
+* **Live System Telemetry**: View real-time device stats, battery wear, memory allocation, and connection status inside the sleek visual dashboard.
+* **Premium Dev-Aesthetic**: A stunning dark-mode UI with Space Grotesk typography, micro-animations, glowing metallic gradients, and Neumorphic design elements.
 
 ---
 
-## 📋 System Requirements
+## System Requirements
 
 To run this application on macOS, you must ensure the following system-level dependencies are installed:
 
@@ -36,7 +36,7 @@ To run this application on macOS, you must ensure the following system-level dep
 3. **ffmpeg**: Media processor for audio routing, extraction, and video compilation.
 4. **Xcode Command Line Tools**: Required to compile native Swift helpers (`swiftc`).
 
-### 📦 Homebrew Installation
+### Homebrew Installation
 You can install all system requirements in a single command using Homebrew:
 ```bash
 brew install android-platform-tools scrcpy ffmpeg
@@ -44,7 +44,7 @@ brew install android-platform-tools scrcpy ffmpeg
 
 ---
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 1. **Clone the Repository**:
    ```bash
@@ -59,14 +59,14 @@ brew install android-platform-tools scrcpy ffmpeg
      2. Tap **Pair device with pairing code** or check connection details to note IP and Port.
      3. Start `ConnectPhone` and navigate to the connection manager to input connection coordinates.
 
-### 🔒 macOS Security Permissions
+### macOS Security Permissions
 ConnectPhone relies on PyWebView and ADB to inject input commands and mirror screens. To ensure flawless operation, you must grant the following macOS Privacy permissions to your Terminal (or the compiled `ConnectPhone.app`):
 1. **Accessibility**: Open `System Settings > Privacy & Security > Accessibility` and toggle ON for Terminal/ConnectPhone. (Required for executing ADB keystrokes and unlocking the device).
 2. **Screen Recording**: Open `System Settings > Privacy & Security > Screen Recording` and toggle ON. (Required for PyWebView to seamlessly render the scrcpy window layers).
 
 ---
 
-## 🖥️ Running the Application
+## Running the Application
 
 ### Option A: Standalone macOS App (Recommended)
 You can compile the Python UI into a native macOS `.app` bundle with a custom dock icon!
@@ -90,7 +90,7 @@ python3 ConnectPhone.py
 
 ---
 
-## 🕹️ Project Architecture
+## Project Architecture
 
 ```mermaid
 graph LR
@@ -118,6 +118,6 @@ ConnectPhone/
 
 ---
 
-## 🛡️ License
+## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for the full license text.

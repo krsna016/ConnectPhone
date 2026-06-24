@@ -1,123 +1,108 @@
-# ConnectPhone
-<p align="center">
-  <img src="ui/logo.png" alt="ConnectPhone Logo" width="300" style="border-radius:24px;">
-</p>
+# ConnectPhone: macOS Integration Engine for Android
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Platform: macOS](https://img.shields.io/badge/Platform-macOS-blue.svg)]()
-[![Backend: Python 3](https://img.shields.io/badge/Language-Python%203-blue.svg)]()
-[![Bridges: Swift](https://img.shields.io/badge/Bridges-Swift-orange.svg)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![Platform: macOS](https://img.shields.io/badge/Platform-macOS-blue.svg?style=flat-square)]()
+[![Backend: Python 3](https://img.shields.io/badge/Language-Python%203-blue.svg?style=flat-square)]()
+[![Bridges: Swift](https://img.shields.io/badge/Bridges-Swift-orange.svg?style=flat-square)]()
 
-## About The Project
+## Overview
+ConnectPhone is an industry-grade integration engine and desktop dashboard designed to seamlessly bridge Android devices with macOS environments. It combines high-performance backend pipelines (`scrcpy` and `adb` cores) with a cutting-edge Neumorphic, Dark-Mode User Interface rendered via PyWebView.
 
-`ConnectPhone` is an industry-grade integration engine and desktop dashboard designed to seamlessly bridge your Android device with macOS. Born from the need for a developer-centric, low-latency testing environment, it brings mobile app debugging, screen streaming, and system telemetry into a single, beautifully designed application.
-
-The project merges high-performance backend pipelines (`scrcpy` and `adb` cores) with a cutting-edge **Neumorphic, Dark-Mode User Interface**. It is built for developers, QA engineers, and content creators who need pixel-perfect mirroring, custom audio routing, and instant recording capabilities directly from their Mac.
-
----
+## Problem Statement
+Mobile developers and QA engineers often require multiple disconnected tools for screen mirroring, executing ADB shell commands, monitoring live system telemetry, and recording device streams. Existing solutions are either heavily terminal-reliant or lack deep OS integration. ConnectPhone consolidates these workflows into a single, cohesive macOS application to eliminate contextual friction during debugging.
 
 ## Key Features
+- **Zero-Latency Mirroring:** High-fidelity screen and camera previews via USB or Wireless Debugging utilizing customized `scrcpy` pipes.
+- **Advanced Audio Routing:** Dynamic audio routing from device microphone, system audio, or external Bluetooth hardware.
+- **Live System Telemetry:** Real-time extraction and visualization of device memory allocation, battery wear, and CPU load.
+- **Native macOS Execution:** Compilable into a standalone `.app` bundle, functioning as a native desktop client without requiring a terminal instance.
 
-* **Native macOS App Experience**: Run ConnectPhone as a standalone, windowed macOS Application (`.app`) without touching a terminal.
-* **Zero-Latency Mirroring**: High-fidelity screen and camera previews via USB or Wireless Debugging utilizing customized `scrcpy` pipes.
-* **Advanced Audio Routing**: Route sound from your phone's microphone, system audio, or Mac earbuds/bluetooth devices. Features dynamic audio buffer adjustments and sync offsets.
-* **Live Media Controls**: Capture high-definition video clips or snapshot framebuffers directly from the mirroring stream to your Mac Desktop with a single click.
-* **Live System Telemetry**: View real-time device stats, battery wear, memory allocation, and connection status inside the sleek visual dashboard.
-* **Premium Dev-Aesthetic**: A stunning dark-mode UI with Space Grotesk typography, micro-animations, glowing metallic gradients, and Neumorphic design elements.
+## Architecture
 
----
-
-## System Requirements
-
-To run this application on macOS, you must ensure the following system-level dependencies are installed:
-
-1. **Android Debug Bridge (ADB)**: Standard Android console utility.
-2. **scrcpy**: High-performance rendering engine (v2.0+ recommended).
-3. **ffmpeg**: Media processor for audio routing, extraction, and video compilation.
-4. **Xcode Command Line Tools**: Required to compile native Swift helpers (`swiftc`).
-
-### Homebrew Installation
-You can install all system requirements in a single command using Homebrew:
-```bash
-brew install android-platform-tools scrcpy ffmpeg
+```mermaid
+graph LR
+    UI[Desktop Web UI: HTML/JS/CSS] <-->|PyWebView| Controller[Python UI Controller]
+    Controller <-->|subprocess| ADB[ADB Client Engine]
+    Controller <-->|Swift Bridge| Quartz[macOS Quartz Window Services]
+    ADB -->|TCP/IP or USB| Android[Android Target]
+    ADB -->|scrcpy| Screen[H.264 Video Stream]
 ```
 
----
+## Technology Stack
+- **Desktop Application:** PyWebView (Native macOS WebKit wrapper)
+- **Backend Core:** Python 3.12
+- **Hardware Bridge:** ADB (Android Debug Bridge), scrcpy, ffmpeg
+- **Native Interop:** Swift (for Quartz Window tracking)
+- **Frontend UI:** Vanilla JS, HTML, Custom Neumorphic CSS
 
-## Installation & Setup
+## Project Structure
+```text
+ConnectPhone/
+├── ConnectPhoneUI.py       # Desktop App Entry (PyWebView / HTTP Server)
+├── adb_client.py           # Core ADB network and device communication engine
+├── ui_controller.py        # CLI interface and menu routing logic
+├── ConnectPhone.py         # Main Interactive Terminal CLI Command Center
+├── build_mac.sh            # macOS PyInstaller build script for .app generation
+├── get_window_id.swift     # Swift source referencing Quartz Window Services
+├── test_adb_client.py      # Unit tests for ADB network layer
+└── ui/                     # Web UI Frontend Assets
+```
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/krsna016/ConnectPhone.git
-   cd ConnectPhone
-   ```
+## Installation
+Ensure macOS system-level dependencies are installed via Homebrew.
+```bash
+brew install android-platform-tools scrcpy ffmpeg
+git clone https://github.com/krsna016/ConnectPhone.git
+cd ConnectPhone
+pip install -r requirements.txt
+```
 
-2. **Connect Your Android Device**:
-   - **USB Connection**: Connect your phone via USB and trust the computer when prompted for USB Debugging authorization.
-   - **Wireless Connection**: 
-     1. Enable **Wireless Debugging** in your phone's Developer Options.
-     2. Tap **Pair device with pairing code** or check connection details to note IP and Port.
-     3. Start `ConnectPhone` and navigate to the connection manager to input connection coordinates.
-
-### macOS Security Permissions
-ConnectPhone relies on PyWebView and ADB to inject input commands and mirror screens. To ensure flawless operation, you must grant the following macOS Privacy permissions to your Terminal (or the compiled `ConnectPhone.app`):
-1. **Accessibility**: Open `System Settings > Privacy & Security > Accessibility` and toggle ON for Terminal/ConnectPhone. (Required for executing ADB keystrokes and unlocking the device).
-2. **Screen Recording**: Open `System Settings > Privacy & Security > Screen Recording` and toggle ON. (Required for PyWebView to seamlessly render the scrcpy window layers).
-
----
-
-## Running the Application
-
+## Usage
 ### Option A: Standalone macOS App (Recommended)
-You can compile the Python UI into a native macOS `.app` bundle with a custom dock icon!
+Compile the application into a native `.app` bundle:
 ```bash
 chmod +x build_mac.sh
 ./build_mac.sh
 ```
-Once complete, you will find `ConnectPhone.app` in the `dist/` directory. Simply double-click it or drag it to your Applications folder!
 
-### Option B: Python Native Window
-Run the UI directly through PyWebView to spawn a native window:
+### Option B: PyWebView Execution
+Run directly via the Python interpreter:
 ```bash
 python3 ConnectPhoneUI.py
 ```
 
-### Option C: The Terminal Command Center
-Run the legacy interactive CLI command deck:
+## Examples
+*Executing a wireless ADB connection via the underlying Python module:*
+```python
+from adb_client import ADBClient
+client = ADBClient(device_id="192.168.1.100:5555")
+client.push_file("app-release.apk", "/data/local/tmp/")
+```
+
+## Screenshots
+> [!NOTE]
+> *UI dashboard screenshots are pending capture for the upcoming 2.0 Neumorphic release.*
+
+## Visual Demonstrations
+> [!NOTE]
+> *Zero-latency wireless mirroring demonstration pending.*
+
+## Testing
+We enforce strict unit testing over the critical path of the ADB network layer using the standard `unittest` framework and robust mock injections to prevent hardware side-effects.
 ```bash
-python3 ConnectPhone.py
+python3 -m unittest test_adb_client.py
 ```
 
----
+## Performance Notes
+- **Swift Bridges:** Utilizing a compiled Swift script (`get_window_id.swift`) provides deep C-level bindings to macOS Quartz Window Services, preventing the high CPU overhead found in Python objective-c bridges.
+- **PyWebView Memory:** The UI operates on the native Safari/WebKit engine installed on macOS, ensuring minimal RAM bloat compared to Electron alternatives.
 
-## Project Architecture
+## Future Improvements
+- Migration from `subprocess` calls to pure socket-level ADB tracking for instantaneous telemetry streaming without polling overhead.
+- Native Apple Silicon (M-Series) hardware acceleration for the `scrcpy` decoding layer.
 
-```mermaid
-graph LR
-    UI[Desktop Web UI] <-->|PyWebView| Controller[Python UI Controller]
-    Controller <-->|subprocess| ADB[ADB Client Engine]
-    ADB -->|TCP/IP or USB| Android[Android Device]
-    ADB -->|scrcpy| Screen[Video Stream]
-```
-
-```text
-ConnectPhone/
-├── ConnectPhone.py         # Main Interactive Terminal CLI Command Center
-├── adb_client.py           # Core ADB network and device communication engine
-├── ui_controller.py        # CLI interface and menu routing logic
-├── ConnectPhoneUI.py       # Desktop App Entry (PyWebView / HTTP Server)
-├── build_mac.sh            # macOS PyInstaller build script for .app generation
-├── requirements.txt        # Documentation of dependencies
-├── LICENSE                 # MIT License details
-└── ui/                     # Web UI Frontend Assets
-    ├── index.html          # Web dashboard structure
-    ├── index.css           # Neumorphic CSS layout
-    ├── index.js            # Frontend control behaviors
-    └── logo.png            # Official app branding
-```
-
----
+## Contributing
+Please refer to standard open-source protocols before submitting Pull Requests. Focus PRs entirely on edge-case bug fixes or hardware specific performance enhancements.
 
 ## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for the full license text.
+Licensed under the MIT License.

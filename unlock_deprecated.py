@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+import sys
+import warnings
+
+warnings.warn("This file is deprecated. Device unlocking logic is now handled in ConnectPhone.py.", DeprecationWarning, stacklevel=2)
+
 import subprocess
 import os
 import json

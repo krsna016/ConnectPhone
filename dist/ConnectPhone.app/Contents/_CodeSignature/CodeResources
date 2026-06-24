@@ -10,7 +10,7 @@
 		</data>
 		<key>Resources/base_library.zip</key>
 		<data>
-		Q56Nq7p4NDbI5IDrZLWUkI+DcbM=
+		kFb/EqdoA8tKOmzpLKu0UXbEeZ0=
 		</data>
 		<key>Resources/cryptography-48.0.0.dist-info/INSTALLER</key>
 		<data>
@@ -48,6 +48,14 @@
 		<data>
 		6yctU3tCGybi9kx5XGS+MrTIjwk=
 		</data>
+		<key>Resources/get_window_id.swift</key>
+		<data>
+		jFgwjXvGrRz8ar14qaqDwUKBXWA=
+		</data>
+		<key>Resources/touch_id.swift</key>
+		<data>
+		Wls6RMaPa9x0Z9wz91F1USy8rTg=
+		</data>
 		<key>Resources/ui/ConnectPhone.icns</key>
 		<data>
 		oJH7fj0A3402e4eM2MtrTX/sgJE=
@@ -58,15 +66,11 @@
 		</data>
 		<key>Resources/ui/index.html</key>
 		<data>
-		ILcjsVAhmdk9GgUlDIsoH3obDeU=
+		Jn3MYJFIRvLM9m+gbavIlRkSoxI=
 		</data>
 		<key>Resources/ui/index.js</key>
 		<data>
-		mDDCdJrOwQbD5zmgXpJrVZpVBAg=
-		</data>
-		<key>Resources/ui/logo.png</key>
-		<data>
-		Aj9e5pKQpYjfw/JCrIjIUDgHhG0=
+		FX27QNiAQ8heQpPjaq1gVxs1JD0=
 		</data>
 		<key>Resources/webview/js/api.js</key>
 		<data>
@@ -199,6 +203,11 @@
 			</data>
 			<key>requirement</key>
 			<string>cdhash H"c768c06c1043aaab161ba7d6729aa7b5738c46bc"</string>
+		</dict>
+		<key>Frameworks/get_window_id.swift</key>
+		<dict>
+			<key>symlink</key>
+			<string>../Resources/get_window_id.swift</string>
 		</dict>
 		<key>Frameworks/libcrypto.3.dylib</key>
 		<dict>
@@ -736,6 +745,20 @@
 			<key>requirement</key>
 			<string>cdhash H"af6ef2895334f56b7897b51a1760a32e5d9a2700"</string>
 		</dict>
+		<key>Frameworks/touch_id.swift</key>
+		<dict>
+			<key>symlink</key>
+			<string>../Resources/touch_id.swift</string>
+		</dict>
+		<key>Frameworks/touch_id_helper</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			JoXhhxCffOLpO+eQHi8l3rEkDZg=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"2685e187109f7ce2e93be7901e2f25deb1240d98"</string>
+		</dict>
 		<key>Frameworks/ui</key>
 		<dict>
 			<key>symlink</key>
@@ -954,7 +977,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			Q9PUXfaGQgDiXXTZnsF3VWcYzHW0WoyltcOrgbFwcdQ=
+			AY/gK5FFQNBSGI10y2dUUnutLrcmylYgi9/pig4TJyY=
 			</data>
 		</dict>
 		<key>Resources/cryptography</key>
@@ -1025,6 +1048,13 @@
 			/48HUkouxvJOU4ANL3pU1n3KCjCy/jlpOjjg+u1aFcM=
 			</data>
 		</dict>
+		<key>Resources/get_window_id.swift</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			5m82QP+wld7VIO62G+T5pn3c7UvUFP8fCPLvGwT9hWo=
+			</data>
+		</dict>
 		<key>Resources/libcrypto.3.dylib</key>
 		<dict>
 			<key>symlink</key>
@@ -1060,6 +1090,18 @@
 			<key>symlink</key>
 			<string>../Frameworks/python3.14</string>
 		</dict>
+		<key>Resources/touch_id.swift</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			6RXsex8omKj7vdeOWl+RbrPKtVFxIXCunqOr+xP/P6E=
+			</data>
+		</dict>
+		<key>Resources/touch_id_helper</key>
+		<dict>
+			<key>symlink</key>
+			<string>../Frameworks/touch_id_helper</string>
+		</dict>
 		<key>Resources/ui/ConnectPhone.icns</key>
 		<dict>
 			<key>hash2</key>
@@ -1078,21 +1120,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			z+ESAJhxVlWfDajE9LY+oNthkSdWnHTOLgApKHyo8fo=
+			EHi5VdAfHMqx51MlBwm0MoiEu807DUx0wY5OpojoZ9g=
 			</data>
 		</dict>
 		<key>Resources/ui/index.js</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			kKvXtylMDm4VR5bPdbxGLGilAZd9RZJT9AMujdH28wg=
-			</data>
-		</dict>
-		<key>Resources/ui/logo.png</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			ER0WC0HT2y5G409RpoQ1XTXELyon/Mn8vcQ3cShzdzk=
+			Apzqb6ZREjVd4Zxx7qJqSm3yQM993JWLcK1BqZbAEQw=
 			</data>
 		</dict>
 		<key>Resources/webview/js/api.js</key>

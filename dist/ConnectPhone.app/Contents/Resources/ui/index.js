@@ -29,6 +29,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const overlayRecord = document.getElementById('overlay-record');
     const overlayStop = document.getElementById('overlay-stop');
 
+    // Dropdown change listeners
+    const savedIpsDropdown = document.getElementById('saved-ips-dropdown');
+    if (savedIpsDropdown) {
+        savedIpsDropdown.addEventListener('change', (e) => {
+            if (e.target.value) {
+                document.getElementById('conn-ip').value = e.target.value;
+                e.target.value = ''; // Reset dropdown selection visually
+            }
+        });
+    }
+    
+    const modalSavedIpsDropdown = document.getElementById('modal-saved-ips-dropdown');
+    if (modalSavedIpsDropdown) {
+        modalSavedIpsDropdown.addEventListener('change', (e) => {
+            if (e.target.value) {
+                document.getElementById('modal-ip-input').value = e.target.value;
+                e.target.value = ''; // Reset dropdown selection visually
+            }
+        });
+    }
+
     // Sidebar navigation switching
     navButtons.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -191,26 +212,33 @@ document.addEventListener('DOMContentLoaded', () => {
                             const battery = match[2];
                             const storage = match[3];
                             
-                            activeDetailsBox.innerHTML = `
-                                <div class="active-device-details">
-                                    <div class="detail-item">
-                                        <span><i class="material-symbols-outlined">smartphone</i> Device Model</span>
-                                        <p>${model}</p>
-                                    </div>
-                                    <div class="detail-item">
-                                        <span><i class="material-symbols-outlined">battery_full</i> Battery Level</span>
-                                        <p>${battery}</p>
-                                    </div>
-                                    <div class="detail-item">
-                                        <span><i class="material-symbols-outlined">save</i> Available Storage</span>
-                                        <p>${storage}</p>
-                                    </div>
-                                    <div class="detail-item">
-                                        <span><i class="material-symbols-outlined">public</i> IP Address / Serial</span>
-                                        <p>${data.devices[0] || 'USB Connection'}</p>
-                                    </div>
-                                </div>
-                            `;
+                                    let displayActiveSerial = data.devices[0] || 'USB Connection';
+                                    if (displayActiveSerial.includes('._adb-tls-connect._tcp')) {
+                                        displayActiveSerial = displayActiveSerial.replace('._adb-tls-connect._tcp', '');
+                                        if (displayActiveSerial.startsWith('adb-')) displayActiveSerial = displayActiveSerial.substring(4);
+                                        displayActiveSerial = 'ID: ' + displayActiveSerial;
+                                    }
+                                    
+                                    activeDetailsBox.innerHTML = `
+                                        <div class="active-device-details">
+                                            <div class="detail-item">
+                                                <span><i class="material-symbols-outlined">smartphone</i> Device Model</span>
+                                                <p>${model}</p>
+                                            </div>
+                                            <div class="detail-item">
+                                                <span><i class="material-symbols-outlined">battery_full</i> Battery Level</span>
+                                                <p>${battery}</p>
+                                            </div>
+                                            <div class="detail-item">
+                                                <span><i class="material-symbols-outlined">save</i> Available Storage</span>
+                                                <p>${storage}</p>
+                                            </div>
+                                            <div class="detail-item">
+                                                <span><i class="material-symbols-outlined">public</i> IP Address / Serial</span>
+                                                <p>${displayActiveSerial}</p>
+                                            </div>
+                                        </div>
+                                    `;
                         } else {
                             activeDetailsBox.innerHTML = `<p class="status-placeholder">${cleanInfo}</p>`;
                         }
@@ -243,12 +271,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     const icon = isWireless ? '<i class="material-symbols-outlined">wifi</i>' : '<i class="material-symbols-outlined">cable</i>';
                     const statusText = device.status === 'device' ? 'online' : (device.status === 'unauthorized' ? 'unauthorized' : 'offline');
                     
+                    let displaySerial = device.serial;
+                    if (displaySerial.includes('._adb-tls-connect._tcp')) {
+                        displaySerial = displaySerial.replace('._adb-tls-connect._tcp', '');
+                        if (displaySerial.startsWith('adb-')) displaySerial = displaySerial.substring(4);
+                        displaySerial = 'ID: ' + displaySerial;
+                    }
+                    
                     row.innerHTML = `
                         <div class="device-info-left">
                             <span class="device-type-icon">${icon}</span>
                             <div class="device-meta">
                                 <h4>${device.model}</h4>
-                                <p>${device.serial} (${isWireless ? 'Wi-Fi' : 'USB'})</p>
+                                <p>${displaySerial} (${isWireless ? 'Wi-Fi' : 'USB'})</p>
                             </div>
                         </div>
                         <div class="device-info-right">
@@ -386,6 +421,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (config.last_ip) {
             document.getElementById('conn-ip').value = config.last_ip;
         }
+        
+        // Populate saved IPs dropdowns
+        const dropdown1 = document.getElementById('saved-ips-dropdown');
+        const dropdown2 = document.getElementById('modal-saved-ips-dropdown');
+        
+        [dropdown1, dropdown2].forEach(dropdown => {
+            if (dropdown && config.saved_ips && config.saved_ips.length > 0) {
+                dropdown.innerHTML = '<option value="" disabled selected>▼</option>';
+                config.saved_ips.forEach(ip => {
+                    const option = document.createElement('option');
+                    option.value = ip;
+                    option.textContent = ip;
+                    dropdown.appendChild(option);
+                });
+            }
+        });
     }
 
     // Post to endpoint helper (with button loading state)
@@ -923,20 +974,60 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnSyncClipboardStart = document.getElementById('btn-sync-clipboard-start');
     const btnSyncClipboardStop = document.getElementById('btn-sync-clipboard-stop');
+    const clipboardSyncStatus = document.getElementById('clipboard-sync-status');
+
+    function updateClipboardBadge(active) {
+        if (!clipboardSyncStatus) return;
+        if (active) {
+            clipboardSyncStatus.style.background = 'rgba(16, 185, 129, 0.1)';
+            clipboardSyncStatus.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+            clipboardSyncStatus.style.color = 'var(--color-success)';
+            clipboardSyncStatus.innerHTML = '<i class="material-symbols-outlined" style="font-size: 16px;">sync</i> <span>Status: Actively Syncing</span>';
+        } else {
+            clipboardSyncStatus.style.background = 'rgba(239, 68, 68, 0.1)';
+            clipboardSyncStatus.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+            clipboardSyncStatus.style.color = 'var(--color-danger)';
+            clipboardSyncStatus.innerHTML = '<i class="material-symbols-outlined" style="font-size: 16px;">sync_disabled</i> <span>Status: Inactive</span>';
+        }
+    }
 
     if (btnSyncClipboardStart) {
         btnSyncClipboardStart.addEventListener('click', () => {
             postAction('/api/clipboard/sync/start').then(res => {
-                if(res && res.success) showToast(res.message, "success");
+                if(res && res.success) {
+                    showToast(res.message, "success");
+                    updateClipboardBadge(true);
+                }
             });
         });
     }
     if (btnSyncClipboardStop) {
         btnSyncClipboardStop.addEventListener('click', () => {
             postAction('/api/clipboard/sync/stop').then(res => {
-                if(res && res.success) showToast(res.message, "success");
+                if(res && res.success) {
+                    showToast(res.message, "success");
+                    updateClipboardBadge(false);
+                }
             });
         });
+    }
+
+    // Check initial status on load
+    if (clipboardSyncStatus) {
+        fetch('/api/clipboard/sync/status', { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if(res && res.success) updateClipboardBadge(res.is_running);
+            }).catch(e => console.error(e));
+        
+        // Poll every 5 seconds to ensure accuracy
+        setInterval(() => {
+            fetch('/api/clipboard/sync/status', { method: 'POST' })
+                .then(r => r.json())
+                .then(res => {
+                    if(res && res.success) updateClipboardBadge(res.is_running);
+                }).catch(e => console.error(e));
+        }, 5000);
     }
 
     const btnTypeMacClipboard = document.getElementById('btn-type-mac-clipboard');

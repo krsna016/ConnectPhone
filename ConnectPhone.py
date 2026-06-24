@@ -1,3 +1,5 @@
+from adb_client import check_adb_devices, get_device_info, push_file_to_phone, install_apk, is_keyguard_locked, is_fingerprint_active
+from ui_controller import print_header, run_mirroring_menu, run_files_menu, run_controls_menu
 import subprocess
 import sys
 import os
@@ -37,11 +39,7 @@ BOLD = "\033[1m"
 UNDERLINE = "\033[4m"
 RESET = "\033[0m"
 
-def print_header(title):
-    os.system('clear')
-    print(f"{BLUE}{BOLD}=================================================={RESET}")
-    print(f"{CYAN}{BOLD}📱 {title}{RESET}")
-    print(f"{BLUE}{BOLD}=================================================={RESET}")
+# Moved print_header to ui_controller.py
 
 def is_valid_ip(ip):
     parts = ip.split('.')
@@ -80,7 +78,8 @@ def load_config():
                     if k not in data:
                         data[k] = v
                 return data
-        except Exception:
+        except Exception as e:
+            print(f"Exception: {e}")
             pass
     return default_config
 
@@ -88,7 +87,8 @@ def save_config(config):
     try:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4)
-    except Exception:
+    except Exception as e:
+        print(f"Exception: {e}")
         pass
 
 def get_macos_audio_devices():
@@ -113,7 +113,8 @@ def get_macos_audio_devices():
                     devices.append({"index": device_index, "name": device_name})
                 elif "AVFoundation video devices:" in line or "Error opening input" in line or line.startswith("[in#"):
                     in_audio_section = False
-    except Exception:
+    except Exception as e:
+        print(f"Exception: {e}")
         pass
     return devices
 
@@ -132,20 +133,7 @@ def save_last_ip(ip):
         config["saved_ips"] = saved_ips[:5]
         save_config(config)
 
-def check_adb_devices():
-    try:
-        output = subprocess.check_output(["adb", "devices"]).decode("utf-8")
-        lines = output.strip().split("\n")[1:]
-        devices = []
-        for line in lines:
-            if line.strip():
-                parts = line.split()
-                if len(parts) >= 2:
-                    devices.append(parts[0])
-        return devices
-    except Exception as e:
-        print(f"{RED}Error checking ADB: {e}{RESET}")
-        return []
+# Moved check_adb_devices to adb_client.py
 
 def get_orientation_filter(orientation):
     o = orientation.lower().strip()
@@ -172,7 +160,8 @@ def run_scrcpy(args, is_camera=False):
             # Ensure the device is awake to prevent camera session termination
             try:
                 subprocess.run(["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"], capture_output=True)
-            except Exception:
+            except Exception as e:
+                print(f"Exception: {e}")
                 pass
             has_custom_record = any(arg.startswith("--record=") for arg in args)
             if not has_custom_record:
@@ -338,7 +327,8 @@ def run_scrcpy(args, is_camera=False):
                                     probe_res = subprocess.run(probe_cmd, capture_output=True, text=True)
                                     if probe_res.returncode == 0 and probe_res.stdout.strip():
                                         duration = float(probe_res.stdout.strip())
-                                except Exception:
+                                except Exception as e:
+                                    print(f"Exception: {e}")
                                     pass
                                 
                                 # Fall back to computed system elapsed time if ffprobe fails or returned 0
@@ -490,7 +480,8 @@ def run_scrcpy(args, is_camera=False):
                                     if os.path.exists(f):
                                         try:
                                             os.remove(f)
-                                        except Exception:
+                                        except Exception as e:
+                                            print(f"Exception: {e}")
                                             pass
                             else:
                                 # Run ffmpeg to extract standard video + audio clip precisely and with orientation
@@ -552,35 +543,13 @@ def run_scrcpy(args, is_camera=False):
                     if f and os.path.exists(f):
                         try:
                             os.remove(f)
-                        except Exception:
+                        except Exception as e:
+                            print(f"Exception: {e}")
                             pass
     except Exception as e:
         print(f"{RED}Error running scrcpy: {e}{RESET}")
 
-def get_device_info():
-    try:
-        # Get battery
-        battery_out = subprocess.check_output(["adb", "shell", "dumpsys battery"], stderr=subprocess.DEVNULL).decode("utf-8")
-        level = "Unknown"
-        for line in battery_out.split("\n"):
-            if line.strip().startswith("level:"):
-                level = line.split(":")[-1].strip() + "%"
-        
-        # Get storage
-        storage_out = subprocess.check_output(["adb", "shell", "df -h /sdcard"], stderr=subprocess.DEVNULL).decode("utf-8")
-        storage_lines = storage_out.strip().split("\n")
-        storage_info = "Unknown"
-        if len(storage_lines) >= 2:
-            parts = storage_lines[1].split()
-            if len(parts) >= 5:
-                storage_info = f"{parts[2]}/{parts[1]} used ({parts[4]})"
-                
-        # Get Model
-        model = subprocess.check_output(["adb", "shell", "getprop ro.product.model"], stderr=subprocess.DEVNULL).decode("utf-8").strip()
-        
-        return f"{GREEN}{BOLD}Device: {model} | Battery: {level} | Storage: {storage_info}{RESET}"
-    except Exception:
-        return f"{GREEN}{BOLD}Connected: Android Device{RESET}"
+# Moved get_device_info to adb_client.py
 
 def pair_wireless_device():
     while True:
@@ -1105,27 +1074,7 @@ def configure_preferences():
             
         save_config(config)
 
-def push_file_to_phone():
-    print_header("Send File to Phone")
-    path = input("\nEnter path to file on Mac: ").strip()
-    if path.startswith("'") or path.startswith('"'):
-        path = path[1:-1]
-        
-    if not os.path.exists(path):
-        print(f"{RED}❌ File does not exist.{RESET}")
-        input("\nPress Enter to return...")
-        return
-        
-    filename = os.path.basename(path)
-    phone_path = f"/sdcard/Download/{filename}"
-    print(f"\n⏳ Pushing {filename} to Phone's Download folder...")
-    res = subprocess.run(["adb", "push", path, phone_path], capture_output=True, text=True)
-    
-    if res.returncode == 0:
-        print(f"{GREEN}✅ File pushed successfully to phone at: {phone_path}{RESET}")
-    else:
-        print(f"{RED}❌ Push failed: {res.stderr}{RESET}")
-    input("\nPress Enter to return...")
+# Moved push_file_to_phone to adb_client.py
 
 def pull_latest_photos(interactive=True):
     if not interactive:
@@ -1205,7 +1154,8 @@ def watch_send_to_mac_folder(interactive=True):
                     import ConnectPhoneUI
                     if not ConnectPhoneUI.sync_watcher_active:
                         break
-                except Exception:
+                except Exception as e:
+                    print(f"Exception: {e}")
                     pass
 
             # Check for files on phone
@@ -1237,24 +1187,7 @@ def watch_send_to_mac_folder(interactive=True):
     if interactive:
         input("\nPress Enter to return...")
 
-def install_apk():
-    print_header("Install APK on Phone")
-    path = input("\nEnter path to APK on Mac: ").strip()
-    if path.startswith("'") or path.startswith('"'):
-        path = path[1:-1]
-        
-    if not os.path.exists(path) or not path.endswith(".apk"):
-        print(f"{RED}❌ Invalid APK path.{RESET}")
-        input("\nPress Enter to return...")
-        return
-        
-    print(f"\n⏳ Installing APK onto device...")
-    res = subprocess.run(["adb", "install", path], capture_output=True, text=True)
-    if res.returncode == 0:
-        print(f"{GREEN}✅ APK installed successfully!{RESET}")
-    else:
-        print(f"{RED}❌ Install failed: {res.stderr}{RESET}")
-    input("\nPress Enter to return...")
+# Moved install_apk to adb_client.py
 
 def type_text():
     print_header("Remote Text Input")
@@ -1300,7 +1233,8 @@ def get_use_credential_coords():
                 if m:
                     x1, y1, x2, y2 = map(int, m.groups())
                     return (x1 + x2) // 2, (y1 + y2) // 2
-    except Exception:
+    except Exception as e:
+        print(f"Exception: {e}")
         pass
     return None
 
@@ -1332,7 +1266,8 @@ def get_biometric_dismiss_coords():
                 if m:
                     x1, y1, x2, y2 = map(int, m.groups())
                     return (x1 + x2) // 2, (y1 + y2) // 2
-    except Exception:
+    except Exception as e:
+        print(f"Exception: {e}")
         pass
     return None
 
@@ -1354,36 +1289,12 @@ def get_pin_input_coords():
                 if m:
                     x1, y1, x2, y2 = map(int, m.groups())
                     return (x1 + x2) // 2, (y1 + y2) // 2
-    except Exception:
+    except Exception as e:
+        print(f"Exception: {e}")
         pass
     return None
 
-def is_keyguard_locked():
-    try:
-        # Check using dumpsys window (very reliable across MIUI/Xiaomi devices)
-        out2 = subprocess.check_output(["adb", "shell", "dumpsys", "window"], stderr=subprocess.DEVNULL).decode("utf-8")
-        is_showing = False
-        for line in out2.split("\n"):
-            line_lower = line.lower().replace(" ", "")
-            if "iskeyguardshowing=true" in line_lower or "mshowinglockscreen=true" in line_lower:
-                is_showing = True
-                break
-        if is_showing:
-            return True
-        # As a fallback, check if NotificationShade has current focus (line-by-line check)
-        for line in out2.split("\n"):
-            if "mcurrentfocus" in line.lower() and "notificationshade" in line.lower():
-                return True
-    except Exception:
-        pass
-
-    try:
-        out = subprocess.check_output(["adb", "shell", "dumpsys", "keyguard"], stderr=subprocess.DEVNULL).decode("utf-8")
-        if "can't find service" in out.lower() or not out.strip():
-            return False
-        return "showing=true" in out.lower() or "showing: true" in out.lower()
-    except Exception:
-        return False
+# Moved is_keyguard_locked to adb_client.py
 
 def check_input_injection_permission():
     try:
@@ -1392,18 +1303,11 @@ def check_input_injection_permission():
         if "SecurityException" in output or "injectInputEvent" in output:
             return False
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Exception: {e}")
         return True
 
-def is_fingerprint_active():
-    try:
-        out = subprocess.check_output(["adb", "shell", "dumpsys", "fingerprint"], stderr=subprocess.DEVNULL).decode("utf-8")
-        for line in out.split("\n"):
-            if "current operation" in line.lower() and "fingerprintauthenticationclient" in line.lower():
-                return True
-    except Exception:
-        pass
-    return False
+# Moved is_fingerprint_active to adb_client.py
 
 def clear_input_field(count=10):
     subprocess.run(["adb", "shell", "input", "keyevent"] + ["67"] * count, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1476,7 +1380,8 @@ def unlock_device_with_touch_id(config, interactive=True, wake_screen=True):
                 # If in AOD/Ambient mode (where screen is 'on' but unresponsive to swipes), this wakes it fully.
                 subprocess.run(["adb", "shell", "input", "keyevent", "224"])
                 time.sleep(0.3) # Give it slightly more time to wake and animate before swiping
-            except Exception:
+            except Exception as e:
+                print(f"Exception: {e}")
                 pass
             
         # 2. Check for "Use PIN" / credential button, or swipe up if keyguard is showing
@@ -1663,91 +1568,7 @@ def unlock_device_with_touch_id(config, interactive=True, wake_screen=True):
     if interactive:
         input("\nPress Enter to return...")
 
-def run_controls_menu():
-    while True:
-        config = load_config()
-        print_header("Quick Controls & Input")
-        print(f"1) {GREEN}🔑 Unlock via Mac Touch ID (Biometric Bridge){RESET}")
-        print(f"2) {YELLOW}⚙️ Configure Android Backup PIN{RESET}")
-        print(f"3) {YELLOW}⚙️ Configure App Lock PIN{RESET}")
-        print(f"4) {GREEN}🔌 Simulate Power Button (Lock/Unlock){RESET}")
-        print(f"5) {CYAN}🔊 Volume Up{RESET}")
-        print(f"6) {CYAN}🔉 Volume Down{RESET}")
-        print(f"7) {BLUE}🏠 Home Button{RESET}")
-        print(f"8) {BLUE}🔙 Back Button{RESET}")
-        print(f"9) {BLUE}🔀 App Switcher (Recent Apps){RESET}")
-        print(f"10) {CYAN}🔇 Mute/Unmute Audio{RESET}")
-        print(f"11) {CYAN}⏯️ Play/Pause Media{RESET}")
-        print(f"12) {BLUE}⚙️ Open Android Settings App{RESET}")
-        print(f"13) {MAGENTA}⌨️ Type text onto phone screen{RESET}")
-        print(f"14) {YELLOW}📋 Show scrcpy Shortcut Cheat-sheet{RESET}")
-        print(f"15) {RED}🔙 Return to Main Menu{RESET}")
-        
-        choice = input(f"\nEnter choice (1-15): ").strip()
-        if choice == "1":
-            unlock_device_with_touch_id(config)
-        elif choice == "2":
-            print_header("Configure Android PIN")
-            pin = input("Enter your phone's unlock PIN (saved locally): ").strip()
-            if not pin.isdigit() or len(pin) < 4:
-                print(f"{RED}❌ Invalid PIN. Must be digits only and at least 4 characters.{RESET}")
-            else:
-                config["android_pin"] = pin
-                save_config(config)
-                print(f"{GREEN}✅ PIN saved successfully.{RESET}")
-            input("\nPress Enter to continue...")
-        elif choice == "3":
-            print_header("Configure App Lock PIN")
-            pin = input("Enter your App Lock PIN (saved locally): ").strip()
-            if not pin.isdigit() or len(pin) < 4:
-                print(f"{RED}❌ Invalid PIN. Must be digits only and at least 4 characters.{RESET}")
-            else:
-                config["applock_pin"] = pin
-                save_config(config)
-                print(f"{GREEN}✅ App Lock PIN saved successfully.{RESET}")
-            input("\nPress Enter to continue...")
-        elif choice == "4":
-            subprocess.run(["adb", "shell", "input", "keyevent", "26"])
-            print("Sent KEYCODE_POWER")
-            input("\nPress Enter to continue...")
-        elif choice == "5":
-            subprocess.run(["adb", "shell", "input", "keyevent", "24"])
-            print("Sent KEYCODE_VOLUME_UP")
-            input("\nPress Enter to continue...")
-        elif choice == "6":
-            subprocess.run(["adb", "shell", "input", "keyevent", "25"])
-            print("Sent KEYCODE_VOLUME_DOWN")
-            input("\nPress Enter to continue...")
-        elif choice == "7":
-            subprocess.run(["adb", "shell", "input", "keyevent", "3"])
-            print("Sent KEYCODE_HOME")
-            input("\nPress Enter to continue...")
-        elif choice == "8":
-            subprocess.run(["adb", "shell", "input", "keyevent", "4"])
-            print("Sent KEYCODE_BACK")
-            input("\nPress Enter to continue...")
-        elif choice == "9":
-            subprocess.run(["adb", "shell", "input", "keyevent", "187"])
-            print("Sent KEYCODE_APP_SWITCH")
-            input("\nPress Enter to continue...")
-        elif choice == "10":
-            subprocess.run(["adb", "shell", "input", "keyevent", "164"])
-            print("Sent KEYCODE_VOLUME_MUTE")
-            input("\nPress Enter to continue...")
-        elif choice == "11":
-            subprocess.run(["adb", "shell", "input", "keyevent", "85"])
-            print("Sent KEYCODE_MEDIA_PLAY_PAUSE")
-            input("\nPress Enter to continue...")
-        elif choice == "12":
-            subprocess.run(["adb", "shell", "am", "start", "-a", "android.settings.SETTINGS"])
-            print("Opened Android Settings")
-            input("\nPress Enter to continue...")
-        elif choice == "13":
-            type_text()
-        elif choice == "14":
-            show_shortcuts()
-        elif choice == "15":
-            break
+# Moved run_controls_menu to ui_controller.py
 
 def biometric_daemon_loop():
     # Reload config inside loop to always get the current PIN
@@ -1970,7 +1791,8 @@ def biometric_daemon_loop():
                 t = threading.Thread(target=prompt_touch_id)
                 t.daemon = True
                 t.start()
-        except Exception:
+        except Exception as e:
+            print(f"Exception: {e}")
             pass
             
         time.sleep(1.5)
@@ -1985,7 +1807,8 @@ def record_native_video_workflow():
         try:
             output = subprocess.check_output(["adb", "shell", "ls", "-t", "/sdcard/DCIM/Camera/"], stderr=subprocess.DEVNULL).decode("utf-8").strip()
             return [f.strip() for f in output.split("\n") if f.strip()]
-        except Exception:
+        except Exception as e:
+            print(f"Exception: {e}")
             return []
             
     files_before = get_camera_files()
@@ -2037,57 +1860,9 @@ def record_native_video_workflow():
         
     input("\nPress Enter to return...")
 
-def run_mirroring_menu():
-    while True:
-        config = load_config()
-        print_header("Mirroring & Camera Modes")
-        print(f"1) {GREEN}🖥️ Standard Screen Mirroring{RESET}")
-        print(f"2) {CYAN}📷 Live Camera Feed to Mac (With Mic Audio){RESET}")
-        print(f"3) {CYAN}📷 Live Camera Feed to Mac (No Audio){RESET}")
-        print(f"4) {BLUE}🔊 Audio-Only Mirroring (Listen to Phone Mic){RESET}")
-        print(f"5) {MAGENTA}🎥 Native Phone Camera HD Record & Auto-Pull{RESET} (Full camera control, sync to Mac)")
-        print(f"6) {MAGENTA}🎥 Mirror & Record Video Feed to Mac Desktop{RESET} (scrcpy feed record)")
-        print(f"7) {YELLOW}⚙️ Edit Mirroring Preferences & Audio Profile{RESET}")
-        print(f"8) {RED}🔙 Return to Main Menu{RESET}")
-        
-        choice = input(f"\nEnter choice (1-8): ").strip()
-        if choice == "1":
-            run_mirroring_flow(3, config)
-        elif choice == "2":
-            run_mirroring_flow(1, config)
-        elif choice == "3":
-            run_mirroring_flow(4, config)
-        elif choice == "4":
-            run_mirroring_flow(2, config)
-        elif choice == "5":
-            record_native_video_workflow()
-        elif choice == "6":
-            mirror_and_record(config)
-        elif choice == "7":
-            configure_preferences()
-        elif choice == "8":
-            break
+# Moved run_mirroring_menu to ui_controller.py
 
-def run_files_menu():
-    while True:
-        print_header("File Transfer & App Installer")
-        print(f"1) {GREEN}📤 Push file from Mac to Phone's Download folder{RESET}")
-        print(f"2) {CYAN}📥 Pull latest photo from Phone to Mac Downloads{RESET}")
-        print(f"3) {BLUE}🔄 Start Auto-File Sync Monitor (Real-time sync to Desktop){RESET}")
-        print(f"4) {MAGENTA}🔌 Install Android APK on Phone{RESET}")
-        print(f"5) {RED}🔙 Return to Main Menu{RESET}")
-        
-        choice = input(f"\nEnter choice (1-5): ").strip()
-        if choice == "1":
-            push_file_to_phone()
-        elif choice == "2":
-            pull_latest_photos()
-        elif choice == "3":
-            watch_send_to_mac_folder()
-        elif choice == "4":
-            install_apk()
-        elif choice == "5":
-            break
+# Moved run_files_menu to ui_controller.py
 
 def main():
     while True:

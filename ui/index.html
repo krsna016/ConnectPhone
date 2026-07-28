@@ -41,14 +41,8 @@
                 <button class="nav-btn" data-tab="mirroring">
                     <span class="btn-icon"><i class="material-symbols-outlined">desktop_windows</i></span> Mirror & Stream
                 </button>
-                <button class="nav-btn" data-tab="termux">
-                    <span class="btn-icon"><i class="material-symbols-outlined">terminal</i></span> Termux Runner
-                </button>
                 <button class="nav-btn" data-tab="metrics">
                     <span class="btn-icon"><i class="material-symbols-outlined">monitoring</i></span> Live Metrics
-                </button>
-                <button class="nav-btn" data-tab="sync">
-                    <span class="btn-icon"><i class="material-symbols-outlined">folder</i></span> Media & Sync
                 </button>
                 <button class="nav-btn" data-tab="settings">
                     <span class="btn-icon"><i class="material-symbols-outlined">settings</i></span> Preferences
@@ -216,9 +210,9 @@
                                     <div class="form-row">
                                         <div class="form-group">
                                             <label for="conn-ip">IP Address:</label>
-                                            <div style="display: flex; gap: 8px;">
-                                                <input type="text" id="conn-ip" placeholder="e.g. 192.168.29.201" style="flex: 1;">
-                                                <select id="saved-ips-dropdown" style="width: 30px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-primary); cursor: pointer;" title="Select recent IP">
+                                            <div class="ip-entry-controls">
+                                                <input type="text" id="conn-ip" placeholder="e.g. 192.168.29.201">
+                                                <select id="saved-ips-dropdown" class="saved-device-select" title="Select a saved wireless device">
                                                     <option value="" disabled selected>▼</option>
                                                 </select>
                                             </div>
@@ -229,7 +223,7 @@
                                         </div>
                                     </div>
                                     <button class="btn btn-accent btn-autoconnect" id="btn-conn-autoconnect"><i class="material-symbols-outlined">bolt</i> Auto-Connect Device (Port Scan)</button>
-                                    <button class="btn btn-primary" id="btn-conn-connect">Connect Device</button>
+                                    <button class="btn btn-primary" id="btn-conn-connect">Connect & Keep Reconnecting</button>
                                 </div>
                             </div>
                             
@@ -332,7 +326,7 @@
                         </div>
                         
                         <!-- Mode 5: Ghost Driver AI -->
-                        <div class="card mirror-card highlight" style="border: 1px solid #00ffcc; box-shadow: 0 0 15px rgba(0,255,204,0.15);">
+                        <div id="ghost-driver-card" class="card mirror-card highlight" style="border: 1px solid #00ffcc; box-shadow: 0 0 15px rgba(0,255,204,0.15);">
                             <div class="card-badge" style="background:#00ffcc; color:#000;">AI</div>
                             <div class="card-icon"><i class="material-symbols-outlined" style="color:#00ffcc;">smart_toy</i></div>
                             <h3>Ghost Driver Automation</h3>
@@ -344,7 +338,7 @@
                         </div>
 
                         <!-- Mode 6: Tesseract OCR -->
-                        <div class="card mirror-card highlight" style="border: 1px solid #ffbd2e; box-shadow: 0 0 15px rgba(255,189,46,0.15);">
+                        <div id="screen-text-card" class="card mirror-card highlight" style="border: 1px solid #ffbd2e; box-shadow: 0 0 15px rgba(255,189,46,0.15);">
                             <div class="card-badge" style="background:#ffbd2e; color:#000;">AI</div>
                             <div class="card-icon"><i class="material-symbols-outlined" style="color:#ffbd2e;">document_scanner</i></div>
                             <h3>Extract Screen Text</h3>
@@ -727,7 +721,7 @@
                                 
                                 <div class="form-group">
                                     <label for="pref-audio-buffer">Audio Buffer Delay (ms):</label>
-                                    <input type="number" id="pref-audio-buffer" min="10" max="2000" step="10" value="100" title="Higher buffer sizes prevent pops & static noise, particularly over Wi-Fi connections.">
+                                    <input type="number" id="pref-audio-buffer" min="10" max="2000" step="10" value="20" title="Lower values reduce live audio delay; increase only if your Wi-Fi causes pops or dropouts.">
                                 </div>
                                 
                                 <div class="form-group">
@@ -784,11 +778,80 @@
                 <!-- Tab: Documentation -->
                 <section class="tab-pane" id="pane-docs">
                     <div class="pane-header">
-                        <h2><i class="material-symbols-outlined">menu_book</i> Documentation & Help</h2>
-                        <p>User guide and troubleshooting for ConnectPhone</p>
+                        <h2><i class="material-symbols-outlined">menu_book</i> ConnectPhone Guide</h2>
+                        <p>A simple guide to connecting, controlling, and troubleshooting your Android phone from your Mac.</p>
+                    </div>
+
+                    <div class="docs-layout">
+                        <div class="card settings-card docs-card-wide">
+                            <h3><i class="material-symbols-outlined">rocket_launch</i> Start here</h3>
+                            <p>ConnectPhone has one main job: create a reliable ADB connection between your Mac and Android phone. After the connection is ready, you can mirror the screen, send input, and view device health information.</p>
+                            <ol class="docs-steps">
+                                <li>Install Android platform tools and make sure the phone is charged.</li>
+                                <li>On the phone, open <strong>Settings → About phone</strong> and tap <strong>Build number</strong> seven times.</li>
+                                <li>Open <strong>Developer options</strong> and enable <strong>USB debugging</strong>. Enable <strong>Wireless debugging</strong> only when you want Wi‑Fi control.</li>
+                                <li>Open ConnectPhone and connect by USB first, or use wireless pairing in the Connection Center.</li>
+                                <li>Accept the “Allow USB debugging” prompt on the phone. Select “Always allow” only on your own Mac.</li>
+                            </ol>
+                        </div>
+
+                        <div class="card settings-card">
+                            <h3><i class="material-symbols-outlined">usb</i> USB connection</h3>
+                            <p>USB is the easiest first connection and is usually the most stable option.</p>
+                            <ol class="docs-steps">
+                                <li>Connect the phone to the Mac with a data-capable USB cable.</li>
+                                <li>Unlock the phone and approve the debugging prompt.</li>
+                                <li>Open <strong>Connection Center</strong>. The phone should appear under connected devices.</li>
+                            </ol>
+                            <p class="docs-note"><strong>If it is not found:</strong> try another cable or USB port, keep the phone unlocked, and revoke old debugging authorizations in Developer options before reconnecting.</p>
+                        </div>
+
+                        <div class="card settings-card">
+                            <h3><i class="material-symbols-outlined">wifi</i> Wireless connection</h3>
+                            <p>Wireless debugging requires the Mac and phone to be on the same Wi‑Fi network. Pairing is normally needed only once per network.</p>
+                            <ol class="docs-steps">
+                                <li>On the phone, open <strong>Developer options → Wireless debugging</strong>.</li>
+                                <li>Choose <strong>Pair device with pairing code</strong>.</li>
+                                <li>Enter the displayed IP address, pairing port, and six-digit code in ConnectPhone.</li>
+                                <li>For later connections, use the phone’s wireless debugging IP and ADB port in the Connection Center.</li>
+                                <li>Use <strong>Connect & Keep Reconnecting</strong> to save the endpoint and enable trusted reconnects.</li>
+                            </ol>
+                            <p class="docs-note"><strong>Security:</strong> ConnectPhone verifies the enrolled device identity before automatic reconnect. A changed or unknown device is rejected.</p>
+                        </div>
+
+                        <div class="card settings-card">
+                            <h3><i class="material-symbols-outlined">desktop_windows</i> Mirror & Stream</h3>
+                            <p>Open <strong>Mirror & Stream</strong> after the phone is connected. Choose a mode and start it. The phone screen opens in a separate mirror window.</p>
+                            <ul class="docs-list">
+                                <li><strong>Mirror screen:</strong> control the phone from the Mac.</li>
+                                <li><strong>Camera stream:</strong> use the phone camera as a live source.</li>
+                                <li><strong>Audio only:</strong> listen without displaying video.</li>
+                                <li><strong>Record session:</strong> save the mirrored session to the Mac.</li>
+                            </ul>
+                            <p class="docs-note">For smoother wireless video, use a strong 5 GHz network and lower resolution or bitrate if the stream stutters.</p>
+                        </div>
+
+                        <div class="card settings-card">
+                            <h3><i class="material-symbols-outlined">monitoring</i> Metrics & preferences</h3>
+                            <p><strong>Live Metrics</strong> shows battery, uptime, system load, and connection latency. Use the ping test when wireless control feels slow.</p>
+                            <p><strong>Preferences</strong> controls video quality, frame rate, audio routing, buffering, orientation, screen behavior, and saved PIN settings.</p>
+                            <p>PINs are stored in the macOS Keychain. Leave a PIN field empty when you do not want to change the saved value, then click <strong>Save Preferences</strong>.</p>
+                        </div>
+
+                        <div class="card settings-card docs-card-wide">
+                            <h3><i class="material-symbols-outlined">build</i> Troubleshooting checklist</h3>
+                            <ul class="docs-list">
+                                <li><strong>Phone missing:</strong> unlock it, reconnect USB, check USB debugging, and accept the authorization prompt.</li>
+                                <li><strong>Wireless connection fails:</strong> confirm both devices use the same network and that Wireless debugging is enabled.</li>
+                                <li><strong>Connection drops:</strong> keep the phone awake during setup, use a stronger Wi‑Fi signal, and reconnect once manually to enroll the current device identity.</li>
+                                <li><strong>Mirror does not start:</strong> disconnect duplicate ADB entries, reconnect one device, and try a lower video setting.</li>
+                                <li><strong>Controls do not work:</strong> enable the Android security/debugging permission required by your phone manufacturer.</li>
+                                <li><strong>Still stuck:</strong> click Restart App, then check the Connection Center status and the Live Metrics ping result.</li>
+                            </ul>
+                        </div>
                     </div>
                     
-                    <div class="settings-layout">
+                    <div class="settings-layout legacy-docs-content">
                         <!-- Setup & Connection -->
                         <div class="card settings-card" style="grid-column: 1 / -1;">
                             <h3><i class="material-symbols-outlined">wifi</i> Connection Setup Guide</h3>
@@ -887,10 +950,10 @@
             <!-- Manual IP Input (shown first time or when changing) -->
             <div id="modal-ip-input-row" class="modal-ip-input-row">
                 <label class="modal-input-label" for="modal-ip-input">
-                    <i class="material-symbols-outlined">location_on</i> Phone IP Address
+                    <span class="modal-input-title"><i class="material-symbols-outlined">location_on</i> Phone IP Address</span>
                     <span class="modal-input-hint">Find it in Settings › Developer Options › Wireless Debugging</span>
                 </label>
-                <div style="display: flex; gap: 8px; width: 100%;">
+                <div class="modal-ip-controls">
                     <input 
                         type="text" 
                         id="modal-ip-input" 
@@ -898,9 +961,8 @@
                         placeholder="e.g. 192.168.1.45"
                         autocomplete="off"
                         spellcheck="false"
-                        style="flex: 1;"
                     />
-                    <select id="modal-saved-ips-dropdown" style="width: 40px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-primary); cursor: pointer;" title="Select recent IP">
+                    <select id="modal-saved-ips-dropdown" class="saved-device-select" title="Select a saved wireless device">
                         <option value="" disabled selected>▼</option>
                     </select>
                 </div>

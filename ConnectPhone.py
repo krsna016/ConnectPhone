@@ -98,6 +98,9 @@ def load_last_ip():
 def save_last_ip(ip):
     global_config_mgr.update_last_ip(ip)
 
+def save_wireless_endpoint(ip, port, device_serial=None):
+    global_config_mgr.update_last_connection(ip, port, device_serial)
+
 # Moved check_adb_devices to adb_client.py
 
 def get_orientation_filter(orientation):
@@ -142,8 +145,12 @@ def run_scrcpy(args, is_camera=False):
             args.append("--record-orientation=0")
 
         config = load_config()
-        a_buf = config.get("audio_buffer", "100")
-        cmd = ["scrcpy", "--window-title", "ConnectPhone", f"--audio-buffer={a_buf}"] + args
+        a_buf = config.get("audio_buffer", "20")
+        cmd = [
+            "scrcpy", "--window-title", "ConnectPhone",
+            f"--audio-buffer={a_buf}",
+            "--audio-output-buffer=10",
+        ] + args
         print(f"\n🚀 Running: {' '.join(cmd)}")
         print(f"{YELLOW}💡 Useful Tips:{RESET}")
         print(f"  👉 {BOLD}Flip Horizontally on-the-fly{RESET}: Press {CYAN}Alt + Shift + Left or Right Arrow{RESET} while the scrcpy window is active.")
@@ -714,15 +721,18 @@ def run_mirroring_flow(mode, config):
         if config["mirror_enabled"]:
             args.append("--orientation=flip0")
             
-        # Apply camera quality preferences (Auto-optimize front camera and wireless feeds to prevent lag)
+        # Apply camera quality preferences. Keep zero video buffering for the
+        # lowest practical latency; wireless mode must not silently degrade
+        # the requested HD resolution.
         devices = check_adb_devices()
         is_wireless = any(":" in d for d in devices) if devices else False
         
         if is_wireless:
-            c_bitrate = "6M"
-            c_codec = "h264"
-            args.append("--video-buffer=150")
-            print(f"\n{YELLOW}📶 Wireless connection detected. Auto-tuning camera to 6M H.264 and 150ms buffer for lag-free performance...{RESET}")
+            if resolution == "4k":
+                c_bitrate, c_codec = "32M", "h265"
+            else:
+                c_bitrate, c_codec = "16M", "h264"
+            print(f"\n{YELLOW}📶 Wireless HD mode: {c_bitrate} {c_codec.upper()}, zero intentional video buffering.{RESET}")
         else:
             if facing == "front":
                 c_bitrate = "12M"
@@ -737,6 +747,7 @@ def run_mirroring_flow(mode, config):
             c_fps = config.get("camera_fps", "60")
                 
         args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
+        args.append("--no-downsize-on-error")
         args.append("--stay-awake")
         if c_fps in ["120", "240"]:
             if resolution != "720p":
@@ -770,15 +781,16 @@ def run_mirroring_flow(mode, config):
         if config["mirror_enabled"]:
             args.append("--orientation=flip0")
             
-        # Apply camera quality preferences (Auto-optimize front camera and wireless feeds to prevent lag)
+        # Apply camera quality preferences with zero intentional video buffering.
         devices = check_adb_devices()
         is_wireless = any(":" in d for d in devices) if devices else False
         
         if is_wireless:
-            c_bitrate = "6M"
-            c_codec = "h264"
-            args.append("--video-buffer=150")
-            print(f"\n{YELLOW}📶 Wireless connection detected. Auto-tuning camera to 6M H.264 and 150ms buffer for lag-free performance...{RESET}")
+            if resolution == "4k":
+                c_bitrate, c_codec = "32M", "h265"
+            else:
+                c_bitrate, c_codec = "16M", "h264"
+            print(f"\n{YELLOW}📶 Wireless HD mode: {c_bitrate} {c_codec.upper()}, zero intentional video buffering.{RESET}")
         else:
             if facing == "front":
                 c_bitrate = "12M"
@@ -793,6 +805,7 @@ def run_mirroring_flow(mode, config):
             c_fps = config.get("camera_fps", "60")
                 
         args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
+        args.append("--no-downsize-on-error")
         args.append("--stay-awake")
         if c_fps in ["120", "240"]:
             if resolution != "720p":

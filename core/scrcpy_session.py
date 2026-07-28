@@ -33,11 +33,12 @@ class ScrcpySession:
         # Build command using injected config
         audio_buffer = self.config.get("audio_buffer", "100")
         
-        # Aggressively enforce zero-latency flags
+        # Keep the session wrapper transport-neutral.  Camera mode chooses its
+        # codec/bitrate explicitly below; injecting another codec here creates
+        # duplicate --video-codec flags and makes the effective quality
+        # dependent on argument ordering.
         hw_args = [
-            "--video-codec=h265",
-            "--display-buffer=0", # 0ms buffering for zero latency
-            "--v4l2-buffer=0"
+            "--display-buffer=0"  # no intentional playback buffering
         ]
         
         cmd = ["scrcpy", "--window-title", "ConnectPhone", f"--audio-buffer={audio_buffer}"] + hw_args + args

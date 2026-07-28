@@ -21,8 +21,10 @@ The project merges high-performance backend pipelines (`scrcpy` and `adb` cores)
 * **Native macOS App Experience**: Run ConnectPhone as a standalone, windowed macOS Application (`.app`) without touching a terminal.
 * **Zero-Latency Mirroring**: High-fidelity screen and camera previews via USB or Wireless Debugging utilizing customized `scrcpy` pipes.
 * **Advanced Audio Routing**: Route sound from your phone's microphone, system audio, or Mac earbuds/bluetooth devices. Features dynamic audio buffer adjustments and sync offsets.
-* **Live Media Controls**: Capture high-definition video clips or snapshot framebuffers directly from the mirroring stream to your Mac Desktop with a single click.
+* **Mirroring and Recording**: Mirror the phone, stream its camera or audio, and save recording sessions to your Mac Desktop.
 * **Live System Telemetry**: View real-time device stats, battery wear, memory allocation, and connection status inside the sleek visual dashboard.
+* **Trusted Wireless Reconnect**: Manually enrolled wireless devices are checked by identity before automatic reconnect. Unknown devices are never enrolled silently.
+* **Local API Protection**: The dashboard and local control API bind to loopback and require a Keychain-backed session token.
 * **Premium Dev-Aesthetic**: A stunning dark-mode UI with Space Grotesk typography, micro-animations, glowing metallic gradients, and Neumorphic design elements.
 
 ---
@@ -60,7 +62,7 @@ brew install android-platform-tools scrcpy ffmpeg
      3. Start `ConnectPhone` and navigate to the connection manager to input connection coordinates.
 
 ### macOS Security Permissions
-ConnectPhone relies on PyWebView and ADB to inject input commands and mirror screens. To ensure flawless operation, you must grant the following macOS Privacy permissions to your Terminal (or the compiled `ConnectPhone.app`):
+ConnectPhone relies on PyWebView and ADB to inject input commands and mirror screens. Grant the following macOS Privacy permissions to the compiled `ConnectPhone.app` (or Terminal when running from source):
 1. **Accessibility**: Open `System Settings > Privacy & Security > Accessibility` and toggle ON for Terminal/ConnectPhone. (Required for executing ADB keystrokes and unlocking the device).
 2. **Screen Recording**: Open `System Settings > Privacy & Security > Screen Recording` and toggle ON. (Required for PyWebView to seamlessly render the scrcpy window layers).
 

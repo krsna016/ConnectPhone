@@ -1,6 +1,21 @@
 document.addEventListener('DOMContentLoaded', () => {
     // API base URL (detect file:// protocol to point to local Python server)
     const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:8282' : '';
+    // Keep the token in the URL fragment so it is not sent to the local HTTP
+    // server in request logs or included in Referer headers.
+    const API_TOKEN = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token') || '';
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (input, init = {}) => {
+        const headers = new Headers(init.headers || {});
+        if (API_TOKEN) headers.set('X-ConnectPhone-Token', API_TOKEN);
+        return nativeFetch(input, { ...init, headers });
+    };
+
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
+    }
     
     // State variables
     let currentTab = 'connection';
@@ -34,8 +49,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (savedIpsDropdown) {
         savedIpsDropdown.addEventListener('change', (e) => {
             if (e.target.value) {
-                document.getElementById('conn-ip').value = e.target.value;
-                e.target.value = ''; // Reset dropdown selection visually
+                try { selectSavedDevice(JSON.parse(e.target.value)); } catch (_) {
+                    document.getElementById('conn-ip').value = e.target.value;
+                }
             }
         });
     }
@@ -44,10 +60,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (modalSavedIpsDropdown) {
         modalSavedIpsDropdown.addEventListener('change', (e) => {
             if (e.target.value) {
-                document.getElementById('modal-ip-input').value = e.target.value;
-                e.target.value = ''; // Reset dropdown selection visually
+                try { selectSavedDevice(JSON.parse(e.target.value), true); } catch (_) {
+                    document.getElementById('modal-ip-input').value = e.target.value;
+                }
             }
         });
+    }
+
+    function selectSavedDevice(device, modal = false) {
+        const ipInput = document.getElementById(modal ? 'modal-ip-input' : 'conn-ip');
+        const portInput = document.getElementById('conn-port');
+        if (ipInput) ipInput.value = device.ip || '';
+        if (!modal && portInput && device.port) portInput.value = device.port;
     }
 
     // Sidebar navigation switching
@@ -104,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         toast.innerHTML = `
             <span class="toast-icon">${icon}</span>
-            <span class="toast-message">${message}</span>
+            <span class="toast-message">${escapeHtml(message)}</span>
         `;
         
         toastContainer.appendChild(toast);
@@ -223,24 +247,24 @@ document.addEventListener('DOMContentLoaded', () => {
                                         <div class="active-device-details">
                                             <div class="detail-item">
                                                 <span><i class="material-symbols-outlined">smartphone</i> Device Model</span>
-                                                <p>${model}</p>
+                            <p>${escapeHtml(model)}</p>
                                             </div>
                                             <div class="detail-item">
                                                 <span><i class="material-symbols-outlined">battery_full</i> Battery Level</span>
-                                                <p>${battery}</p>
+                            <p>${escapeHtml(battery)}</p>
                                             </div>
                                             <div class="detail-item">
                                                 <span><i class="material-symbols-outlined">save</i> Available Storage</span>
-                                                <p>${storage}</p>
+                            <p>${escapeHtml(storage)}</p>
                                             </div>
                                             <div class="detail-item">
                                                 <span><i class="material-symbols-outlined">public</i> IP Address / Serial</span>
-                                                <p>${displayActiveSerial}</p>
+                            <p>${escapeHtml(displayActiveSerial)}</p>
                                             </div>
                                         </div>
                                     `;
                         } else {
-                            activeDetailsBox.innerHTML = `<p class="status-placeholder">${cleanInfo}</p>`;
+                            activeDetailsBox.innerHTML = `<p class="status-placeholder">${escapeHtml(cleanInfo)}</p>`;
                         }
                     } else {
                         activeDetailsBox.innerHTML = '<p class="status-placeholder">Device attached but offline or unauthorized. Please verify the debugging prompt on your phone screen.</p>';
@@ -282,13 +306,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="device-info-left">
                             <span class="device-type-icon">${icon}</span>
                             <div class="device-meta">
-                                <h4>${device.model}</h4>
-                                <p>${displaySerial} (${isWireless ? 'Wi-Fi' : 'USB'})</p>
+                            <h4>${escapeHtml(device.model)}</h4>
+                            <p>${escapeHtml(displaySerial)} (${isWireless ? 'Wi-Fi' : 'USB'})</p>
                             </div>
                         </div>
                         <div class="device-info-right">
                             <span class="status-badge ${statusText}">${statusText}</span>
-                            ${isWireless ? `<button class="btn btn-sm btn-danger btn-device-disconnect" data-serial="${device.serial}">Disconnect</button>` : ''}
+                            ${isWireless ? `<button class="btn btn-sm btn-danger btn-device-disconnect" data-serial="${escapeHtml(device.serial)}">Disconnect</button>` : ''}
                         </div>
                     `;
                     
@@ -390,51 +414,62 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set preference inputs from saved configuration json
     let preferencesLoaded = false;
     function updatePreferencesForm(config) {
-        if (preferencesLoaded || !config) return;
-        preferencesLoaded = true;
+        if (!config) return;
 
-        document.getElementById('pref-codec').value = config.camera_codec || 'h265';
-        document.getElementById('pref-bitrate').value = config.camera_bitrate || '32M';
-        document.getElementById('pref-fps').value = config.camera_fps || '60';
-        document.getElementById('pref-audio-preset').value = config.audio_preset || 'voice_communication';
-        document.getElementById('pref-sync-delay').value = config.audio_sync_delay || '0.80';
-        document.getElementById('pref-keyboard').value = config.keyboard_mode || 'uhid';
-        document.getElementById('pref-pin').value = config.android_pin || '';
-        document.getElementById('pref-applock').value = config.applock_pin || '';
+        if (!preferencesLoaded) {
+            preferencesLoaded = true;
+
+            document.getElementById('pref-codec').value = config.camera_codec || 'h265';
+            document.getElementById('pref-bitrate').value = config.camera_bitrate || '32M';
+            document.getElementById('pref-fps').value = config.camera_fps || '60';
+            document.getElementById('pref-audio-preset').value = config.audio_preset || 'voice_communication';
+            document.getElementById('pref-sync-delay').value = config.audio_sync_delay || '0.80';
+            document.getElementById('pref-keyboard').value = config.keyboard_mode || 'uhid';
+            document.getElementById('pref-pin').value = config.android_pin || '';
+            document.getElementById('pref-applock').value = config.applock_pin || '';
         
-        const micSelect = document.getElementById('pref-mac-mic-device');
-        if (micSelect) {
-            micSelect.value = config.mac_mic_device || 'default';
+            const micSelect = document.getElementById('pref-mac-mic-device');
+            if (micSelect) {
+                micSelect.value = config.mac_mic_device || 'default';
+            }
+        
+
+        
+            document.getElementById('pref-audio-buffer').value = config.audio_buffer || '20';
+        
+            document.getElementById('pref-mirror-enabled').checked = config.mirror_enabled !== false;
+            document.getElementById('pref-screen-off').checked = config.screen_off_enabled === true;
+            document.getElementById('pref-stay-awake').checked = config.stay_awake_enabled !== false;
+            document.getElementById('pref-show-touches').checked = config.show_touches_enabled === true;
+            document.getElementById('pref-biometric-daemon').checked = config.biometric_daemon_enabled === true;
         }
-        
-
-        
-        document.getElementById('pref-audio-buffer').value = config.audio_buffer || '100';
-        
-        document.getElementById('pref-mirror-enabled').checked = config.mirror_enabled !== false;
-        document.getElementById('pref-screen-off').checked = config.screen_off_enabled === true;
-        document.getElementById('pref-stay-awake').checked = config.stay_awake_enabled !== false;
-        document.getElementById('pref-show-touches').checked = config.show_touches_enabled === true;
-        document.getElementById('pref-biometric-daemon').checked = config.biometric_daemon_enabled === true;
 
         // Auto fill IP in connection form
-        if (config.last_ip) {
-            document.getElementById('conn-ip').value = config.last_ip;
+        const connIpInput = document.getElementById('conn-ip');
+        if (config.last_ip && connIpInput && !connIpInput.value) {
+            connIpInput.value = config.last_ip;
         }
         
         // Populate saved IPs dropdowns
         const dropdown1 = document.getElementById('saved-ips-dropdown');
         const dropdown2 = document.getElementById('modal-saved-ips-dropdown');
+        const savedDevices = Array.isArray(config.saved_devices) && config.saved_devices.length
+            ? config.saved_devices
+            : (config.saved_ips || []).map(ip => ({ ip, port: config.last_port || 5555 }));
         
         [dropdown1, dropdown2].forEach(dropdown => {
-            if (dropdown && config.saved_ips && config.saved_ips.length > 0) {
+            if (dropdown) {
                 dropdown.innerHTML = '<option value="" disabled selected>▼</option>';
-                config.saved_ips.forEach(ip => {
+                savedDevices.forEach(device => {
                     const option = document.createElement('option');
-                    option.value = ip;
-                    option.textContent = ip;
+                    option.value = JSON.stringify({ ip: device.ip, port: device.port });
+                    option.textContent = `${device.ip}:${device.port || config.last_port || 5555}`;
                     dropdown.appendChild(option);
                 });
+                dropdown.onchange = () => {
+                    try { selectSavedDevice(JSON.parse(dropdown.value), dropdown === dropdown2); } catch (_) {}
+                    dropdown.value = '';
+                };
             }
         });
     }
@@ -662,7 +697,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function executeMdnsScan(targetIp) {
-        mdnsList.innerHTML = `<p class="list-placeholder"><i class="material-symbols-outlined">bolt</i> Scanning Wi-Fi network for ${targetIp} (takes 2 seconds)...</p>`;
+        mdnsList.innerHTML = `<p class="list-placeholder"><i class="material-symbols-outlined">bolt</i> Scanning Wi-Fi network for ${escapeHtml(targetIp)} (takes 2 seconds)...</p>`;
         btnScanMdns.disabled = true;
         try {
             const res = await fetch(`${API_BASE}/api/mdns/discover`);
@@ -682,12 +717,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="device-info-left">
                                 <span class="device-type-icon"><i class="material-symbols-outlined">search</i></span>
                                 <div class="device-meta">
-                                    <h4>${service.name} (${isPairing ? 'Pairing Service' : 'Connect Target'})</h4>
-                                    <p>${service.ip}:${service.port}</p>
+                                    <h4>${escapeHtml(service.name)} (${isPairing ? 'Pairing Service' : 'Connect Target'})</h4>
+                                    <p>${escapeHtml(service.ip)}:${escapeHtml(service.port)}</p>
                                 </div>
                             </div>
                             <div class="device-info-right">
-                                <button class="btn btn-sm btn-primary btn-mdns-action" data-ip="${service.ip}" data-port="${service.port}" data-type="${service.type}">
+                                <button class="btn btn-sm btn-primary btn-mdns-action" data-ip="${escapeHtml(service.ip)}" data-port="${escapeHtml(service.port)}" data-type="${escapeHtml(service.type)}">
                                     ${isPairing ? '<i class="material-symbols-outlined">key</i> Start Pairing' : '<i class="material-symbols-outlined">bolt</i> Connect'}
                                 </button>
                             </div>
@@ -711,14 +746,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         mdnsList.appendChild(row);
                     });
                 } else {
-                    mdnsList.innerHTML = `<p class="list-placeholder error">No services found for ${targetIp}. (Found ${data.services.length} other devices). Check IP and ensure Wireless Debugging is ON.</p>`;
+                    mdnsList.innerHTML = `<p class="list-placeholder error">No services found for ${escapeHtml(targetIp)}. (Found ${Number(data.services.length) || 0} other devices). Check IP and ensure Wireless Debugging is ON.</p>`;
                 }
             } else {
                 mdnsList.innerHTML = '<p class="list-placeholder">No active wireless debugging services discovered on local network. Verify "Wireless Debugging" is toggled ON in Developer Options.</p>';
             }
         } catch (err) {
             console.error("mDNS scan error:", err);
-            mdnsList.innerHTML = `<p class="list-placeholder error">Scan failed: ${err.message}</p>`;
+            mdnsList.innerHTML = `<p class="list-placeholder error">Scan failed: ${escapeHtml(err.message)}</p>`;
         } finally {
             btnScanMdns.disabled = false;
         }
@@ -740,8 +775,8 @@ document.addEventListener('DOMContentLoaded', () => {
             audio_preset: document.getElementById('pref-audio-preset').value,
             audio_sync_delay: document.getElementById('pref-sync-delay').value,
             keyboard_mode: document.getElementById('pref-keyboard').value,
-            android_pin: document.getElementById('pref-pin').value.trim(),
-            applock_pin: document.getElementById('pref-applock').value.trim(),
+            ...(document.getElementById('pref-pin').value.trim() ? { android_pin: document.getElementById('pref-pin').value.trim() } : {}),
+            ...(document.getElementById('pref-applock').value.trim() ? { applock_pin: document.getElementById('pref-applock').value.trim() } : {}),
             mirror_enabled: document.getElementById('pref-mirror-enabled').checked,
             screen_off_enabled: document.getElementById('pref-screen-off').checked,
             stay_awake_enabled: document.getElementById('pref-stay-awake').checked,
@@ -938,7 +973,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="device-info-left">
                                 <span class="device-type-icon"><i class="material-symbols-outlined">image</i></span>
                                 <div class="device-meta">
-                                    <h4>${filename}</h4>
+                            <h4>${escapeHtml(filename)}</h4>
                                 </div>
                             </div>
                             <div class="device-info-right">
@@ -962,10 +997,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         screenshotsList.appendChild(div);
                     });
                 } else {
-                    screenshotsList.innerHTML = `<p class="list-placeholder">No screenshots found or error: ${data.error || 'None'}</p>`;
+                    screenshotsList.innerHTML = `<p class="list-placeholder">No screenshots found or error: ${escapeHtml(data.error || 'None')}</p>`;
                 }
             } catch (err) {
-                screenshotsList.innerHTML = `<p class="list-placeholder error">Error: ${err.message}</p>`;
+                screenshotsList.innerHTML = `<p class="list-placeholder error">Error: ${escapeHtml(err.message)}</p>`;
             } finally {
                 btnRefreshScreenshots.disabled = false;
             }

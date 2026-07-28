@@ -43,7 +43,9 @@ class ScrcpyVideoStreamTrack(VideoStreamTrack):
         # For this PoC, we grab chunks of stdout, feed PyAV, and yield frames.
         # This is a simplified wrapper for demonstration.
         try:
-            chunk = self.process.stdout.read(4096)
+            # stdout.read is blocking; move it off the asyncio event loop so
+            # one slow scrcpy frame cannot stall every WebRTC connection.
+            chunk = await asyncio.to_thread(self.process.stdout.read, 4096)
             if not chunk:
                 return None
             
@@ -68,6 +70,15 @@ class ScrcpyVideoStreamTrack(VideoStreamTrack):
         frame.time_base = time_base
         return frame
 
+    async def stop(self):
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        super().stop()
+
 
 class WebRTCCloudStreamer:
     """Enterprise WebRTC Engine."""
@@ -87,6 +98,7 @@ class WebRTCCloudStreamer:
             if pc.iceConnectionState == "failed" or pc.iceConnectionState == "closed":
                 await pc.close()
                 self.pcs.discard(pc)
+                await track.stop()
 
         # Attach the headless scrcpy track!
         track = ScrcpyVideoStreamTrack(serial)

@@ -2,6 +2,9 @@ import logging
 import threading
 import subprocess
 import time
+import json
+import os
+import ipaddress
 from core.mdns_scanner import ZeroPingScanner
 
 class AutoReconnector:
@@ -30,6 +33,13 @@ class AutoReconnector:
     def _watch_loop(self):
         while self._is_running:
             try:
+                # Retry explicitly saved endpoints first. A Wi-Fi sleep or DHCP
+                # hiccup must not require the user to press Connect again.
+                for ip, port, device_serial in self._trusted_endpoints():
+                    ip_port = f"{ip}:{port}"
+                    if ip_port not in self.connected_endpoints:
+                        self._try_connect(ip_port, device_serial)
+
                 # Use our Zero-Ping engine to listen for beacons
                 devices = self.scanner.find_devices_instantly(search_time=2.0)
                 
@@ -38,28 +48,81 @@ class AutoReconnector:
                 
                 for device in devices:
                     ip_port = f"{device['ip']}:{device['port']}"
+                    if not self._is_trusted_ip(device["ip"]):
+                        self.logger.warning("Ignoring untrusted mDNS ADB device at %s", ip_port)
+                        continue
                     
                     if ip_port not in self.connected_endpoints:
                         print(f"[*] 📡 Device beacon detected at {ip_port}. Executing RSA handshake...")
                         
-                        # ADB daemon handles the mathematical RSA signature verification automatically
-                        res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
-                        output = res.stdout.lower()
-                        
-                        if "connected to" in output or "already connected" in output:
-                            print(f"[+] ✅ Zero-Interaction Authorization Successful for {ip_port}!")
-                            self.connected_endpoints.add(ip_port)
-                        elif "unauthorized" in output or "failed to authenticate" in output:
-                            print(f"[-] ❌ Connection Rejected: Device at {ip_port} does not trust this Mac's RSA key.")
-                            print("    Action Required: Plug the phone in via USB once to accept the RSA fingerprint.")
+                        expected = next((serial for saved_ip, _, serial in self._trusted_endpoints() if saved_ip == device["ip"]), None)
+                        self._try_connect(ip_port, expected)
                 
             except Exception as e:
                 self.logger.error(f"Auto-Reconnector loop error: {e}")
                 time.sleep(2)
 
+    @staticmethod
+    def _trusted_endpoints():
+        try:
+            with open(os.path.expanduser("~/.connectphone_config.json"), encoding="utf-8") as f:
+                config = json.load(f)
+            endpoints = []
+            for item in config.get("saved_devices", []):
+                if not isinstance(item, dict) or not item.get("auto_reconnect", True):
+                    continue
+                ip = item.get("ip")
+                port = item.get("port")
+                try:
+                    if isinstance(ipaddress.ip_address(ip), ipaddress.IPv4Address) and 1 <= int(port) <= 65535:
+                        device_serial = item.get("device_serial")
+                        if not device_serial:
+                            continue
+                        endpoints.append((ip, int(port), str(device_serial)))
+                except (ValueError, TypeError):
+                    continue
+            # Legacy entries without an identity require one manual enrollment.
+            return endpoints
+        except (OSError, ValueError, TypeError):
+            return []
+
+    def _is_trusted_ip(self, ip):
+        return any(saved_ip == ip for saved_ip, _, _ in self._trusted_endpoints())
+
+    def _try_connect(self, ip_port, expected_serial=None):
+        """Attempt one bounded reconnect without blocking the watcher forever."""
+        try:
+            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
+            output = (res.stdout or "").lower()
+            if "connected to" in output or "already connected" in output:
+                if not expected_serial:
+                    self.logger.warning("Refusing unpinned wireless endpoint %s", ip_port)
+                    subprocess.run(["adb", "disconnect", ip_port], capture_output=True, timeout=5)
+                    return
+                identity_result = subprocess.run(
+                    ["adb", "-s", ip_port, "get-serialno"],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                )
+                identity = (identity_result.stdout or "").strip()
+                if identity != expected_serial:
+                    self.logger.error("Identity mismatch for %s; refusing reconnect", ip_port)
+                    subprocess.run(["adb", "disconnect", ip_port], capture_output=True, timeout=5)
+                    return
+                print(f"[+] ✅ Trusted wireless endpoint connected: {ip_port}")
+                self.connected_endpoints.add(ip_port)
+            elif "unauthorized" in output or "failed to authenticate" in output:
+                self.logger.warning("ADB rejected trusted endpoint %s; phone authorization is required", ip_port)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self.logger.debug("Reconnect attempt failed for %s: %s", ip_port, exc)
+
     def _verify_connections(self):
         """Removes devices from tracking if they disconnected from the network."""
-        res = subprocess.run(["adb", "devices"], capture_output=True, text=True)
+        try:
+            res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=8)
+        except (OSError, subprocess.TimeoutExpired):
+            return
         active_list = res.stdout
         
         stale_endpoints = []

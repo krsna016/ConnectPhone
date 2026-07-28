@@ -9,6 +9,11 @@ import datetime
 import sys
 import webbrowser
 import urllib.request
+import ipaddress
+import shlex
+import secrets
+import re
+from urllib.parse import urlsplit
 
 # Inject common macOS binary paths (crucial when run as a Dock app shortcut without zsh profiles loaded)
 common_paths = [
@@ -47,8 +52,130 @@ except Exception:
     pass
 
 import ConnectPhone
+from core import keychain
 
 PORT = 8282
+UI_HOST = "127.0.0.1"
+MAX_REQUEST_BODY = 1024 * 1024
+API_TOKEN = keychain.get("api_token") or secrets.token_urlsafe(32)
+try:
+    keychain.set("api_token", API_TOKEN)
+except RuntimeError:
+    pass
+
+
+def _token_allowed(handler):
+    return secrets.compare_digest(handler.headers.get("X-ConnectPhone-Token", ""), API_TOKEN)
+
+
+def _origin_allowed(origin):
+    """Allow only this app's local origins; block drive-by browser requests."""
+    if not origin or origin == "null":
+        return True
+    parsed = urlsplit(origin)
+    return parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"} and parsed.port == 8282
+
+
+def _valid_ipv4(value):
+    try:
+        return isinstance(value, str) and isinstance(ipaddress.ip_address(value.strip()), ipaddress.IPv4Address)
+    except ValueError:
+        return False
+
+
+def _valid_port(value):
+    try:
+        return 1 <= int(value) <= 65535
+    except (TypeError, ValueError):
+        return False
+
+
+def _validated_settings(data):
+    """Return only supported, type-safe preference updates."""
+    updates = {}
+    enums = {
+        "camera_bitrate": {"32M", "16M", "8M", "4M"},
+        "camera_fps": {"30", "60", "120", "240"},
+        "camera_codec": {"h264", "h265"},
+        "audio_preset": {"voice_communication", "studio_unprocessed", "camcorder", "output", "mac_mic"},
+        "keyboard_mode": {"uhid", "sdk"},
+        "device_profile": {"generic", "oneplus"},
+    }
+    bools = {"mirror_enabled", "screen_off_enabled", "stay_awake_enabled", "show_touches_enabled", "biometric_daemon_enabled"}
+    for key, allowed in enums.items():
+        if key in data and str(data[key]) in allowed:
+            updates[key] = str(data[key])
+    for key in bools:
+        if key in data and isinstance(data[key], bool):
+            updates[key] = data[key]
+    for key, low, high in (("audio_buffer", 10, 2000),):
+        if key in data:
+            try:
+                value = int(data[key])
+                if low <= value <= high:
+                    updates[key] = str(value)
+            except (TypeError, ValueError):
+                pass
+    if "audio_sync_delay" in data:
+        try:
+            value = float(data["audio_sync_delay"])
+            if -10.0 <= value <= 10.0:
+                updates["audio_sync_delay"] = f"{value:.2f}"
+        except (TypeError, ValueError):
+            pass
+    for key in ("mac_mic_device",):
+        if key in data and isinstance(data[key], str) and 0 < len(data[key]) <= 200:
+            updates[key] = data[key]
+    for key in ("android_pin", "applock_pin"):
+        if key in data and isinstance(data[key], str) and data[key] == "":
+            continue
+        if key in data and isinstance(data[key], str) and data[key].isdigit() and 4 <= len(data[key]) <= 32:
+            updates[key] = data[key]
+    return updates
+
+
+def _get_adb_device_serial(endpoint):
+    """Read the Android identity behind an already-authorized ADB endpoint."""
+    try:
+        result = subprocess.run(
+            ["adb", "-s", endpoint, "get-serialno"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        serial = (result.stdout or "").strip()
+        if result.returncode == 0 and serial and serial.lower() not in {"unknown", "no permissions"}:
+            return serial
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _saved_wireless_serial(ip, port):
+    try:
+        for item in ConnectPhone.load_config().get("saved_devices", []):
+            if isinstance(item, dict) and item.get("ip") == ip and int(item.get("port", -1)) == int(port):
+                return item.get("device_serial") or None
+    except (TypeError, ValueError, OSError, KeyError):
+        pass
+    return None
+
+
+def _accept_auto_wireless_connection(ip, port):
+    """Verify a reconnect target before persisting it as the trusted endpoint."""
+    endpoint = f"{ip}:{int(port)}"
+    expected = _saved_wireless_serial(ip, port)
+    actual = _get_adb_device_serial(endpoint)
+    if not expected:
+        # Discovery may prove that an ADB service exists, but it must not
+        # silently enroll a new device. Enrollment happens through the manual
+        # Connect action, where the user explicitly chooses the phone.
+        return True, None
+    if expected and actual != expected:
+        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
+        return False, "Wireless identity mismatch; connection rejected."
+    ConnectPhone.save_wireless_endpoint(ip, int(port), actual)
+    return True, actual
 
 # Global state tracker
 scrcpy_proc = None
@@ -117,8 +244,10 @@ def run_termux_install_background():
         subprocess.run(["adb", "shell", "pm", "grant", "com.termux.api", "android.permission.CAMERA"])
         
         subprocess.run(["adb", "shell", "run-as", "com.termux", "mkdir", "/data/data/com.termux/files/home/.termux"])
-        setup_props_cmd = "echo 'allow-external-apps = true' | adb shell run-as com.termux tee -a /data/user/0/com.termux/files/home/.termux/termux.properties"
-        subprocess.run(setup_props_cmd, shell=True)
+        subprocess.run([
+            "adb", "shell", "run-as", "com.termux", "sh", "-c",
+            "printf '%s\\n' 'allow-external-apps = true' >> /data/user/0/com.termux/files/home/.termux/termux.properties"
+        ], check=False)
         subprocess.run(["adb", "shell", "run-as", "com.termux", "/data/data/com.termux/files/usr/bin/termux-reload-settings"])
         
         termux_install_state["status"] = "success"
@@ -158,6 +287,12 @@ def _build_status_payload():
         input_injection_granted = results.get("perm", True)
 
     scrcpy_running = scrcpy_proc is not None and scrcpy_proc.poll() is None
+    config = ConnectPhone.load_config()
+    public_config = dict(config)
+    public_config.pop("android_pin", None)
+    public_config.pop("applock_pin", None)
+    public_config["android_pin_configured"] = bool(config.get("android_pin"))
+    public_config["applock_pin_configured"] = bool(config.get("applock_pin"))
     return {
         "connected": device_connected,
         "devices": [d["serial"] for d in devices_detailed],
@@ -169,7 +304,7 @@ def _build_status_payload():
         "sync_watcher_active": sync_watcher_active,
         "mirror_type": scrcpy_state["mirror_type"],
         "input_injection_granted": input_injection_granted,
-        "config": ConnectPhone.load_config()
+        "config": public_config
     }
 
 def _status_cache_worker():
@@ -199,8 +334,8 @@ def scan_and_connect_wireless_debug(ip, timeout=0.12, last_known_port=None):
 
     def try_connect(port):
         ip_port = f"{ip}:{port}"
-        subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+        subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
         out = res.stdout or ""
         return port if ("connected to" in out.lower() or "already connected to" in out.lower()) else None
 
@@ -215,9 +350,17 @@ def scan_and_connect_wireless_debug(ip, timeout=0.12, last_known_port=None):
             return None
 
     async def scan_ports_async(ports):
-        tasks = [check_port_async(p) for p in ports]
-        results = await asyncio.gather(*tasks)
-        return [p for p in results if p is not None]
+        # Keep the scan bounded: creating one task per port can exhaust the
+        # UI process before ADB gets a chance to connect.
+        found = []
+        port_list = list(ports)
+        for start in range(0, len(port_list), 256):
+            batch = port_list[start:start + 256]
+            results = await asyncio.gather(*(check_port_async(p) for p in batch))
+            found.extend(p for p in results if p is not None)
+            if found:
+                break
+        return found
 
     def check_single_port_sync(port_num, timeout_val):
         try:
@@ -533,7 +676,7 @@ def get_live_metrics():
     metrics["connected"] = True
     
     # 1. Query battery
-    res_bat = subprocess.run(["adb", "shell", "dumpsys battery"], capture_output=True, text=True)
+    res_bat = subprocess.run(["adb", "shell", "dumpsys battery"], capture_output=True, text=True, timeout=5)
     bat_data = {}
     for line in res_bat.stdout.splitlines():
         line = line.strip()
@@ -574,7 +717,7 @@ def get_live_metrics():
         pass
 
     # 2. Query RAM (/proc/meminfo)
-    res_ram = subprocess.run(["adb", "shell", "cat /proc/meminfo"], capture_output=True, text=True)
+    res_ram = subprocess.run(["adb", "shell", "cat /proc/meminfo"], capture_output=True, text=True, timeout=5)
     ram_data = {}
     for line in res_ram.stdout.splitlines():
         if ":" in line:
@@ -600,7 +743,7 @@ def get_live_metrics():
         pass
 
     # 3. Query Storage (df -k /data)
-    res_store = subprocess.run(["adb", "shell", "df -k /data"], capture_output=True, text=True)
+    res_store = subprocess.run(["adb", "shell", "df -k /data"], capture_output=True, text=True, timeout=5)
     try:
         lines = res_store.stdout.splitlines()
         if len(lines) >= 2:
@@ -621,7 +764,7 @@ def get_live_metrics():
 
     # 4. Network Info
     ip = "Disconnected"
-    res_route = subprocess.run(["adb", "shell", "ip route"], capture_output=True, text=True)
+    res_route = subprocess.run(["adb", "shell", "ip route"], capture_output=True, text=True, timeout=5)
     for line in res_route.stdout.splitlines():
         if "src" in line:
             parts = line.split()
@@ -645,7 +788,7 @@ def get_live_metrics():
     # 5. Uptime & Load Avg
     uptime_str = "--"
     load_avg = "--"
-    res_uptime = subprocess.run(["adb", "shell", "uptime"], capture_output=True, text=True)
+    res_uptime = subprocess.run(["adb", "shell", "uptime"], capture_output=True, text=True, timeout=5)
     try:
         out = res_uptime.stdout.strip()
         if "up" in out:
@@ -666,7 +809,7 @@ def get_live_metrics():
 
 def get_detailed_adb_devices():
     try:
-        res = subprocess.run(["adb", "devices", "-l"], capture_output=True, text=True)
+        res = subprocess.run(["adb", "devices", "-l"], capture_output=True, text=True, timeout=5)
         lines = res.stdout.strip().split("\n")[1:]
         devices_list = []
         for line in lines:
@@ -696,22 +839,9 @@ def get_detailed_adb_devices():
                     "model": model,
                     "product": product
                 })
-        # Deduplicate devices if they are the exact same phone (same model and product)
-        # Prefer IP-based (wireless) connections over mDNS or USB if both exist
-        unique_devices = {}
-        for dev in devices_list:
-            key = f"{dev['model']}_{dev['product']}"
-            if key not in unique_devices:
-                unique_devices[key] = dev
-            else:
-                # We already have a device with this model.
-                # Prefer IP-based over mDNS/USB
-                current_is_ip = ":" in unique_devices[key]["serial"] and "._adb-tls-connect" not in unique_devices[key]["serial"]
-                new_is_ip = ":" in dev["serial"] and "._adb-tls-connect" not in dev["serial"]
-                if new_is_ip and not current_is_ip:
-                    unique_devices[key] = dev
-                    
-        return list(unique_devices.values())
+        # Keep every serial visible. Two phones can share the same model and
+        # product; deduplicating by hardware name hides a real target device.
+        return devices_list
     except Exception:
         return []
 
@@ -790,19 +920,36 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         sys.stdout.flush()
 
     def do_OPTIONS(self):
+        if not _origin_allowed(self.headers.get("Origin")):
+            self.send_error(403, "Cross-origin requests are not allowed")
+            return
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        origin = self.headers.get('Origin')
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-ConnectPhone-Token')
         self.end_headers()
 
     def do_GET(self):
+        if not _origin_allowed(self.headers.get("Origin")):
+            self.send_error(403, "Cross-origin requests are not allowed")
+            return
+        if self.path.startswith('/api/') and not _token_allowed(self):
+            self.send_error(401, "Authentication required")
+            return
         if self.path.startswith('/api/'):
             self.handle_api_get()
         else:
             self.serve_static_files()
 
     def do_POST(self):
+        if not _origin_allowed(self.headers.get("Origin")):
+            self.send_error(403, "Cross-origin requests are not allowed")
+            return
+        if self.path.startswith('/api/') and not _token_allowed(self):
+            self.send_error(401, "Authentication required")
+            return
         if self.path.startswith('/api/'):
             self.handle_api_post()
         else:
@@ -813,7 +960,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         if path == '/':
             path = '/index.html'
         
-        file_path = os.path.join(PROJECT_DIR, 'ui', path.lstrip('/'))
+        ui_root = os.path.realpath(os.path.join(PROJECT_DIR, 'ui'))
+        file_path = os.path.realpath(os.path.join(ui_root, path.lstrip('/')))
+        if os.path.commonpath((ui_root, file_path)) != ui_root:
+            self.send_error(404, "File Not Found")
+            return
         
         if not os.path.exists(file_path) or os.path.isdir(file_path):
             self.send_error(404, f"File Not Found: {path}")
@@ -839,7 +990,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(content)))
-            self.send_header('Access-Control-Allow-Origin', '*')
+            origin = self.headers.get('Origin')
+            if origin:
+                self.send_header('Access-Control-Allow-Origin', origin)
             self.end_headers()
             self.wfile.write(content)
         except Exception as e:
@@ -847,9 +1000,18 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
 
     def handle_api_get(self):
         global _status_cache
+        retired = {
+            "/api/termux/install/status",
+            "/api/screenshots/list",
+        }
+        if self.path in retired:
+            self.send_response(410)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "This feature has been retired from ConnectPhone."}).encode('utf-8'))
+            return
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
 
         if self.path == '/api/status':
@@ -872,18 +1034,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             discovered = discover_all_mdns_services()
             self.wfile.write(json.dumps({"success": True, "services": discovered}).encode('utf-8'))
 
-        elif self.path == '/api/termux/install/status':
-            global termux_install_state
-            self.wfile.write(json.dumps({
-                "success": True,
-                "status": termux_install_state["status"],
-                "message": termux_install_state["message"]
-            }).encode('utf-8'))
         elif self.path == '/api/screenshots/list':
             try:
                 # Find screenshots from common paths and sort by newest first
-                cmd = "adb shell 'ls -t /sdcard/DCIM/Screenshots/* /sdcard/Pictures/Screenshots/* 2>/dev/null'"
-                res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                cmd = "ls -t /sdcard/DCIM/Screenshots/* /sdcard/Pictures/Screenshots/* 2>/dev/null"
+                res = subprocess.run(["adb", "shell", "sh", "-c", cmd], capture_output=True, text=True, timeout=10)
                 # Even if one directory doesn't exist (exit code 1), the other might succeed and print to stdout
                 out = res.stdout or ""
                 lines = [line.strip() for line in out.split('\n') if line.strip()]
@@ -896,9 +1051,37 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
 
     def handle_api_post(self):
         global scrcpy_proc, scrcpy_state, sync_watcher_thread, sync_watcher_active, scrcpy_clipboard_proc, morse_state
+
+        retired = {
+            "/api/action/ocr",
+            "/api/action/ai-click",
+            "/api/screenshots/pull",
+            "/api/clipboard/sync/start",
+            "/api/clipboard/sync/status",
+            "/api/clipboard/sync/stop",
+            "/api/clipboard/type",
+            "/api/termux/execute",
+            "/api/termux/install",
+            "/api/termux/tts",
+            "/api/termux/sensors",
+            "/api/termux/scan",
+        }
+        if self.path in retired:
+            self.send_response(410)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": False, "message": "This feature has been retired from ConnectPhone."}).encode('utf-8'))
+            return
         
         content_length_header = self.headers.get('Content-Length')
-        content_length = int(content_length_header) if content_length_header is not None else 0
+        try:
+            content_length = int(content_length_header) if content_length_header is not None else 0
+        except ValueError:
+            self.send_error(400, "Invalid Content-Length")
+            return
+        if content_length < 0 or content_length > MAX_REQUEST_BODY:
+            self.send_error(413, "Request body too large")
+            return
         post_data = self.rfile.read(content_length) if content_length > 0 else b""
         
         data = {}
@@ -910,7 +1093,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
+        origin = self.headers.get('Origin')
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
         self.end_headers()
         
         res_data = {"success": False, "message": ""}
@@ -927,22 +1112,30 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             elif self.path == '/api/connect':
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "5555")).strip()
-                if not ip:
-                    res_data["message"] = "IP address is required."
+                if not _valid_ipv4(ip):
+                    res_data["message"] = "A valid IPv4 address is required."
+                elif not _valid_port(port):
+                    res_data["message"] = "A valid TCP port is required."
                 else:
-                    ConnectPhone.save_last_ip(ip)
                     ip_port = f"{ip}:{port}"
-                    res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+                    res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
                     stdout = res.stdout or ""
                     stderr = res.stderr or ""
                     output = (stdout + " " + stderr).strip()
                     if "connected to" in output.lower() or "already connected to" in output.lower():
                         res_data["success"] = True
-                        res_data["message"] = f"Successfully connected to {ip_port}!"
+                        device_serial = _get_adb_device_serial(ip_port)
+                        if device_serial:
+                            ConnectPhone.save_wireless_endpoint(ip, int(port), device_serial)
+                            res_data["message"] = f"Connected to {ip_port}; identity pinned for persistent reconnect."
+                        else:
+                            res_data["message"] = "Connected, but Android identity could not be verified; persistent reconnect is disabled until you reconnect manually."
                         # Cache this port for lightning reconnect
                         try:
                             cfg = ConnectPhone.load_config()
                             cfg["last_port"] = int(port)
+                            if device_serial:
+                                cfg["last_device_serial"] = device_serial
                             ConnectPhone.save_config(cfg)
                         except Exception:
                             pass
@@ -969,6 +1162,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["success"] = False
                     res_data["message"] = "No previously paired IP address found in config. Connect manually first."
                 else:
+                    if not _valid_ipv4(ip):
+                        res_data["message"] = "Saved IP is invalid. Choose a saved device or connect manually."
+                        self.wfile.write(json.dumps(res_data).encode('utf-8'))
+                        return
                     connected = False
 
                     # 0. Lightning path: try the last-known port directly (< 300 ms if phone kept same port)
@@ -984,12 +1181,14 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         if open_result == 0:
                             ip_port = f"{ip}:{last_port}"
                             subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+                            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
                             if "connected to" in (res.stdout or "").lower() or "already connected to" in (res.stdout or "").lower():
-                                res_data["success"] = True
-                                res_data["message"] = f"⚡ Instantly reconnected to {ip_port}!"
-                                connected = True
-                                _invalidate_status_cache()
+                                accepted, _ = _accept_auto_wireless_connection(ip, int(last_port))
+                                if accepted:
+                                    res_data["success"] = True
+                                    res_data["message"] = f"⚡ Instantly reconnected to {ip_port}!"
+                                    connected = True
+                                    _invalidate_status_cache()
 
                     # 1. mDNS discovery (1.5 s timeout — usually resolves in < 200 ms)
                     if not connected:
@@ -1001,32 +1200,31 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         if mdns_port:
                             ip_port = f"{ip}:{mdns_port}"
                             subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+                            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
                             stdout = res.stdout or ""
                             if "connected to" in stdout.lower() or "already connected to" in stdout.lower():
-                                res_data["success"] = True
-                                res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
-                                connected = True
-                                # Remember this port for the lightning path next time
-                                config["last_port"] = mdns_port
-                                ConnectPhone.save_config(config)
-                                _invalidate_status_cache()
+                                accepted, _ = _accept_auto_wireless_connection(ip, int(mdns_port))
+                                if accepted:
+                                    res_data["success"] = True
+                                    res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
+                                    connected = True
+                                    _invalidate_status_cache()
 
                     # 2. Parallel port scan fallback
                     if not connected:
                         target_port = scan_and_connect_wireless_debug(ip, last_known_port=last_port)
                         if target_port:
-                            res_data["success"] = True
-                            res_data["message"] = f"Successfully auto-connected to phone at {ip}:{target_port}!"
-                            connected = True
-                            config["last_port"] = target_port
-                            ConnectPhone.save_config(config)
-                            _invalidate_status_cache()
+                            accepted, _ = _accept_auto_wireless_connection(ip, int(target_port))
+                            if accepted:
+                                res_data["success"] = True
+                                res_data["message"] = f"Successfully auto-connected to phone at {ip}:{target_port}!"
+                                connected = True
+                                _invalidate_status_cache()
 
                     if not connected:
                         import platform
                         ping_param = "-n" if platform.system().lower() == "windows" else "-c"
-                        ping_res = subprocess.run(["ping", ping_param, "1", "-t", "1", ip], capture_output=True)
+                        ping_res = subprocess.run(["ping", ping_param, "1", "-W", "1000", ip], capture_output=True, timeout=5)
                         if ping_res.returncode == 0:
                             res_data["message"] = (
                                 f"Auto-connect failed. No active wireless debugging ports found open on {ip}.\n\n"
@@ -1049,16 +1247,27 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             elif self.path == '/api/disconnect':
                 target_ip = str(data.get("ip", "")).strip() if data and data.get("ip") is not None else ""
                 target_port = str(data.get("port", "")).strip() if data and data.get("port") is not None else ""
+                if target_ip and not _valid_ipv4(target_ip):
+                    res_data["message"] = "A valid IPv4 address is required."
+                    self.wfile.write(json.dumps(res_data).encode('utf-8'))
+                    return
+                if target_port and not _valid_port(target_port):
+                    res_data["message"] = "A valid TCP port is required."
+                    self.wfile.write(json.dumps(res_data).encode('utf-8'))
+                    return
                 if target_ip and target_port:
                     ip_port = f"{target_ip}:{target_port}"
                     res = subprocess.run(["adb", "disconnect", ip_port], capture_output=True, text=True)
                     res_data["message"] = f"Disconnected from {ip_port}."
+                    ConnectPhone.global_config_mgr.disable_auto_reconnect(target_ip, int(target_port))
                 elif target_ip:
                     res = subprocess.run(["adb", "disconnect", target_ip], capture_output=True, text=True)
                     res_data["message"] = f"Disconnected from {target_ip}."
+                    ConnectPhone.global_config_mgr.disable_auto_reconnect(target_ip)
                 else:
                     res = subprocess.run(["adb", "disconnect"], capture_output=True, text=True)
                     res_data["message"] = "Disconnected from all devices."
+                    ConnectPhone.global_config_mgr.disable_auto_reconnect()
                     stop_scrcpy_bg()
                 res_data["success"] = True
                 _invalidate_status_cache()
@@ -1067,8 +1276,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "")).strip()
                 code = str(data.get("code", "")).strip()
-                if not ip or not port or not code:
-                    res_data["message"] = "IP, Port, and Pairing Code are all required."
+                if not _valid_ipv4(ip) or not _valid_port(port) or not code.isdigit() or len(code) != 6:
+                    res_data["message"] = "Enter a valid IPv4 address, TCP port, and 6-digit pairing code."
                 else:
                     ConnectPhone.save_last_ip(ip)
                     _invalidate_status_cache()
@@ -1235,16 +1444,19 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             )
                 
             elif self.path == '/api/restart_adb':
-                subprocess.run(["adb", "kill-server"])
-                subprocess.run(["adb", "start-server"])
+                subprocess.run(["adb", "kill-server"], timeout=8)
+                subprocess.run(["adb", "start-server"], timeout=8)
                 res_data["success"] = True
                 res_data["message"] = "ADB server restarted successfully."
                 
             elif self.path == '/api/ping':
                 ip = str(data.get("ip", "")).strip() if data and data.get("ip") is not None else ""
+                if ip and not _valid_ipv4(ip):
+                    res_data["message"] = "A valid IPv4 address is required."
+                    ip = ""
                 if not ip:
                     ip = "unknown"
-                    res_route = subprocess.run(["adb", "shell", "ip route"], capture_output=True, text=True)
+                    res_route = subprocess.run(["adb", "shell", "ip route"], capture_output=True, text=True, timeout=5)
                     for line in res_route.stdout.splitlines():
                         if "src" in line:
                             parts = line.split()
@@ -1259,7 +1471,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = "Could not find active wireless IP address for the device. Please connect or specify IP manually."
                 else:
                     # -c 3: 3 packets, -t 2: timeout in 2 seconds
-                    res_ping = subprocess.run(["ping", "-c", "3", "-t", "2", ip], capture_output=True, text=True)
+                    res_ping = subprocess.run(["ping", "-c", "3", "-W", "2000", ip], capture_output=True, text=True, timeout=8)
                     if res_ping.returncode == 0:
                         lines = res_ping.stdout.splitlines()
                         rtt_line = ""
@@ -1297,8 +1509,12 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 is_wireless = any(":" in d for d in devices) if devices else False
 
                 cmd = ["scrcpy", "--window-title", "ConnectPhone"]
-                a_buf = config.get("audio_buffer", "100")
+                a_buf = config.get("audio_buffer", "20")
                 cmd.append(f"--audio-buffer={a_buf}")
+                # Keep the macOS playback queue short as well. The transport
+                # buffer above absorbs network jitter; this queue should not
+                # add another large delay to live mic/audio mirroring.
+                cmd.append("--audio-output-buffer=10")
                 
                 temp_mkv_path = None
                 is_cam = False
@@ -1345,7 +1561,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     if config.get("mirror_enabled", True):
                         cmd.append("--orientation=flip0")
                         
-                    # Apply camera quality preferences
+                    # Apply camera quality preferences.  Do not add a
+                    # wireless buffer here: scrcpy already defaults to zero
+                    # video buffering, which is the lowest-latency path.  A
+                    # buffer hides jitter but makes the preview visibly late.
                     c_bitrate = config.get("camera_bitrate", "32M")
                     c_fps = config.get("camera_fps", "60")
                     c_codec = config.get("camera_codec", "h265")
@@ -1354,17 +1573,27 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     if c_fps not in ["120", "240"]:
                         c_fps = "30"
                         
-                    if is_wireless:
-                        c_bitrate = "6M"
+                    # Use a predictable Wi-Fi profile instead of silently
+                    # dropping every camera stream to 6 Mbps.  This phone
+                    # advertises 4K/30 on the rear camera and 1080p/30 on the
+                    # front camera. H.264 is the safer low-latency choice for
+                    # 1080p; H.265 is retained for 4K where bandwidth matters.
+                    if facing == "front":
+                        c_bitrate = "12M"
                         c_codec = "h264"
-                        cmd.append("--video-buffer=150")
-                    else:
-                        if facing == "front":
-                            c_bitrate = "12M"
-                            c_codec = "h264"
+                    elif resolution == "4k":
+                        c_bitrate = "32M"
+                        c_codec = "h265"
+                    elif is_wireless:
+                        c_bitrate = "16M"
+                        c_codec = "h264"
                             
                     cmd.append("--stay-awake")
                     cmd += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
+                    # Never silently replace a requested HD size with a
+                    # smaller one. Fail clearly if a different phone cannot
+                    # provide the requested camera mode.
+                    cmd.append("--no-downsize-on-error")
                     
                     if c_fps in ["120", "240"]:
                         cmd = [a for a in cmd if not a.startswith("--camera-size=")]
@@ -1505,16 +1734,20 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 
             elif self.path == '/api/settings/save':
                 config = ConnectPhone.load_config()
-                for key in ["camera_bitrate", "camera_fps", "camera_codec", "audio_sync_delay", "android_pin", "applock_pin", "audio_preset", "mirror_enabled", "screen_off_enabled", "stay_awake_enabled", "show_touches_enabled", "keyboard_mode", "biometric_daemon_enabled", "mac_mic_device", "audio_buffer", "device_profile"]:
-                    if key in data:
-                        config[key] = data[key]
+                updates = _validated_settings(data)
+                if any(key in data for key in ("android_pin", "applock_pin")) and not any(key in updates for key in ("android_pin", "applock_pin")):
+                    res_data["message"] = "PIN must contain 4–32 digits."
+                    self.wfile.write(json.dumps(res_data).encode('utf-8'))
+                    return
+                config.update(updates)
                 ConnectPhone.save_config(config)
                 res_data["success"] = True
-                res_data["message"] = "Preferences saved successfully!"
+                res_data["message"] = "Preferences saved successfully!" if updates else "No valid preference changes were supplied."
                 
             elif self.path == '/api/screenshots/pull':
                 filepath = str(data.get("path", "")).strip()
-                if not filepath:
+                allowed_roots = ("/sdcard/DCIM/Screenshots/", "/sdcard/Pictures/Screenshots/")
+                if not filepath or not filepath.startswith(allowed_roots) or os.path.basename(filepath) in {"", ".", ".."} or "/" in os.path.basename(filepath):
                     res_data["message"] = "File path is required."
                 else:
                     desk_path = os.path.expanduser("~/Desktop")
@@ -1580,6 +1813,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 command = str(data.get("command", "")).strip()
                 if not command:
                     res_data["message"] = "Command is required."
+                elif len(command) > 4096 or "\x00" in command:
+                    res_data["message"] = "Command is too long or contains invalid characters."
+                elif not re.fullmatch(
+                    r"(?:termux-(?:battery-status|telephony-deviceinfo|wifi-connectioninfo)|uname -a|df -h /data|pm list packages --user 0 -3)",
+                    command,
+                ):
+                    res_data["message"] = "This command is not permitted by the built-in diagnostics policy."
                 else:
                     try:
                         # Fully export PATH, LD_LIBRARY_PATH, and HOME for Termux binaries (using canonical user paths)
@@ -1623,12 +1863,14 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 rate = float(data.get("rate", 1.0))
                 if not text:
                     res_data["message"] = "Text is required."
+                elif len(text) > 4096 or not 0.1 <= pitch <= 2.0 or not 0.1 <= rate <= 2.0:
+                    res_data["message"] = "Text or voice settings are out of range."
                 else:
                     try:
                         tts_cmd = (
                             "export PATH=/data/user/0/com.termux/files/usr/bin:$PATH\n"
                             "export LD_LIBRARY_PATH=/data/user/0/com.termux/files/usr/lib\n"
-                            f"termux-tts-speak -p {pitch} -r {rate} \"{text}\"\n"
+                            f"termux-tts-speak -p {pitch} -r {rate} {shlex.quote(text)}\n"
                             "exit\n"
                         )
                         proc = subprocess.Popen(
@@ -1688,11 +1930,19 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     try:
                         # Use aggressive timing template -T4 to execute scans much faster and avoid subnet timeouts
+                        if scan_type not in {"ping", "fast", "full"}:
+                            res_data["message"] = "Invalid scan type."
+                            raise ValueError("invalid scan type")
+                        try:
+                            ipaddress.ip_network(target, strict=False)
+                        except ValueError:
+                            res_data["message"] = "Target must be a valid IP address or CIDR network."
+                            raise ValueError("invalid scan target")
                         flags = "-sn" if scan_type == "ping" else ("-F -T4" if scan_type == "fast" else "-p 1-1000 -T4")
                         scan_cmd = (
                             "export PATH=/data/user/0/com.termux/files/usr/bin:$PATH\n"
                             "export LD_LIBRARY_PATH=/data/user/0/com.termux/files/usr/lib\n"
-                            f"nmap {flags} {target}\n"
+                            f"nmap {flags} {shlex.quote(target)}\n"
                             "exit\n"
                         )
                         proc = subprocess.Popen(
@@ -1717,7 +1967,12 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 def restart_server():
                     time.sleep(0.5)
                     import sys, os
-                    os.execv(sys.executable, ['python3'] + sys.argv)
+                    if getattr(sys, "frozen", False):
+                        # A PyInstaller executable must be relaunched as the
+                        # executable itself, not as "python3" plus arguments.
+                        subprocess.Popen([sys.executable], start_new_session=True)
+                        os._exit(0)
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
                 threading.Thread(target=restart_server).start()
                 return
 
@@ -1995,16 +2250,19 @@ def start_server_in_thread(httpd):
         stop_scrcpy_bg()
 
 def run_server():
-    socketserver.TCPServer.allow_reuse_address = True
+    class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
     try:
-        httpd = socketserver.TCPServer(("", PORT), ConnectPhoneUIHandler)
+        httpd = ThreadingHTTPServer((UI_HOST, PORT), ConnectPhoneUIHandler)
     except OSError as e:
         # errno 48 is Address already in use on macOS
         if e.errno == 48 or "already in use" in str(e).lower():
             print(f"\nℹ️ ConnectPhone UI Dashboard is already running on http://localhost:{PORT}")
             try:
                 import webview
-                webview.create_window('ConnectPhone Dashboard', f"http://localhost:{PORT}", width=1450, height=950, frameless=False)
+                webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False)
                 webview.start()
             except ImportError:
                 webbrowser.open(f"http://localhost:{PORT}")
@@ -2024,7 +2282,9 @@ def run_server():
     print(f"\n🚀 ConnectPhone UI Dashboard Running on http://localhost:{PORT}")
     
     # --- START NEW ASGI FASTAPI ENGINE ---
-    from core.api_server import start_fastapi_server
+    from core.api_server import start_fastapi_server, set_api_token, set_status_provider
+    set_api_token(API_TOKEN)
+    set_status_provider(_build_status_payload)
     fastapi_thread = threading.Thread(target=start_fastapi_server, args=(8283,))
     fastapi_thread.daemon = True
     fastapi_thread.start()
@@ -2037,11 +2297,11 @@ def run_server():
     try:
         import webview
         # Open as dedicated desktop app window
-        webview.create_window('ConnectPhone Dashboard', f"http://localhost:{PORT}", width=1450, height=950, frameless=False)
+        webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False)
         webview.start()
     except ImportError:
         print("💡 pywebview not found, falling back to standard web browser.")
-        webbrowser.open(f"http://localhost:{PORT}")
+        webbrowser.open(f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

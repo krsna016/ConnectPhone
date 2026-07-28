@@ -3,12 +3,14 @@ set -e
 
 echo "🚀 Building ConnectPhone macOS App..."
 
-# Check for pyinstaller
-if ! command -v pyinstaller &> /dev/null
-then
-    echo "PyInstaller not found. Installing..."
-    pip3 install pyinstaller --break-system-packages || pip3 install pyinstaller
+# Build in an isolated environment so system Python policy cannot produce a
+# partially populated bundle.
+PYTHON_BIN=".venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+    python3 -m venv .venv
 fi
+"$PYTHON_BIN" -m pip install --upgrade pip
+"$PYTHON_BIN" -m pip install -r requirements.txt pyinstaller
 
 # Convert logo.png to ConnectPhone.icns natively using macOS tools
 if [ -f "ui/logo.png" ]; then
@@ -33,7 +35,7 @@ fi
 echo "📦 Packaging App with PyInstaller..."
 # We use --windowed (or --noconsole) to make it a standalone .app bundle
 # We use --add-data to include the ui folder
-pyinstaller --noconfirm \
+"$PYTHON_BIN" -m PyInstaller --noconfirm \
     --name "ConnectPhone" \
     --windowed \
     --icon "ui/ConnectPhone.icns" \
@@ -50,10 +52,18 @@ pyinstaller --noconfirm \
     --hidden-import=numpy \
     --hidden-import=pyaudio \
     --hidden-import=pytesseract \
+    --hidden-import=webview \
+    --hidden-import=webview.platforms.cocoa \
+    --hidden-import=core.keychain \
     --add-binary "touch_id_helper:." \
     --add-data "touch_id.swift:." \
     --add-data "get_window_id.swift:." \
     ConnectPhoneUI.py
+
+# PyInstaller's initial ad-hoc signature can become invalid after nested
+# resources are collected. Re-sign the completed bundle before distribution.
+codesign --force --deep --sign - "dist/ConnectPhone.app"
+codesign --verify --deep --strict "dist/ConnectPhone.app"
 
 echo "🧹 Cleaning up temporary build files..."
 rm -rf build

@@ -2,9 +2,14 @@ import subprocess
 import re
 import json
 
+RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[91m"
+GREEN = "\033[92m"
+
 def check_adb_devices():
     try:
-        output = subprocess.check_output(["adb", "devices"]).decode("utf-8")
+        output = subprocess.check_output(["adb", "devices"], timeout=5).decode("utf-8")
         lines = output.strip().split("\n")[1:]
         devices = []
         for line in lines:
@@ -123,4 +128,3 @@ def is_fingerprint_active():
         print(f"Exception: {e}")
         pass
     return False
-

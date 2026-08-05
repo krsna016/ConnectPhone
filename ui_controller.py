@@ -1,4 +1,15 @@
 import os
+import subprocess
+
+# Local ANSI terminal color escapes to avoid circular imports
+BLUE = '\033[94m'
+BOLD = '\033[1m'
+CYAN = '\033[96m'
+RESET = '\033[0m'
+GREEN = '\033[92m'
+MAGENTA = '\033[95m'
+YELLOW = '\033[93m'
+RED = '\033[91m'
 
 def print_header(title):
     os.system('clear')
@@ -7,8 +18,9 @@ def print_header(title):
     print(f"{BLUE}{BOLD}=================================================={RESET}")
 
 def run_mirroring_menu():
+    import ConnectPhone
     while True:
-        config = load_config()
+        config = ConnectPhone.load_config()
         print_header("Mirroring & Camera Modes")
         print(f"1) {GREEN}🖥️ Standard Screen Mirroring{RESET}")
         print(f"2) {CYAN}📷 Live Camera Feed to Mac (With Mic Audio){RESET}")
@@ -21,23 +33,24 @@ def run_mirroring_menu():
         
         choice = input(f"\nEnter choice (1-8): ").strip()
         if choice == "1":
-            run_mirroring_flow(3, config)
+            ConnectPhone.run_mirroring_flow(3, config)
         elif choice == "2":
-            run_mirroring_flow(1, config)
+            ConnectPhone.run_mirroring_flow(1, config)
         elif choice == "3":
-            run_mirroring_flow(4, config)
+            ConnectPhone.run_mirroring_flow(4, config)
         elif choice == "4":
-            run_mirroring_flow(2, config)
+            ConnectPhone.run_mirroring_flow(2, config)
         elif choice == "5":
-            record_native_video_workflow()
+            ConnectPhone.record_native_video_workflow()
         elif choice == "6":
-            mirror_and_record(config)
+            ConnectPhone.mirror_and_record(config)
         elif choice == "7":
-            configure_preferences()
+            ConnectPhone.configure_preferences()
         elif choice == "8":
             break
 
 def run_files_menu():
+    import ConnectPhone
     while True:
         print_header("File Transfer & App Installer")
         print(f"1) {GREEN}📤 Push file from Mac to Phone's Download folder{RESET}")
@@ -48,19 +61,20 @@ def run_files_menu():
         
         choice = input(f"\nEnter choice (1-5): ").strip()
         if choice == "1":
-            push_file_to_phone()
+            ConnectPhone.push_file_to_phone()
         elif choice == "2":
-            pull_latest_photos()
+            ConnectPhone.pull_latest_photos()
         elif choice == "3":
-            watch_send_to_mac_folder()
+            ConnectPhone.watch_send_to_mac_folder()
         elif choice == "4":
-            install_apk()
+            ConnectPhone.install_apk()
         elif choice == "5":
             break
 
 def run_controls_menu():
+    import ConnectPhone
     while True:
-        config = load_config()
+        config = ConnectPhone.load_config()
         print_header("Quick Controls & Input")
         print(f"1) {GREEN}🔑 Unlock via Mac Touch ID (Biometric Bridge){RESET}")
         print(f"2) {YELLOW}⚙️ Configure Android Backup PIN{RESET}")
@@ -80,7 +94,7 @@ def run_controls_menu():
         
         choice = input(f"\nEnter choice (1-15): ").strip()
         if choice == "1":
-            unlock_device_with_touch_id(config)
+            ConnectPhone.unlock_device_with_touch_id(config)
         elif choice == "2":
             print_header("Configure Android PIN")
             pin = input("Enter your phone's unlock PIN (saved locally): ").strip()
@@ -88,7 +102,7 @@ def run_controls_menu():
                 print(f"{RED}❌ Invalid PIN. Must be digits only and at least 4 characters.{RESET}")
             else:
                 config["android_pin"] = pin
-                save_config(config)
+                ConnectPhone.save_config(config)
                 print(f"{GREEN}✅ PIN saved successfully.{RESET}")
             input("\nPress Enter to continue...")
         elif choice == "3":
@@ -98,7 +112,7 @@ def run_controls_menu():
                 print(f"{RED}❌ Invalid PIN. Must be digits only and at least 4 characters.{RESET}")
             else:
                 config["applock_pin"] = pin
-                save_config(config)
+                ConnectPhone.save_config(config)
                 print(f"{GREEN}✅ App Lock PIN saved successfully.{RESET}")
             input("\nPress Enter to continue...")
         elif choice == "4":
@@ -138,9 +152,8 @@ def run_controls_menu():
             print("Opened Android Settings")
             input("\nPress Enter to continue...")
         elif choice == "13":
-            type_text()
+            ConnectPhone.type_text()
         elif choice == "14":
-            show_shortcuts()
+            ConnectPhone.show_shortcuts()
         elif choice == "15":
             break
-

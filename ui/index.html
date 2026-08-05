@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="index.css?v=1.0.5">
 </head>
 <body>
     <div class="glass-bg"></div>
@@ -40,6 +40,9 @@
                 </button>
                 <button class="nav-btn" data-tab="mirroring">
                     <span class="btn-icon"><i class="material-symbols-outlined">desktop_windows</i></span> Mirror & Stream
+                </button>
+                <button class="nav-btn" data-tab="storage">
+                    <span class="btn-icon"><i class="material-symbols-outlined">folder_shared</i></span> Storage Manager
                 </button>
                 <button class="nav-btn" data-tab="metrics">
                     <span class="btn-icon"><i class="material-symbols-outlined">monitoring</i></span> Live Metrics
@@ -74,7 +77,7 @@
                     </div>
                 </div>
                 
-                <div class="header-right">
+                <div class="header-right" style="display: flex; gap: 10px;">
                     <button class="header-btn" id="btn-refresh" title="Scan devices">
                         <span class="icon"><i class="material-symbols-outlined">refresh</i></span> Scan Devices
                     </button>
@@ -775,6 +778,102 @@
                     </div>
                 </section>
                 
+                <!-- Tab: Storage Manager -->
+                <section class="tab-pane" id="pane-storage">
+                    <div class="pane-header">
+                        <h2><i class="material-symbols-outlined">folder_shared</i> Storage Manager</h2>
+                        <p>Explore your phone's storage, upload new files, download data, and organize folders wirelessly.</p>
+                    </div>
+
+                    <!-- Alert: Not Connected (dynamic) -->
+                    <div class="card error-card" id="storage-disconnected-alert" style="display: none; border-left: 4px solid var(--color-danger); background: rgba(240, 107, 120, 0.05); padding: 16px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; gap: 14px;">
+                        <i class="material-symbols-outlined" style="color: var(--color-danger); font-size: 28px;">warning</i>
+                        <div>
+                            <h4 style="margin: 0 0 4px 0; color: var(--text-primary);">Device Not Connected</h4>
+                            <p style="margin: 0; color: var(--text-secondary); font-size: 13px;">Please connect your phone via Wireless Debugging or USB first to browse files.</p>
+                        </div>
+                    </div>
+
+                    <!-- Main Storage Layout (shows only when connected) -->
+                    <div class="storage-container" id="storage-main-view">
+                        <!-- Breadcrumbs & Directory Operations -->
+                        <div class="card toolbar-card" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px !important; flex-direction: row; flex-wrap: nowrap;">
+                            <div class="toolbar-nav" style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px;">
+                                <button class="btn btn-secondary btn-icon-only" id="storage-btn-back" title="Go back to parent directory" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; min-width: 34px; border-radius: 8px;">
+                                    <i class="material-symbols-outlined" style="font-size: 18px;">arrow_upward</i>
+                                </button>
+                                <div class="path-bar-container" style="flex: 1;">
+                                    <input type="text" id="storage-current-path" value="/sdcard" placeholder="Current directory path" style="font-family: monospace; font-size: 13px; padding: 6px 12px; height: 34px; box-sizing: border-box; border-radius: 8px;">
+                                </div>
+                            </div>
+                            <div class="toolbar-actions" style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                                <div class="storage-search-container" style="height: 34px; min-width: 160px; margin-right: 0; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 8px;">
+                                    <i class="material-symbols-outlined search-icon" style="font-size: 18px; color: var(--text-secondary); margin-right: 6px;">search</i>
+                                    <input type="text" id="storage-search-input" placeholder="Search..." style="background: transparent !important; border: none !important; padding: 6px 0; color: var(--text-primary); font-size: 13px; width: 100%; outline: none;">
+                                </div>
+                                <button class="btn btn-secondary btn-icon-only" id="storage-btn-new-folder" title="New Folder" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px;">
+                                    <i class="material-symbols-outlined" style="font-size: 18px;">create_new_folder</i>
+                                </button>
+                                <button class="btn btn-secondary btn-icon-only" id="storage-btn-refresh" title="Refresh" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px;">
+                                    <i class="material-symbols-outlined" style="font-size: 18px;">refresh</i>
+                                </button>
+                                <button class="btn btn-secondary btn-icon-only" id="storage-btn-view-toggle" title="Toggle List/Grid View" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px;">
+                                    <i class="material-symbols-outlined" id="storage-view-toggle-icon" style="font-size: 18px;">grid_view</i>
+                                </button>
+                                <button class="btn btn-accent btn-icon-only" id="storage-btn-upload-trigger" title="Upload File" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px;">
+                                    <i class="material-symbols-outlined" style="font-size: 18px;">cloud_upload</i>
+                                </button>
+                                <input type="file" id="storage-file-upload-input" style="display: none;">
+                            </div>
+                        </div>
+
+                        <!-- Dropzone for Drag-and-Drop uploads -->
+                        <div class="storage-explorer-zone" id="storage-explorer-zone">
+                            <div class="upload-drop-overlay" id="storage-drop-overlay">
+                                <div class="drop-message">
+                                    <i class="material-symbols-outlined">upload_file</i>
+                                    <h3>Drop files to upload</h3>
+                                    <p>Uploading to the current folder</p>
+                                </div>
+                            </div>
+
+                            <!-- File Browser List/Grid Card -->
+                            <div class="card storage-browser-card">
+                                <div class="storage-browser-header">
+                                    <div class="col-checkbox">
+                                        <input type="checkbox" id="storage-select-all" class="storage-checkbox" title="Select all items">
+                                    </div>
+                                    <div class="col-name">Name</div>
+                                    <div class="col-size">Size</div>
+                                    <div class="col-date">Date Modified</div>
+                                    <div class="col-actions">Actions</div>
+                                </div>
+                                <div class="storage-browser-body" id="storage-file-list">
+                                    <!-- Items loaded dynamically -->
+                                    <div class="storage-loading">
+                                        <div class="spinner"></div>
+                                        <p>Loading files from phone...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Upload progress status list -->
+                        <div class="upload-progress-container" id="storage-upload-progress-container" style="display: none;">
+                            <div class="card progress-card">
+                                <div class="progress-details">
+                                    <i class="material-symbols-outlined">sync</i>
+                                    <span id="storage-upload-filename">filename.ext</span>
+                                    <span id="storage-upload-percentage">0%</span>
+                                </div>
+                                <div class="progress-bar-track">
+                                    <div class="progress-bar-fill" id="storage-upload-bar" style="width: 0%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
                 <!-- Tab: Documentation -->
                 <section class="tab-pane" id="pane-docs">
                     <div class="pane-header">
@@ -912,6 +1011,39 @@
                             <h4>Setup & Troubleshooting</h4>
                             <p>Make sure you have saved your correct Android PIN in the Preferences tab. If the daemon stops responding, simply turn your phone screen off and on again to re-trigger the wake event.</p>
                         </div>
+
+                        <!-- Storage Manager & Keyboard Controls -->
+                        <div class="card settings-card" style="grid-column: 1 / -1;">
+                            <h3><i class="material-symbols-outlined">folder_shared</i> Storage Manager & Keyboard Controls</h3>
+                            <p>ConnectPhone features a desktop-native Storage Browser allowing you to browse, search, preview, and download files directly from your Android device.</p>
+                            
+                            <h4>Key Storage Features</h4>
+                            <p>• <strong>List/Grid View Toggle:</strong> Click the view layout icon next to Refresh to instantly swap between a detailed List view and a clean Grid view.</p>
+                            <p>• <strong>Real-Time Search:</strong> Use the search input bar to instantly filter files and folders in the current directory.</p>
+                            <p>• <strong>Multi-Select & Batch Actions:</strong> Check multiple files or folders using the selection checkboxes. A floating batch options bar will slide up from the bottom, enabling batch deletion or batch downloading (compiled directly as a ZIP archive).</p>
+                            <p>• <strong>Native macOS Downloads:</strong> To bypass browser sandboxing limitations inside the app window, all downloads are saved directly to your Mac's <code>~/Downloads</code> directory, and the app automatically triggers macOS Finder to highlight and reveal the saved file or ZIP archive.</p>
+                            <p>• <strong>Bidirectional Drag & Drop:</strong> 
+                                <br>1. <em>Mac to Phone:</em> Drag multiple files or folders from macOS Finder and drop them anywhere into the Storage Browser panel to upload them sequentially.
+                                <br>2. <em>Phone to Mac:</em> Drag any file row directly out of the application window and drop it onto your Mac Desktop or Finder folder to download it instantly.
+                            </p>
+                            
+                            <h4>Image Preview Gallery Modal</h4>
+                            <p>Double-click any image file (JPG, JPEG, PNG, WEBP, GIF, BMP) to open it inside a compact, glassmorphic centered overlay card. The preview modal supports zooming in/out, 90-degree rotations, next/previous slides, and direct native download.</p>
+
+                            <h4>Full Keyboard Navigation Map</h4>
+                            <p>Maximize your workflow with full keyboard navigation controls (automatically disabled when typing inside search or path input fields):</p>
+                            <p>• <strong>Arrow Up / Arrow Down:</strong> Navigates and highlights focused items in the active directory with automatic smooth scrolling.</p>
+                            <p>• <strong>Enter:</strong> Enters the selected directory, or opens the image previewer if an image is highlighted.</p>
+                            <p>• <strong>Spacebar:</strong> Checks or unchecks the selection checkbox of the highlighted item.</p>
+                            <p>• <strong>Backspace / Delete:</strong> Navigates back up to the parent directory (acts as the Back button).</p>
+                            <p>• <strong>Escape (in Preview):</strong> Closes the image preview gallery modal.</p>
+                            <p>• <strong>Arrow Left / Arrow Right (in Preview):</strong> Navigates to the previous or next image in the directory.</p>
+
+                            <h4>Trackpad Gestures Map</h4>
+                            <p>• <strong>Two-Finger Swipe Left-to-Right:</strong> Navigates back up to the parent directory (acts as the Back button) in the file browser.</p>
+                            <p>• <strong>Two-Finger Swipe Horizontal (in Preview):</strong> Swipes horizontally to browse the previous/next image inside the previewer.</p>
+                            <p>• <strong>Pinch-to-Zoom (in Preview):</strong> Standard trackpad pinch-in and pinch-out gestures dynamically zoom the active preview image.</p>
+                        </div>
                     </div>
                 </section>
                 
@@ -977,6 +1109,43 @@
         </div>
     </div>
 
-    <script src="index.js"></script>
+    <!-- Image Preview Gallery Modal -->
+    <div id="storage-gallery-modal" class="storage-gallery-modal" style="display: none;">
+        <div class="gallery-modal-content">
+            <div class="gallery-header">
+                <span id="gallery-filename" class="gallery-title">image.png</span>
+                <button class="gallery-close" id="gallery-close">&times;</button>
+            </div>
+            <div class="gallery-image-wrapper">
+                <button class="gallery-nav gallery-prev" id="gallery-prev"><i class="material-symbols-outlined">chevron_left</i></button>
+                <button class="gallery-nav gallery-next" id="gallery-next"><i class="material-symbols-outlined">chevron_right</i></button>
+                <div class="gallery-image-container">
+                    <img id="gallery-img" src="" alt="Preview">
+                </div>
+            </div>
+            <div class="gallery-toolbar">
+                <div class="gallery-controls">
+                    <button class="btn btn-secondary btn-icon-only" id="gallery-btn-zoom-in" title="Zoom In"><i class="material-symbols-outlined">zoom_in</i></button>
+                    <button class="btn btn-secondary btn-icon-only" id="gallery-btn-zoom-out" title="Zoom Out"><i class="material-symbols-outlined">zoom_out</i></button>
+                    <button class="btn btn-secondary btn-icon-only" id="gallery-btn-rotate" title="Rotate"><i class="material-symbols-outlined">rotate_right</i></button>
+                    <button class="btn btn-accent btn-icon-only" id="gallery-btn-download" title="Download"><i class="material-symbols-outlined">download</i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Batch Actions Bar -->
+    <div id="storage-batch-bar" class="storage-batch-bar" style="display: none;">
+        <div class="batch-bar-content">
+            <span id="batch-selected-count">0 items selected</span>
+            <div class="batch-actions">
+                <button class="btn btn-primary" id="batch-btn-download"><i class="material-symbols-outlined">archive</i> Download Selected (ZIP)</button>
+                <button class="btn btn-danger" id="batch-btn-delete"><i class="material-symbols-outlined">delete</i> Delete Selected</button>
+                <button class="btn btn-ghost" id="batch-btn-clear">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="index.js?v=1.0.5"></script>
 </body>
 </html>

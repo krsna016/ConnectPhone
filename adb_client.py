@@ -15,7 +15,7 @@ def check_adb_devices():
         for line in lines:
             if line.strip():
                 parts = line.split()
-                if len(parts) >= 2:
+                if len(parts) >= 2 and parts[1] == "device":
                     devices.append(parts[0])
         return devices
     except Exception as e:

@@ -13,7 +13,8 @@ import ipaddress
 import shlex
 import secrets
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
+import tempfile
 
 # Inject common macOS binary paths (crucial when run as a Dock app shortcut without zsh profiles loaded)
 common_paths = [
@@ -64,8 +65,44 @@ except RuntimeError:
     pass
 
 
+def run_adb_cmd_with_retry(cmd_args, timeout=10, max_retries=3, delay=0.25):
+    """
+    Executes an ADB command with automatic retries for transient connection drops.
+    """
+    for attempt in range(max_retries):
+        try:
+            res = subprocess.run(cmd_args, capture_output=True, text=True, timeout=timeout)
+            err_msg = (res.stderr or "").lower()
+            if res.returncode != 0 and any(msg in err_msg for msg in ["device offline", "device still authorizing", "no devices/emulators found", "more than one device", "connection refused"]):
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+                    continue
+            return res
+        except (subprocess.TimeoutExpired, OSError):
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+                continue
+            raise
+    return res
+
+
 def _token_allowed(handler):
-    return secrets.compare_digest(handler.headers.get("X-ConnectPhone-Token", ""), API_TOKEN)
+    # Check header first
+    header_token = handler.headers.get("X-ConnectPhone-Token", "")
+    if secrets.compare_digest(header_token, API_TOKEN):
+        return True
+    
+    # Fallback to query parameter (needed for browser downloads/drags where headers cannot be set)
+    try:
+        parsed = urlsplit(handler.path)
+        query = parse_qs(parsed.query)
+        query_token = query.get("token", [""])[0]
+        if secrets.compare_digest(query_token, API_TOKEN):
+            return True
+    except Exception:
+        pass
+        
+    return False
 
 
 def _origin_allowed(origin):
@@ -88,6 +125,49 @@ def _valid_port(value):
         return 1 <= int(value) <= 65535
     except (TypeError, ValueError):
         return False
+
+
+def parse_multipart(rfile, headers):
+    content_type = headers.get('Content-Type', '')
+    if 'boundary=' not in content_type:
+        return None, None
+    boundary = content_type.split('boundary=')[-1].strip().encode('utf-8')
+    content_length = int(headers.get('Content-Length', 0))
+    body = rfile.read(content_length)
+    parts = body.split(b'--' + boundary)
+    fields = {}
+    files = {}
+    for part in parts:
+        if not part or part == b'\r\n' or part == b'--\r\n' or part == b'--':
+            continue
+        if part.startswith(b'\r\n'):
+            part = part[2:]
+        if part.endswith(b'\r\n'):
+            part = part[:-2]
+        if b'\r\n\r\n' not in part:
+            continue
+        header_part, content = part.split(b'\r\n\r\n', 1)
+        header_lines = header_part.decode('utf-8', errors='ignore').split('\r\n')
+        disposition = ''
+        for line in header_lines:
+            if line.lower().startswith('content-disposition:'):
+                disposition = line
+                break
+        if not disposition:
+            continue
+        name_match = re.search(r'name="([^"]+)"', disposition)
+        filename_match = re.search(r'filename="([^"]+)"', disposition)
+        if name_match:
+            name = name_match.group(1)
+            if filename_match:
+                filename = filename_match.group(1)
+                files[name] = {
+                    'filename': filename,
+                    'content': content
+                }
+            else:
+                fields[name] = content.decode('utf-8', errors='ignore')
+    return fields, files
 
 
 def _validated_settings(data):
@@ -136,18 +216,21 @@ def _validated_settings(data):
 
 def _get_adb_device_serial(endpoint):
     """Read the Android identity behind an already-authorized ADB endpoint."""
-    try:
-        result = subprocess.run(
-            ["adb", "-s", endpoint, "get-serialno"],
-            capture_output=True,
-            text=True,
-            timeout=8,
-        )
-        serial = (result.stdout or "").strip()
-        if result.returncode == 0 and serial and serial.lower() not in {"unknown", "no permissions"}:
-            return serial
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                ["adb", "-s", endpoint, "get-serialno"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            serial = (result.stdout or "").strip()
+            if result.returncode == 0 and serial and serial.lower() not in {"unknown", "no permissions"}:
+                return serial
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if attempt < 2:
+            time.sleep(0.25)
     return None
 
 
@@ -176,6 +259,34 @@ def _accept_auto_wireless_connection(ip, port):
         return False, "Wireless identity mismatch; connection rejected."
     ConnectPhone.save_wireless_endpoint(ip, int(port), actual)
     return True, actual
+
+
+def _adb_connect(ip, port, attempts=2):
+    """Connect without tearing down a healthy ADB transport first.
+
+    ``adb connect`` is idempotent. Calling ``adb disconnect`` immediately
+    before every attempt creates a race with ADB's transport thread and was
+    the main source of intermittent reconnects.
+    """
+    endpoint = f"{ip}:{int(port)}"
+    last_output = ""
+    for attempt in range(max(1, int(attempts))):
+        try:
+            result = subprocess.run(
+                ["adb", "connect", endpoint],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            last_output = ((result.stdout or "") + " " + (result.stderr or "")).strip()
+            lowered = last_output.lower()
+            if "connected to" in lowered or "already connected" in lowered:
+                return True, last_output
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            last_output = str(exc)
+        if attempt + 1 < attempts:
+            time.sleep(0.35)
+    return False, last_output
 
 # Global state tracker
 scrcpy_proc = None
@@ -328,16 +439,13 @@ def _invalidate_status_cache():
 
 
 
-def scan_and_connect_wireless_debug(ip, timeout=0.12, last_known_port=None):
+def scan_and_connect_wireless_debug(ip, timeout=0.12, last_known_port=None, allow_port_scan=False):
     import socket
     import asyncio
 
     def try_connect(port):
-        ip_port = f"{ip}:{port}"
-        subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-        res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
-        out = res.stdout or ""
-        return port if ("connected to" in out.lower() or "already connected to" in out.lower()) else None
+        connected, _ = _adb_connect(ip, port, attempts=2)
+        return port if connected else None
 
     async def check_port_async(port):
         try:
@@ -385,7 +493,7 @@ def scan_and_connect_wireless_debug(ip, timeout=0.12, last_known_port=None):
     try:
         from core.mdns_scanner import ZeroPingScanner
         mdns_scanner = ZeroPingScanner()
-        devices = mdns_scanner.find_devices_instantly(search_time=0.5)
+        devices = mdns_scanner.find_devices_instantly(search_time=2.5)
         for d in devices:
             if d['ip'] == ip or d['ip'].startswith(ip):
                 res = try_connect(d['port'])
@@ -393,8 +501,12 @@ def scan_and_connect_wireless_debug(ip, timeout=0.12, last_known_port=None):
     except ImportError:
         pass
 
-    # 2. Fallback to Ultra-fast Async Scan of 20,000 ports
-    print(f"[*] Starting high-speed async port scan on {ip}...")
+    # Android Wireless Debugging advertises its rotating TLS port over mDNS.
+    # A broad 20,000-port scan is both slow and noisy, so only enable it for
+    # explicit legacy troubleshooting—not for the normal Connect/Auto path.
+    if not allow_port_scan:
+        return None
+    print(f"[*] Starting legacy port scan on {ip}...")
     found_ports = asyncio.run(scan_ports_async(range(30000, 50000)))
     found_ports.sort()
 
@@ -546,7 +658,11 @@ def browse_dns_sd_loop(service_type, target_substring, target_ip, result_dict, s
         pass
 
 def discover_adb_service_hybrid(service_type, target_substring=None, target_ip=None, timeout=30.0, is_cancelled_fn=None):
-    from zeroconf import Zeroconf, ServiceBrowser
+    try:
+        from zeroconf import Zeroconf, ServiceBrowser
+    except Exception:
+        Zeroconf = None
+        ServiceBrowser = None
     
     result = {"ip": None, "port": None}
     stop_event = threading.Event()
@@ -563,12 +679,14 @@ def discover_adb_service_hybrid(service_type, target_substring=None, target_ip=N
         else:
             zc_type += "local."
             
-    try:
-        zc = Zeroconf()
-        listener = RobustAdbMdnsListener(target_substring, target_ip)
-        browser = ServiceBrowser(zc, zc_type, listener)
-    except Exception:
-        zc = None
+    listener = None
+    if Zeroconf and ServiceBrowser:
+        try:
+            zc = Zeroconf()
+            listener = RobustAdbMdnsListener(target_substring, target_ip)
+            browser = ServiceBrowser(zc, zc_type, listener)
+        except Exception:
+            zc = None
 
     # 2. Start native dns-sd fallback in background thread
     dns_sd_thread = threading.Thread(
@@ -587,7 +705,7 @@ def discover_adb_service_hybrid(service_type, target_substring=None, target_ip=N
             break
             
         # Check if Zeroconf listener got it
-        if zc and listener.ip_address and listener.port:
+        if zc and listener and listener.ip_address and listener.port:
             result["ip"] = listener.ip_address
             result["port"] = listener.port
             stop_event.set()
@@ -669,7 +787,8 @@ def get_live_metrics():
         "system": {}
     }
     
-    devices = ConnectPhone.check_adb_devices()
+    detailed_devices = get_detailed_adb_devices()
+    devices = [item["serial"] for item in detailed_devices if item["status"] == "device"]
     if not devices:
         return metrics
         
@@ -847,12 +966,27 @@ def get_detailed_adb_devices():
 
 def check_and_autoselect_device(devices_detailed):
     online_serials = [d["serial"] for d in devices_detailed if d["status"] == "device"]
+    # When USB is plugged in for recovery, adb often lists USB first. Prefer
+    # the last trusted wireless endpoint so the dashboard does not silently
+    # switch transport and make wireless reliability look intermittent.
+    try:
+        config = ConnectPhone.load_config()
+        last_ip = str(config.get("last_ip", "")).strip()
+        last_port = config.get("last_port")
+        preferred_wireless = f"{last_ip}:{int(last_port)}" if last_ip and _valid_port(last_port) else ""
+        if preferred_wireless in online_serials:
+            os.environ["ANDROID_SERIAL"] = preferred_wireless
+            return preferred_wireless
+    except (TypeError, ValueError, OSError):
+        pass
     active = os.environ.get("ANDROID_SERIAL", "")
     if active and active in online_serials:
         return active
     if online_serials:
-        os.environ["ANDROID_SERIAL"] = online_serials[0]
-        return online_serials[0]
+        wireless = next((serial for serial in online_serials if ":" in serial), "")
+        selected = wireless or online_serials[0]
+        os.environ["ANDROID_SERIAL"] = selected
+        return selected
     all_serials = [d["serial"] for d in devices_detailed]
     if all_serials:
         if active and active in all_serials:
@@ -862,48 +996,84 @@ def check_and_autoselect_device(devices_detailed):
     os.environ.pop("ANDROID_SERIAL", None)
     return ""
 
-def discover_all_mdns_services(timeout=2.0):
-    from zeroconf import Zeroconf, ServiceBrowser
+def discover_all_mdns_services(timeout=2.0, target_ip=None):
+    try:
+        from zeroconf import Zeroconf, ServiceBrowser
+    except Exception:
+        Zeroconf = None
+        ServiceBrowser = None
     
     discovered = []
+    seen = set()
     
     class MultiListener:
-        def add_service(self, zc, type, name):
+        def _add(self, zc, type, name):
             try:
                 info = zc.get_service_info(type, name)
                 if info:
                     addresses = info.parsed_addresses()
                     ipv4_addrs = [addr for addr in addresses if '.' in addr]
                     ip = ipv4_addrs[0] if ipv4_addrs else (addresses[0] if addresses else "unknown")
-                    
-                    # Clean up service name (e.g. adb-xxxx._adb-tls-connect._tcp.local. -> adb-xxxx)
+                    if target_ip and ip != target_ip:
+                        return
                     clean_name = name.split(".")[0]
-                    discovered.append({
+                    item = {
                         "name": clean_name,
                         "ip": ip,
                         "port": info.port,
                         "type": "connect" if "connect" in type else "pairing"
-                    })
+                    }
+                    key = (item["ip"], int(item["port"]), item["type"])
+                    if key not in seen:
+                        seen.add(key)
+                        discovered.append(item)
             except Exception:
                 pass
+
+        def add_service(self, zc, type, name):
+            self._add(zc, type, name)
         def remove_service(self, zc, type, name):
             pass
         def update_service(self, zc, type, name):
-            pass
+            self._add(zc, type, name)
 
     # Start Zeroconf browser for both connect and pairing service types
     zc = None
-    try:
-        zc = Zeroconf()
-        listener = MultiListener()
-        b1 = ServiceBrowser(zc, "_adb-tls-connect._tcp.local.", listener)
-        b2 = ServiceBrowser(zc, "_adb-tls-pairing._tcp.local.", listener)
-        time.sleep(timeout)
-    except Exception:
-        pass
-    finally:
-        if zc:
-            zc.close()
+    if Zeroconf and ServiceBrowser:
+        try:
+            zc = Zeroconf()
+            listener = MultiListener()
+            b1 = ServiceBrowser(zc, "_adb-tls-connect._tcp.local.", listener)
+            b2 = ServiceBrowser(zc, "_adb-tls-pairing._tcp.local.", listener)
+            # Bonjour callbacks normally arrive within a few hundred ms.
+            # Keep a short settling window for phones that wake the service
+            # lazily, without making every scan wait several seconds.
+            time.sleep(min(max(0.8, float(timeout)), 1.5))
+        except Exception:
+            pass
+        finally:
+            if zc:
+                zc.close()
+
+    # Native macOS fallback: use dns-sd hybrid resolver if Zeroconf path
+    # is unavailable or did not discover targets in the time window.
+    if not discovered:
+        for service_type, service_name, kind in (
+            ("_adb-tls-connect._tcp.local.", "adb-connect", "connect"),
+            ("_adb-tls-pairing._tcp.local.", "adb-pairing", "pairing"),
+        ):
+            ip, port = discover_adb_service_hybrid(
+                service_type,
+                target_substring=None,
+                target_ip=target_ip,
+                timeout=max(1.0, float(timeout)),
+            )
+            if ip and port:
+                item = {"name": service_name, "ip": ip, "port": int(port), "type": kind}
+                key = (item["ip"], item["port"], item["type"])
+                if key not in seen:
+                    seen.add(key)
+                    discovered.append(item)
             
     return discovered
 
@@ -1010,9 +1180,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"error": "This feature has been retired from ConnectPhone."}).encode('utf-8'))
             return
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
+        if not self.path.startswith('/api/storage/download'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
 
         if self.path == '/api/status':
             # Serve from cache (refreshed every ~1.2 s in background) — sub-millisecond response
@@ -1030,15 +1201,20 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/api/settings/audio_devices':
             devices = ConnectPhone.get_macos_audio_devices()
             self.wfile.write(json.dumps({"success": True, "devices": devices}).encode('utf-8'))
-        elif self.path == '/api/mdns/discover':
-            discovered = discover_all_mdns_services()
+        elif self.path.startswith('/api/mdns/discover'):
+            parsed = urlsplit(self.path)
+            query = parse_qs(parsed.query)
+            requested_ip = str((query.get("ip", [""])[0] or "")).strip()
+            if requested_ip and not _valid_ipv4(requested_ip):
+                requested_ip = None
+            discovered = discover_all_mdns_services(target_ip=requested_ip or None)
             self.wfile.write(json.dumps({"success": True, "services": discovered}).encode('utf-8'))
 
         elif self.path == '/api/screenshots/list':
             try:
                 # Find screenshots from common paths and sort by newest first
                 cmd = "ls -t /sdcard/DCIM/Screenshots/* /sdcard/Pictures/Screenshots/* 2>/dev/null"
-                res = subprocess.run(["adb", "shell", "sh", "-c", cmd], capture_output=True, text=True, timeout=10)
+                res = run_adb_cmd_with_retry(["adb", "shell", "sh", "-c", cmd], timeout=10)
                 # Even if one directory doesn't exist (exit code 1), the other might succeed and print to stdout
                 out = res.stdout or ""
                 lines = [line.strip() for line in out.split('\n') if line.strip()]
@@ -1046,11 +1222,308 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "files": latest}).encode('utf-8'))
             except Exception as e:
                 self.wfile.write(json.dumps({"success": False, "files": [], "error": str(e)}).encode('utf-8'))
+        elif self.path.startswith('/api/storage/list'):
+            parsed = urlsplit(self.path)
+            query = parse_qs(parsed.query)
+            target_path = str(query.get("path", ["/sdcard"])[0]).strip()
+            if not target_path:
+                target_path = "/sdcard"
+            if not target_path.startswith(('/sdcard', '/storage')) or '..' in target_path or any(c in target_path for c in ';&|$`'):
+                self.wfile.write(json.dumps({"success": False, "message": "Invalid directory path"}).encode('utf-8'))
+                return
+            try:
+                cmd = f'find -L "{target_path}" -mindepth 1 -maxdepth 1 -exec stat -L -c "%F|%s|%Y|%n" {{}} +'
+                res = run_adb_cmd_with_retry(["adb", "shell", cmd], timeout=15)
+                files = []
+                lines = (res.stdout or "").split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split('|', 3)
+                    if len(parts) < 4:
+                        continue
+                    file_type, size_str, mtime_str, full_path = parts
+                    is_dir = 'directory' in file_type.lower()
+                    try:
+                        size = int(size_str)
+                    except ValueError:
+                        size = 0
+                    try:
+                        mtime = int(mtime_str)
+                    except ValueError:
+                        mtime = 0
+                    name = os.path.basename(full_path)
+                    if name in ('.', '..'):
+                        continue
+                    files.append({
+                        "name": name,
+                        "path": full_path,
+                        "is_dir": is_dir,
+                        "size": size,
+                        "mtime": mtime
+                    })
+                files.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+                self.wfile.write(json.dumps({"success": True, "path": target_path, "files": files}).encode('utf-8'))
+            except Exception as e:
+                self.wfile.write(json.dumps({"success": False, "message": str(e)}).encode('utf-8'))
+        elif self.path.startswith('/api/storage/download'):
+            parsed = urlsplit(self.path)
+            query = parse_qs(parsed.query)
+            remote_path = str(query.get("path", [""])[0]).strip()
+            if not remote_path or not remote_path.startswith(('/sdcard', '/storage')) or '..' in remote_path or any(c in remote_path for c in ';&|$`'):
+                self.send_error(400, "Invalid remote path")
+                return
+                
+            try:
+                # Check if it is a directory on the phone
+                check_dir = subprocess.run(["adb", "shell", f"[ -d '{remote_path}' ]"], capture_output=True)
+                is_directory = (check_dir.returncode == 0)
+                
+                if is_directory:
+                    filename = os.path.basename(remote_path.rstrip('/')) + ".zip"
+                    # Pull folder and zip it
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        pull_dest = os.path.join(tmp_dir, os.path.basename(remote_path.rstrip('/')))
+                        res = subprocess.run(["adb", "pull", remote_path, pull_dest], capture_output=True, text=True, timeout=120)
+                        if res.returncode != 0:
+                            self.send_error(500, f"Failed to pull folder: {res.stderr}")
+                            return
+                        
+                        import shutil
+                        zip_base = tempfile.mktemp()
+                        zip_file_path = shutil.make_archive(zip_base, 'zip', tmp_dir)
+                        
+                        try:
+                            file_size = os.path.getsize(zip_file_path)
+                            self.send_response(200)
+                            self.send_header('Content-Type', 'application/zip')
+                            self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+                            self.send_header('Content-Length', str(file_size))
+                            self.end_headers()
+                            with open(zip_file_path, 'rb') as f:
+                                while True:
+                                    chunk = f.read(64 * 1024)
+                                    if not chunk:
+                                        break
+                                    self.wfile.write(chunk)
+                        finally:
+                            if os.path.exists(zip_file_path):
+                                try:
+                                    os.remove(zip_file_path)
+                                except Exception:
+                                    pass
+                else:
+                    filename = os.path.basename(remote_path)
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                        tmp_path = tmp_file.name
+                    try:
+                        res = subprocess.run(["adb", "pull", remote_path, tmp_path], capture_output=True, text=True, timeout=30)
+                        if res.returncode != 0:
+                            self.send_error(500, f"Failed to pull file: {res.stderr}")
+                            return
+                        file_size = os.path.getsize(tmp_path)
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/octet-stream')
+                        self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+                        self.send_header('Content-Length', str(file_size))
+                        self.end_headers()
+                        with open(tmp_path, 'rb') as f:
+                            while True:
+                                chunk = f.read(64 * 1024)
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                    finally:
+                        if os.path.exists(tmp_path):
+                            try:
+                                os.remove(tmp_path)
+                            except Exception:
+                                pass
+            except Exception as e:
+                self.send_error(500, str(e))
         else:
             self.wfile.write(json.dumps({"error": "Unknown GET endpoint"}).encode('utf-8'))
 
     def handle_api_post(self):
         global scrcpy_proc, scrcpy_state, sync_watcher_thread, sync_watcher_active, scrcpy_clipboard_proc, morse_state
+
+        if self.path == '/api/storage/upload':
+            try:
+                fields, files = parse_multipart(self.rfile, self.headers)
+                if not fields or not files or 'file' not in files:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": False, "message": "Missing file or upload path."}).encode('utf-8'))
+                    return
+                
+                remote_dir = fields.get("path", "/sdcard/Download").strip()
+                if not remote_dir.startswith(('/sdcard', '/storage')) or '..' in remote_dir or any(c in remote_dir for c in ';&|$`'):
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": False, "message": "Invalid upload directory."}).encode('utf-8'))
+                    return
+                
+                uploaded_file = files['file']
+                filename = uploaded_file['filename']
+                
+                # Check for explicit relative path from folder drops
+                rel_path = fields.get("relativePath", "").strip()
+                is_folder_file = False
+                if rel_path:
+                    # Clean the path
+                    rel_path = os.path.normpath(rel_path).replace('\\', '/')
+                    # Ensure no directory traversal or shell characters
+                    if '..' in rel_path or any(c in rel_path for c in ';&|$`'):
+                        self.send_response(400)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"success": False, "message": "Invalid relative path."}).encode('utf-8'))
+                        return
+                    filename = rel_path
+                    is_folder_file = True
+                else:
+                    if not filename or '/' in filename or '\\' in filename:
+                        self.send_response(400)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"success": False, "message": "Invalid filename."}).encode('utf-8'))
+                        return
+                
+                with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                    tmp_path = tmp_file.name
+                    tmp_file.write(uploaded_file['content'])
+                    
+                try:
+                    remote_dest = os.path.join(remote_dir, filename)
+                    remote_parent = os.path.dirname(remote_dest)
+                    
+                    # Create parent directories recursively on phone first!
+                    subprocess.run(["adb", "shell", "mkdir", "-p", remote_parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    res = subprocess.run(["adb", "push", tmp_path, remote_dest], capture_output=True, text=True, timeout=60)
+                    if res.returncode == 0:
+                        # 1. Trigger MediaScanner so the phone indices register the new file instantly!
+                        subprocess.run(["adb", "shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", f"file://{remote_dest}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        
+                        # 2. Only trigger launch intents for single file uploads (avoids spam and preview errors on folder uploads)
+                        if not is_folder_file:
+                            # If it is an APK, install it automatically so it works immediately!
+                            if filename.lower().endswith(".apk"):
+                                subprocess.run(["adb", "shell", "pm", "install", "-r", remote_dest], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                
+                            # For images, videos, audio, text, PDFs, trigger a View intent to open it on the phone!
+                            ext = os.path.splitext(filename)[1].lower()
+                            if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp4', '.mp3', '.pdf', '.txt'):
+                                mime = "text/plain"
+                                if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif'):
+                                    mime = "image/*"
+                                elif ext == '.mp4':
+                                    mime = "video/*"
+                                elif ext == '.mp3':
+                                    mime = "audio/*"
+                                elif ext == '.pdf':
+                                    mime = "application/pdf"
+                                
+                                # Start view intent to pop the file open on the phone screen
+                                subprocess.run(["adb", "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", f"file://{remote_dest}", "-t", mime], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"success": True, "message": f"Uploaded {filename} successfully."}).encode('utf-8'))
+                    else:
+                        self.send_response(500)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"success": False, "message": f"ADB Push failed: {res.stderr.strip()}"}).encode('utf-8'))
+                finally:
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except Exception:
+                            pass
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "message": str(e)}).encode('utf-8'))
+            return
+
+        elif self.path == '/api/storage/download_zip':
+            try:
+                content_length_header = self.headers.get('Content-Length')
+                content_length = int(content_length_header) if content_length_header is not None else 0
+                if content_length > 0:
+                    body = self.rfile.read(content_length).decode('utf-8')
+                    data = json.loads(body)
+                else:
+                    data = {}
+            except Exception as e:
+                self.send_error(400, f"Invalid JSON: {str(e)}")
+                return
+
+            paths = data.get("paths", [])
+            if not paths:
+                self.send_error(400, "No paths provided")
+                return
+
+            # Sanitize paths
+            for p in paths:
+                if not p.startswith(('/sdcard', '/storage')) or '..' in p or any(c in p for c in ';&|$`'):
+                    self.send_error(400, f"Invalid path detected: {p}")
+                    return
+
+            import zipfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+                zip_path = tmp_file.name
+
+            try:
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zip_f:
+                    for p in paths:
+                        with tempfile.TemporaryDirectory() as temp_dir:
+                            name = os.path.basename(p.rstrip('/'))
+                            dest = os.path.join(temp_dir, name)
+                            res = subprocess.run(["adb", "pull", p, dest], capture_output=True, text=True, timeout=120)
+                            if res.returncode == 0:
+                                if os.path.isdir(dest):
+                                    for root, _, files in os.walk(dest):
+                                        for file in files:
+                                            filepath = os.path.join(root, file)
+                                            arcname = os.path.relpath(filepath, temp_dir)
+                                            zip_f.write(filepath, arcname)
+                                else:
+                                    zip_f.write(dest, name)
+
+                file_size = os.path.getsize(zip_path)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/zip')
+                self.send_header('Content-Disposition', 'attachment; filename="phone_files.zip"')
+                self.send_header('Content-Length', str(file_size))
+                
+                # CORS headers
+                origin = self.headers.get('Origin')
+                if origin:
+                    self.send_header('Access-Control-Allow-Origin', origin)
+                self.end_headers()
+
+                with open(zip_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(64 * 1024)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+            except Exception as e:
+                self.send_error(500, f"Error building zip: {str(e)}")
+            finally:
+                if os.path.exists(zip_path):
+                    try:
+                        os.unlink(zip_path)
+                    except Exception:
+                        pass
+            return
 
         retired = {
             "/api/action/ocr",
@@ -1109,6 +1582,133 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     os.environ["ANDROID_SERIAL"] = serial
                     res_data["success"] = True
                     res_data["message"] = f"Target device serial set to {serial}."
+            elif self.path == '/api/storage/delete':
+                remote_path = str(data.get("path", "")).strip()
+                if not remote_path or not remote_path.startswith(('/sdcard', '/storage')) or '..' in remote_path or any(c in remote_path for c in ';&|$`'):
+                    res_data["message"] = "Invalid remote path"
+                else:
+                    res = run_adb_cmd_with_retry(["adb", "shell", "rm", "-rf", remote_path], timeout=10)
+                    if res.returncode == 0:
+                        res_data["success"] = True
+                        res_data["message"] = f"Deleted {os.path.basename(remote_path)}"
+                    else:
+                        res_data["message"] = f"Delete failed: {res.stderr.strip()}"
+            elif self.path == '/api/storage/delete_multiple':
+                paths = data.get("paths", [])
+                if not paths:
+                    res_data["message"] = "No paths provided"
+                else:
+                    invalid = False
+                    for p in paths:
+                        if not p.startswith(('/sdcard', '/storage')) or '..' in p or any(c in p for c in ';&|$`'):
+                            invalid = True
+                            break
+                    if invalid:
+                        res_data["message"] = "Invalid remote path detected"
+                    else:
+                        success_count = 0
+                        errors = []
+                        for p in paths:
+                            res = run_adb_cmd_with_retry(["adb", "shell", "rm", "-rf", p], timeout=10)
+                            if res.returncode == 0:
+                                success_count += 1
+                            else:
+                                errors.append(f"{os.path.basename(p)}: {res.stderr.strip()}")
+                        
+                        if success_count == len(paths):
+                            res_data["success"] = True
+                            res_data["message"] = f"Successfully deleted {success_count} items."
+                        else:
+                            res_data["success"] = success_count > 0
+                            res_data["message"] = f"Deleted {success_count}/{len(paths)} items. Errors: {', '.join(errors)}"
+            elif self.path == '/api/storage/download_external':
+                remote_path = str(data.get("path", "")).strip()
+                if not remote_path or not remote_path.startswith(('/sdcard', '/storage')) or '..' in remote_path or any(c in remote_path for c in ';&|$`'):
+                    res_data["message"] = "Invalid remote path"
+                else:
+                    filename = os.path.basename(remote_path)
+                    downloads_dir = os.path.expanduser("~/Downloads")
+                    local_path = os.path.join(downloads_dir, filename)
+                    
+                    # Ensure filename is unique to avoid overwriting existing files
+                    base, ext = os.path.splitext(filename)
+                    counter = 1
+                    while os.path.exists(local_path):
+                        local_path = os.path.join(downloads_dir, f"{base}_{counter}{ext}")
+                        counter += 1
+                        
+                    res = run_adb_cmd_with_retry(["adb", "pull", remote_path, local_path], timeout=60)
+                    if res.returncode == 0:
+                        res_data["success"] = True
+                        res_data["message"] = f"Downloaded {os.path.basename(local_path)} to Downloads"
+                        subprocess.Popen(["open", local_path])
+                    else:
+                        res_data["message"] = f"ADB pull failed: {res.stderr.strip()}"
+            elif self.path == '/api/storage/download_zip_external':
+                paths = data.get("paths", [])
+                if not paths:
+                    res_data["message"] = "No paths provided"
+                else:
+                    invalid = False
+                    for p in paths:
+                        if not p.startswith(('/sdcard', '/storage')) or '..' in p or any(c in p for c in ';&|$`'):
+                            invalid = True
+                            break
+                    if invalid:
+                        res_data["message"] = "Invalid remote path detected"
+                    else:
+                        downloads_dir = os.path.expanduser("~/Downloads")
+                        local_zip = os.path.join(downloads_dir, "phone_files.zip")
+                        
+                        # Handle filename collisions
+                        counter = 1
+                        while os.path.exists(local_zip):
+                            local_zip = os.path.join(downloads_dir, f"phone_files_{counter}.zip")
+                            counter += 1
+                            
+                        import zipfile
+                        try:
+                            with zipfile.ZipFile(local_zip, 'w', zipfile.ZIP_DEFLATED) as zip_f:
+                                for p in paths:
+                                    with tempfile.TemporaryDirectory() as temp_dir:
+                                        name = os.path.basename(p.rstrip('/'))
+                                        dest = os.path.join(temp_dir, name)
+                                        res = subprocess.run(["adb", "pull", p, dest], capture_output=True, text=True, timeout=120)
+                                        if res.returncode == 0:
+                                            if os.path.isdir(dest):
+                                                for root, _, files in os.walk(dest):
+                                                    for file in files:
+                                                        filepath = os.path.join(root, file)
+                                                        arcname = os.path.relpath(filepath, temp_dir)
+                                                        zip_f.write(filepath, arcname)
+                                            else:
+                                                zip_f.write(dest, name)
+                            
+                            res_data["success"] = True
+                            res_data["message"] = f"Saved {os.path.basename(local_zip)} to Downloads"
+                            subprocess.Popen(["open", "-R", local_zip])
+                        except Exception as e:
+                            res_data["message"] = f"Failed to compile ZIP: {str(e)}"
+                            if os.path.exists(local_zip):
+                                try:
+                                    os.unlink(local_zip)
+                                except Exception:
+                                    pass
+            elif self.path == '/api/storage/mkdir':
+                parent_dir = str(data.get("parent", "")).strip()
+                name = str(data.get("name", "")).strip()
+                if not parent_dir or not parent_dir.startswith(('/sdcard', '/storage')) or '..' in parent_dir or any(c in parent_dir for c in ';&|$`'):
+                    res_data["message"] = "Invalid parent path"
+                elif not name or '/' in name or '\\' in name or any(c in name for c in ';&|$`'):
+                    res_data["message"] = "Invalid folder name"
+                else:
+                    new_path = os.path.join(parent_dir, name)
+                    res = subprocess.run(["adb", "shell", "mkdir", "-p", new_path], capture_output=True, text=True, timeout=10)
+                    if res.returncode == 0:
+                        res_data["success"] = True
+                        res_data["message"] = f"Created folder '{name}'"
+                    else:
+                        res_data["message"] = f"Failed to create folder: {res.stderr.strip()}"
             elif self.path == '/api/connect':
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "5555")).strip()
@@ -1118,12 +1718,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = "A valid TCP port is required."
                 else:
                     ip_port = f"{ip}:{port}"
-                    res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
-                    stdout = res.stdout or ""
-                    stderr = res.stderr or ""
-                    output = (stdout + " " + stderr).strip()
-                    if "connected to" in output.lower() or "already connected to" in output.lower():
+                    connected, output = _adb_connect(ip, int(port), attempts=3)
+                    if connected:
                         res_data["success"] = True
+                        os.environ["ANDROID_SERIAL"] = ip_port
                         device_serial = _get_adb_device_serial(ip_port)
                         if device_serial:
                             ConnectPhone.save_wireless_endpoint(ip, int(port), device_serial)
@@ -1151,8 +1749,15 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         
             elif self.path == '/api/connect/auto':
                 config = ConnectPhone.load_config()
-                ip = config.get("last_ip", "").strip()
-                last_port = config.get("last_port", None)
+                saved = [
+                    item for item in config.get("saved_devices", [])
+                    if isinstance(item, dict) and item.get("auto_reconnect", True)
+                    and _valid_ipv4(str(item.get("ip", "")).strip())
+                    and _valid_port(item.get("port"))
+                ]
+                preferred = saved[0] if saved else {}
+                ip = str(preferred.get("ip") or config.get("last_ip", "")).strip()
+                last_port = preferred.get("port") or config.get("last_port", None)
                 if last_port:
                     try:
                         last_port = int(last_port)
@@ -1180,11 +1785,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             open_result = 1
                         if open_result == 0:
                             ip_port = f"{ip}:{last_port}"
-                            subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
-                            if "connected to" in (res.stdout or "").lower() or "already connected to" in (res.stdout or "").lower():
+                            connected_now, _ = _adb_connect(ip, int(last_port), attempts=2)
+                            if connected_now:
                                 accepted, _ = _accept_auto_wireless_connection(ip, int(last_port))
                                 if accepted:
+                                    os.environ["ANDROID_SERIAL"] = ip_port
                                     res_data["success"] = True
                                     res_data["message"] = f"⚡ Instantly reconnected to {ip_port}!"
                                     connected = True
@@ -1199,12 +1804,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         )
                         if mdns_port:
                             ip_port = f"{ip}:{mdns_port}"
-                            subprocess.run(["adb", "disconnect", ip_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
-                            stdout = res.stdout or ""
-                            if "connected to" in stdout.lower() or "already connected to" in stdout.lower():
+                            connected_now, _ = _adb_connect(ip, int(mdns_port), attempts=2)
+                            if connected_now:
                                 accepted, _ = _accept_auto_wireless_connection(ip, int(mdns_port))
                                 if accepted:
+                                    os.environ["ANDROID_SERIAL"] = ip_port
                                     res_data["success"] = True
                                     res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
                                     connected = True
@@ -1212,10 +1816,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
 
                     # 2. Parallel port scan fallback
                     if not connected:
-                        target_port = scan_and_connect_wireless_debug(ip, last_known_port=last_port)
+                        target_port = scan_and_connect_wireless_debug(ip, last_known_port=last_port, allow_port_scan=True)
                         if target_port:
                             accepted, _ = _accept_auto_wireless_connection(ip, int(target_port))
                             if accepted:
+                                os.environ["ANDROID_SERIAL"] = f"{ip}:{int(target_port)}"
                                 res_data["success"] = True
                                 res_data["message"] = f"Successfully auto-connected to phone at {ip}:{target_port}!"
                                 connected = True
@@ -1279,10 +1884,23 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 if not _valid_ipv4(ip) or not _valid_port(port) or not code.isdigit() or len(code) != 6:
                     res_data["message"] = "Enter a valid IPv4 address, TCP port, and 6-digit pairing code."
                 else:
-                    ConnectPhone.save_last_ip(ip)
-                    _invalidate_status_cache()
                     ip_port = f"{ip}:{port}"
-                    print(f"[UI Server] Attempting wireless pairing to {ip_port} with code {code}...")
+                    print(f"[UI Server] Attempting wireless pairing to {ip_port}...")
+
+                    # The pairing popup uses a short-lived random port. A
+                    # scan result can become stale while the user types the
+                    # code, so refresh the advertisement on every submit.
+                    # Keep the selected port only when Bonjour has not
+                    # returned a replacement yet.
+                    fresh_ip, fresh_port = discover_adb_service_hybrid(
+                        "_adb-tls-pairing._tcp.local.",
+                        target_ip=ip,
+                        timeout=0.8,
+                    )
+                    if fresh_ip == ip and fresh_port:
+                        ip_port = f"{ip}:{int(fresh_port)}"
+                        port = str(int(fresh_port))
+                        print(f"[UI Server] Using current pairing port: {ip_port}")
 
                     def _try_pair_cli(ip_port, code):
                         """Strategy 1: adb pair <ip:port> <code>  — works on ADB >= 30."""
@@ -1394,29 +2012,36 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             success = True
                             final_msg = msg
 
-                    # ── If all failed, do ONE adb server reset and retry strategy 1 ──
-                    if not success:
-                        print("[UI Server] All 3 strategies failed. Resetting ADB server and doing one final retry...")
-                        subprocess.run(["adb", "kill-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        subprocess.run(["adb", "start-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        time.sleep(1.0)
-                        ok, msg = _try_pair_cli(ip_port, code)
-                        if not ok:
-                            ok, msg = _try_pair_stdin(ip_port, code)
-                        if ok:
-                            success = True
-                            final_msg = msg
-                        else:
-                            final_msg = msg  # last error for display
-
                     # ── Build response ──────────────────────────────────────────
                     if success:
-                        res_data["success"] = True
-                        res_data["message"] = (
-                            "✅ Successfully paired! Your Mac is now trusted by this phone.\n"
-                            "Next step: tap 'Wireless Debugging' on your phone to see the Connection Port "
-                            "(NOT the pairing port), enter it in the IP/Port box and click Connect."
+                        # Pairing authorizes the Mac but uses a different,
+                        # rotating port from the main ADB connect service.
+                        # Resolve that service immediately so the user does
+                        # not have to copy a second port by hand.
+                        connected_port = None
+                        _, discovered_port = discover_adb_service_hybrid(
+                            "_adb-tls-connect._tcp.local.",
+                            target_ip=ip,
+                            timeout=1.2,
                         )
+                        if not discovered_port:
+                            discovered_port = scan_and_connect_wireless_debug(ip, allow_port_scan=True)
+                        if discovered_port:
+                            connected_now, _ = _adb_connect(ip, int(discovered_port), attempts=3)
+                            if connected_now:
+                                connected_port = int(discovered_port)
+                                serial = _get_adb_device_serial(f"{ip}:{connected_port}")
+                                os.environ["ANDROID_SERIAL"] = f"{ip}:{connected_port}"
+                                ConnectPhone.save_wireless_endpoint(ip, connected_port, serial)
+                                _invalidate_status_cache()
+                        res_data["success"] = True
+                        if connected_port:
+                            res_data["message"] = f"✅ Paired and connected to {ip}:{connected_port}."
+                        else:
+                            res_data["message"] = (
+                                "✅ Successfully paired. The phone did not publish its connect service yet; "
+                                "keep Wireless Debugging enabled and click Connect/Auto-connect once."
+                            )
                     else:
                         err_lower = final_msg.lower()
                         if "connection refused" in err_lower or "timeout" in err_lower or "timed out" in err_lower:
@@ -1440,7 +2065,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             res_data["message"] = (
                                 f"Pairing failed: {final_msg}\n\n"
                                 "💡 Make sure the 'Pair device with pairing code' popup is still open on "
-                                "your phone and you are using the port shown inside that popup."
+                                "your phone and you are using the port shown inside that popup. If the popup "
+                                "was open before scanning, close it, open a fresh pairing-code popup, scan "
+                                "again, and submit the new code immediately."
                             )
                 
             elif self.path == '/api/restart_adb':
@@ -2250,6 +2877,37 @@ def start_server_in_thread(httpd):
         stop_scrcpy_bg()
 
 def run_server():
+    # Prompt biometric/passcode authentication before starting the application!
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    helper_path = os.path.join(script_dir, "touch_id_helper")
+    if not os.path.exists(helper_path):
+        touch_id_swift = os.path.join(script_dir, "touch_id.swift")
+        if os.path.exists(touch_id_swift):
+            try:
+                subprocess.run(["swiftc", touch_id_swift, "-o", helper_path])
+            except Exception:
+                pass
+
+    if os.path.exists(helper_path):
+        res = subprocess.run([helper_path, "Authenticate to access ConnectPhone"], capture_output=True, text=True)
+        stdout = res.stdout or ""
+        if "SUCCESS" not in stdout:
+            print("❌ Authentication failed. Exiting ConnectPhone.")
+            sys.exit(1)
+
+    class WebviewApi:
+        def __init__(self):
+            self.window = None
+            
+        def set_window(self, window):
+            self.window = window
+            
+        def show_inspector(self):
+            if self.window:
+                self.window.show_inspector()
+                return {"success": True}
+            return {"success": False}
+
     class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         allow_reuse_address = True
         daemon_threads = True
@@ -2262,10 +2920,13 @@ def run_server():
             print(f"\nℹ️ ConnectPhone UI Dashboard is already running on http://localhost:{PORT}")
             try:
                 import webview
-                webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False)
-                webview.start()
+                webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
+                js_api = WebviewApi()
+                win = webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False, js_api=js_api)
+                js_api.set_window(win)
+                webview.start(debug=True)
             except ImportError:
-                webbrowser.open(f"http://localhost:{PORT}")
+                webbrowser.open(f"http://localhost:{PORT}/#token={API_TOKEN}")
             sys.exit(0)
         else:
             raise e
@@ -2296,9 +2957,11 @@ def run_server():
 
     try:
         import webview
-        # Open as dedicated desktop app window
-        webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False)
-        webview.start()
+        webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
+        js_api = WebviewApi()
+        win = webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False, js_api=js_api)
+        js_api.set_window(win)
+        webview.start(debug=True)
     except ImportError:
         print("💡 pywebview not found, falling back to standard web browser.")
         webbrowser.open(f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}")

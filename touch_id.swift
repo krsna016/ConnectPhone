@@ -5,8 +5,13 @@ let context = LAContext()
 var error: NSError?
 let semaphore = DispatchSemaphore(value: 0)
 
-if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-    context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Authenticate to unlock your Android device") { success, authError in
+var reason = "Authenticate to unlock your Android device"
+if CommandLine.arguments.count > 1 {
+    reason = CommandLine.arguments[1]
+}
+
+if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
+    context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, authError in
         if success {
             print("SUCCESS")
             exit(0)

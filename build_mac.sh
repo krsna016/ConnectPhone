@@ -45,6 +45,7 @@ echo "📦 Packaging App with PyInstaller..."
     --hidden-import=fastapi \
     --hidden-import=pydantic \
     --hidden-import=zeroconf \
+    --hidden-import=ifaddr \
     --hidden-import=qrcode \
     --hidden-import=PIL \
     --hidden-import=aiortc \

@@ -158,7 +158,11 @@ class ConfigurationManager:
                     is_same = False
                 if is_same:
                     existing_serial = item.get("device_serial") or None
-                if not is_same:
+                # Wireless-debugging ports are ephemeral. Keeping historical
+                # ports for the same IP makes the background reconnector
+                # hammer dead endpoints forever and can make ADB appear
+                # intermittently broken. Retain one current endpoint per IP.
+                if item.get("ip") != ip and not is_same:
                     devices.append(item)
         # Auto-discovery often knows the endpoint before it has re-read the
         # device serial. Never erase an enrolled identity during that path.

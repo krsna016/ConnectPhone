@@ -41,7 +41,15 @@ def _connected_adb_serial(serial):
 
 @app.middleware("http")
 async def require_api_token(request, call_next):
-    if not _api_token or not secrets.compare_digest(request.headers.get("x-connectphone-token", ""), _api_token):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    
+    token = request.headers.get("x-connectphone-token", "")
+    if not token:
+        # Fallback to query parameter token
+        token = request.query_params.get("token", "")
+        
+    if not _api_token or not secrets.compare_digest(token, _api_token):
         return JSONResponse({"detail": "Authentication required"}, status_code=401)
     return await call_next(request)
 

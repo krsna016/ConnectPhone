@@ -29,6 +29,30 @@ The project merges high-performance backend pipelines (`scrcpy` and `adb` cores)
 
 ---
 
+## Storage Manager & Keyboard Controls
+
+ConnectPhone includes a built-in phone storage browser that integrates deeply with macOS:
+* **Layout View Toggle**: Quickly switch between a detailed **List View** and a clean, responsive **Grid View**.
+* **Batch Actions**: Select multiple files or folders using checkbox columns to perform bulk deletions or download selected items directly as a single compiled ZIP archive.
+* **Native macOS Downloads**: File downloads bypass sandbox restrictions. They save directly to your Mac's `~/Downloads` folder and automatically highlight the downloaded file/archive in Finder.
+* **Bidirectional Drag & Drop**:
+  * **Mac to Phone**: Drag multiple files or folders from Finder and drop them anywhere into the Storage Browser panel to upload them sequentially.
+  * **Phone to Mac**: Drag any file row out of the application window and drop it onto your Mac Desktop or Finder folder to download it instantly.
+* **Glassmorphic Image Previewer**: Double-click any image to trigger a centered, compact preview card. Supports zooming, 90° rotation, and image slider navigation.
+* **Full Keyboard Navigation**:
+  * **Arrow Up / Arrow Down**: Move focus highlight through items in the directory.
+  * **Enter**: Navigate into the focused directory or open the image previewer.
+  * **Spacebar**: Check/uncheck selection for the focused item.
+  * **Backspace / Delete**: Navigate back to the parent directory (automatically ignores keypresses when typing inside input/search boxes).
+  * **Escape** (inside Gallery): Close the image previewer.
+  * **Arrow Left / Arrow Right** (inside Gallery): Slide to the previous/next image.
+* **Apple Trackpad Gestures**:
+  * **Two-finger swipe left-to-right**: Navigate back to the parent directory in the file browser.
+  * **Two-finger horizontal swipe** (inside Gallery): Navigate to the previous or next image.
+  * **Pinch-in / Pinch-out** (inside Gallery): Standard pinch gestures dynamically zoom in and out of the active image.
+
+---
+
 ## System Requirements
 
 To run this application on macOS, you must ensure the following system-level dependencies are installed:

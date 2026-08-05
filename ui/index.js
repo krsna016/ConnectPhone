@@ -2,8 +2,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // API base URL (detect file:// protocol to point to local Python server)
     const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:8282' : '';
     // Keep the token in the URL fragment so it is not sent to the local HTTP
-    // server in request logs or included in Referer headers.
-    const API_TOKEN = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token') || '';
+    // server in request logs or included in Referer headers. Cache it in
+    // localStorage so that page reloads or external browser visits remain authenticated.
+    let hashToken = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token');
+    if (hashToken) {
+        localStorage.setItem('cp_api_token', hashToken);
+        // Clear hash to prevent leaking the token in history or sharing
+        window.location.hash = '';
+    }
+    const API_TOKEN = localStorage.getItem('cp_api_token') || '';
+
     const nativeFetch = window.fetch.bind(window);
     window.fetch = (input, init = {}) => {
         const headers = new Headers(init.headers || {});
@@ -24,9 +32,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRecording = false;
     let _actionInFlight = false;  // pause polling during long operations
 
+    // Storage Manager State
+    window.currentStoragePath = '/sdcard';
+    window.isConnected = false;
 
     // DOM Elements
     const navButtons = document.querySelectorAll('.nav-btn');
+    const storageDisconnectedAlert = document.getElementById('storage-disconnected-alert');
+    const storageMainView = document.getElementById('storage-main-view');
+    const storageCurrentPath = document.getElementById('storage-current-path');
     const tabPanes = document.querySelectorAll('.tab-pane');
     const connStatus = document.getElementById('connection-status');
     const connStatusText = connStatus.querySelector('.status-text');
@@ -107,9 +121,12 @@ document.addEventListener('DOMContentLoaded', () => {
             stopMetricsPolling();
         }
 
+        if (tabName === 'storage') {
+            if (window.loadStorageDirectory) window.loadStorageDirectory(window.currentStoragePath);
+        }
+
 
     }
-
     // Refresh devices list manually
     btnRefresh.addEventListener('click', () => {
         showToast('Scanning for connected devices...', 'info');
@@ -145,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Fetch Status and update UI
     async function fetchStatus(isManual = false) {
+        if (_actionInFlight && !isManual) return;
         try {
             const res = await fetch(`${API_BASE}/api/status`);
             if (!res.ok) throw new Error("HTTP connection error");
@@ -169,6 +187,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateConnectionUI(data) {
         const cleanInfo = (data.device_info || "").replace(/\\033\[[0-9;]*m/g, '').replace(/\x1b\[[0-9;]*m/g, '');
+        
+        const wasConnected = window.isConnected;
+        window.isConnected = !!data.connected;
+        if (storageDisconnectedAlert && storageMainView) {
+            if (window.isConnected) {
+                storageDisconnectedAlert.style.display = 'none';
+                storageMainView.style.display = 'flex';
+                
+                // If we just connected, or if we are on the storage tab and it hasn't loaded yet (e.g. empty path input)
+                if ((!wasConnected || !storageCurrentPath.value) && currentTab === 'storage') {
+                    if (window.loadStorageDirectory) window.loadStorageDirectory(window.currentStoragePath);
+                }
+            } else {
+                storageDisconnectedAlert.style.display = 'flex';
+                storageMainView.style.display = 'none';
+            }
+        }
+
         if (data.connected) {
             connStatus.className = 'connection-badge connected';
             connStatusText.textContent = 'Connected';
@@ -477,6 +513,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Post to endpoint helper (with button loading state)
     async function postAction(url, bodyData = {}, btnEl = null) {
         const origText = btnEl ? btnEl.innerHTML : null;
+        _actionInFlight = true;
         if (btnEl) {
             btnEl.disabled = true;
             btnEl.innerHTML = `<span class="btn-spinner"></span> ${btnEl.textContent.trim()}`;
@@ -504,6 +541,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             showToast(`Error: ${errorMsg}`, 'error');
         } finally {
+            _actionInFlight = false;
             if (btnEl && origText !== null) {
                 btnEl.disabled = false;
                 btnEl.innerHTML = origText;
@@ -697,10 +735,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function executeMdnsScan(targetIp) {
-        mdnsList.innerHTML = `<p class="list-placeholder"><i class="material-symbols-outlined">bolt</i> Scanning Wi-Fi network for ${escapeHtml(targetIp)} (takes 2 seconds)...</p>`;
+        mdnsList.innerHTML = `<p class="list-placeholder"><i class="material-symbols-outlined">bolt</i> Scanning Wi-Fi network for ${escapeHtml(targetIp)}...</p>`;
         btnScanMdns.disabled = true;
         try {
-            const res = await fetch(`${API_BASE}/api/mdns/discover`);
+            const res = await fetch(`${API_BASE}/api/mdns/discover?ip=${encodeURIComponent(targetIp)}`);
             const data = await res.json();
             mdnsList.innerHTML = '';
             
@@ -1384,8 +1422,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function initDashboard() {
         await loadMacAudioDevices();
         fetchStatus();
-        // Poll every 800 ms — cache on backend makes this free (< 1 ms per response)
-        statusInterval = setInterval(fetchStatus, 800);
+        // Keep the dashboard responsive without competing with ADB actions.
+        statusInterval = setInterval(fetchStatus, 1200);
     }
     
     initDashboard();
@@ -1395,6 +1433,52 @@ document.addEventListener('DOMContentLoaded', () => {
 // AI AUTOMATION & OCR LOGIC
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
+    const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:8282' : '';
+    const API_TOKEN = localStorage.getItem('cp_api_token') || '';
+    const toastContainer = document.getElementById('toast-container');
+
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value).replace(/[<>&"'`]/g, (ch => {
+            return {
+                '<': '&lt;',
+                '>': '&gt;',
+                '&': '&amp;',
+                '"': '&quot;',
+                "'": '&#39;',
+                '`': '&#96;'
+            }[ch];
+        }));
+    }
+
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        let icon = '<i class="material-symbols-outlined">notifications</i>';
+        if (type === 'success') icon = '<i class="material-symbols-outlined">check_circle</i>';
+        else if (type === 'error') icon = '<i class="material-symbols-outlined">cancel</i>';
+        else if (type === 'info') icon = '<i class="material-symbols-outlined">hourglass_empty</i>';
+        
+        toast.innerHTML = `
+            ${icon}
+            <span class="toast-message">${escapeHtml(message)}</span>
+        `;
+        
+        if (toastContainer) {
+            toastContainer.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 100);
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 3000);
+        }
+    }
     
     // OCR Extraction Logic
     const btnOcr = document.getElementById('btn-ai-ocr');
@@ -1462,4 +1546,1085 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ---------------------------------------------------------
+    // Storage Manager Implementation
+    // ---------------------------------------------------------
+    
+    // DOM Elements for Storage Manager
+    const storageDisconnectedAlert = document.getElementById('storage-disconnected-alert');
+    const storageMainView = document.getElementById('storage-main-view');
+    const storageCurrentPath = document.getElementById('storage-current-path');
+    const storageBtnBack = document.getElementById('storage-btn-back');
+    const storageBtnNewFolder = document.getElementById('storage-btn-new-folder');
+    const storageBtnRefresh = document.getElementById('storage-btn-refresh');
+    const storageBtnUploadTrigger = document.getElementById('storage-btn-upload-trigger');
+    const storageFileUploadInput = document.getElementById('storage-file-upload-input');
+    const storageExplorerZone = document.getElementById('storage-explorer-zone');
+    const storageDropOverlay = document.getElementById('storage-drop-overlay');
+    const storageFileList = document.getElementById('storage-file-list');
+    const storageUploadProgressContainer = document.getElementById('storage-upload-progress-container');
+    const storageUploadFilename = document.getElementById('storage-upload-filename');
+    const storageUploadPercentage = document.getElementById('storage-upload-percentage');
+    const storageUploadBar = document.getElementById('storage-upload-bar');
+
+    // New DOM Elements for Selection, Search, Gallery & View toggle
+    const storageSelectAll = document.getElementById('storage-select-all');
+    const storageSearchInput = document.getElementById('storage-search-input');
+    const storageBatchBar = document.getElementById('storage-batch-bar');
+    const batchSelectedCount = document.getElementById('batch-selected-count');
+    const batchBtnDownload = document.getElementById('batch-btn-download');
+    const batchBtnDelete = document.getElementById('batch-btn-delete');
+    const batchBtnClear = document.getElementById('batch-btn-clear');
+
+    const galleryModal = document.getElementById('storage-gallery-modal');
+    const galleryImg = document.getElementById('gallery-img');
+    const galleryClose = document.getElementById('gallery-close');
+    const galleryPrev = document.getElementById('gallery-prev');
+    const galleryNext = document.getElementById('gallery-next');
+    const galleryFilename = document.getElementById('gallery-filename');
+    const galleryBtnZoomIn = document.getElementById('gallery-btn-zoom-in');
+    const galleryBtnZoomOut = document.getElementById('gallery-btn-zoom-out');
+    const galleryBtnRotate = document.getElementById('gallery-btn-rotate');
+    const galleryBtnDownload = document.getElementById('gallery-btn-download');
+
+    const storageBtnViewToggle = document.getElementById('storage-btn-view-toggle');
+    const storageViewToggleIcon = document.getElementById('storage-view-toggle-icon');
+    const storageBrowserCard = document.querySelector('.storage-browser-card');
+
+    // Storage Manager scoped variables
+    let renderFileList, deleteItem, createFolder, uploadFile, downloadFile;
+    let storageViewMode = 'list';  // Layout mode: 'list' or 'grid'
+    let allFetchedFiles = [];     // Cached in-memory copy of all files in the current folder
+    let selectedPaths = [];       // List of currently selected paths
+    let currentImageFiles = [];   // List of image files in current folder for gallery slider
+    let currentImageIndex = -1;   // Index of the currently previewed image in currentImageFiles
+    let zoomLevel = 1;            // Current zoom level for gallery modal preview
+    let rotateAngle = 0;          // Current rotation angle for gallery modal preview
+    let focusedIndex = -1;        // Track selected index for keyboard controls
+
+    function focusItem(index) {
+        const items = document.querySelectorAll('.storage-item');
+        if (items.length === 0) return;
+        
+        // Remove focus from previous item
+        if (focusedIndex >= 0 && focusedIndex < items.length) {
+            items[focusedIndex].classList.remove('active-focus');
+        }
+        
+        // Clamp index
+        if (index < 0) index = 0;
+        if (index >= items.length) index = items.length - 1;
+        
+        focusedIndex = index;
+        const targetItem = items[focusedIndex];
+        targetItem.classList.add('active-focus');
+        
+        // Scroll into view if needed
+        targetItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    // File utility helpers
+    function formatFileSize(bytes) {
+        if (bytes === 0 || !bytes) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function formatDate(epochSeconds) {
+        if (!epochSeconds) return 'Unknown';
+        const date = new Date(epochSeconds * 1000);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function getFileIconClass(name, isDir) {
+        if (isDir) return 'folder item-icon-folder';
+        const ext = name.split('.').pop().toLowerCase();
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) {
+            return 'image item-icon-image';
+        }
+        if (['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv'].includes(ext)) {
+            return 'video_file item-icon-video';
+        }
+        if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext)) {
+            return 'audiotrack item-icon-audio';
+        }
+        if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'rtf', 'csv'].includes(ext)) {
+            return 'description item-icon-doc';
+        }
+        return 'draft item-icon-file';
+    }
+
+    // Floating batch action bar helper
+    function updateBatchActionsBar() {
+        if (!storageBatchBar || !batchSelectedCount) return;
+        if (selectedPaths.length > 0) {
+            batchSelectedCount.innerText = `${selectedPaths.length} item${selectedPaths.length > 1 ? 's' : ''} selected`;
+            storageBatchBar.style.display = 'block';
+            setTimeout(() => {
+                storageBatchBar.classList.add('active');
+            }, 10);
+        } else {
+            storageBatchBar.classList.remove('active');
+            setTimeout(() => {
+                if (selectedPaths.length === 0) storageBatchBar.style.display = 'none';
+            }, 300);
+        }
+    }
+
+    // Load directory contents
+    window.loadStorageDirectory = async function(path, isSoft = false) {
+        if (!window.isConnected) return;
+        window.currentStoragePath = path;
+        if (storageCurrentPath) storageCurrentPath.value = path;
+
+        if (storageFileList && !isSoft) {
+            storageFileList.innerHTML = `
+                <div class="storage-loading">
+                    <div class="spinner"></div>
+                    <p>Loading files from phone...</p>
+                </div>
+            `;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/api/storage/list?path=${encodeURIComponent(path)}`);
+            if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+            const data = await response.json();
+            
+            if (!data.success) {
+                if (!isSoft) {
+                    showToast(data.message || 'Failed to list directory contents', 'error');
+                    storageFileList.innerHTML = `
+                        <div class="storage-loading">
+                            <i class="material-symbols-outlined" style="font-size:48px; color:var(--color-danger)">error</i>
+                            <p>${escapeHtml(data.message || 'Error loading directory')}</p>
+                        </div>
+                    `;
+                }
+                return;
+            }
+
+            allFetchedFiles = data.files || [];
+            if (!isSoft) {
+                selectedPaths = [];
+                updateBatchActionsBar();
+                if (storageSelectAll) storageSelectAll.checked = false;
+                if (storageSearchInput) storageSearchInput.value = '';
+            } else {
+                // Filter out selected paths that don't exist anymore
+                const currentPaths = allFetchedFiles.map(f => f.path);
+                selectedPaths = selectedPaths.filter(p => currentPaths.includes(p));
+                updateBatchActionsBar();
+            }
+
+            // Extract image files in the current folder for the gallery slider
+            currentImageFiles = allFetchedFiles.filter(file => {
+                if (file.is_dir) return false;
+                const ext = file.name.split('.').pop().toLowerCase();
+                return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext);
+            });
+
+            if (isSoft && storageSearchInput && storageSearchInput.value) {
+                const query = storageSearchInput.value.toLowerCase().trim();
+                const filtered = allFetchedFiles.filter(file => file.name.toLowerCase().includes(query));
+                renderFileList(filtered);
+            } else {
+                renderFileList(allFetchedFiles);
+            }
+        } catch (err) {
+            console.error('Failed to load directory:', err);
+            if (!isSoft) {
+                storageFileList.innerHTML = `
+                    <div class="storage-loading">
+                        <i class="material-symbols-outlined" style="font-size:48px; color:var(--color-danger)">cloud_off</i>
+                        <p>Failed to connect to phone storage.</p>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    renderFileList = function(files) {
+        if (!storageFileList) return;
+        focusedIndex = -1; // Reset keyboard focus
+        if (files.length === 0) {
+            storageFileList.innerHTML = `
+                <div class="storage-loading">
+                    <i class="material-symbols-outlined" style="font-size:48px; color:var(--text-muted)">folder_open</i>
+                    <p>No items found.</p>
+                </div>
+            `;
+            return;
+        }
+
+        storageFileList.innerHTML = '';
+        files.forEach((file, index) => {
+            const row = document.createElement('div');
+            row.className = 'storage-item';
+            row.setAttribute('tabindex', '0');
+            
+            row.addEventListener('click', () => {
+                focusItem(index);
+            });
+            
+            const downloadUrl = `http://localhost:8282/api/storage/download?path=${encodeURIComponent(file.path)}&token=${API_TOKEN}`;
+            const iconClass = getFileIconClass(file.name, file.is_dir);
+            const sizeStr = file.is_dir ? '--' : formatFileSize(file.size);
+            const dateStr = formatDate(file.mtime);
+
+            // Columns structure (includes row checkbox)
+            row.innerHTML = `
+                <div class="col-checkbox">
+                    <input type="checkbox" class="storage-checkbox storage-item-checkbox" data-path="${escapeHtml(file.path)}" ${selectedPaths.includes(file.path) ? 'checked' : ''}>
+                </div>
+                <div class="col-name">
+                    <a href="${downloadUrl}" class="col-name-link" draggable="true" title="Drag to Mac Desktop to download / Double-click to open" style="color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; width: 100%;">
+                        <i class="material-symbols-outlined ${iconClass}" style="flex-shrink: 0;">${file.is_dir ? 'folder' : 'draft'}</i>
+                        <span class="col-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(file.name)}</span>
+                    </a>
+                </div>
+                <div class="col-size">${sizeStr}</div>
+                <div class="col-date">${dateStr}</div>
+                <div class="col-actions">
+                    ${!file.is_dir ? `
+                        <button class="btn btn-icon-only btn-download" title="Download file" style="padding:4px; display:inline-flex;">
+                            <i class="material-symbols-outlined" style="font-size:18px;">download</i>
+                        </button>
+                    ` : ''}
+                    <button class="btn btn-icon-only btn-delete" title="Delete item" style="padding:4px; display:inline-flex; border-color: rgba(240, 107, 120, 0.2); color: var(--color-danger);">
+                        <i class="material-symbols-outlined" style="font-size:18px;">delete</i>
+                    </button>
+                </div>
+            `;
+
+            // Double click to enter directory, or preview image
+            if (file.is_dir) {
+                row.addEventListener('dblclick', () => {
+                    window.loadStorageDirectory(file.path);
+                });
+            } else {
+                const ext = file.name.split('.').pop().toLowerCase();
+                if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) {
+                    row.addEventListener('dblclick', () => {
+                        openGalleryPreview(file.path);
+                    });
+                } else {
+                    row.addEventListener('dblclick', () => {
+                        downloadFile(file.path, file.name);
+                    });
+                }
+            }
+
+            // Drag out configuration - bind on anchor link directly to satisfy macOS WebKit restrictions
+            const link = row.querySelector('.col-name-link');
+            if (link) {
+                link.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.effectAllowed = 'copy';
+                    const dragFilename = file.is_dir ? `${file.name}.zip` : file.name;
+                    e.dataTransfer.setData('DownloadURL', `application/octet-stream:${dragFilename}:${downloadUrl}`);
+                });
+            }
+
+            // Stop click propagation on checkbox
+            const itemCheckbox = row.querySelector('.storage-item-checkbox');
+            if (itemCheckbox) {
+                itemCheckbox.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+                itemCheckbox.addEventListener('change', () => {
+                    if (itemCheckbox.checked) {
+                        if (!selectedPaths.includes(file.path)) selectedPaths.push(file.path);
+                    } else {
+                        selectedPaths = selectedPaths.filter(p => p !== file.path);
+                    }
+                    updateBatchActionsBar();
+                });
+            }
+
+            // Download handler
+            if (!file.is_dir) {
+                row.querySelector('.btn-download').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    downloadFile(file.path, file.name);
+                });
+            }
+
+            // Delete handler
+            row.querySelector('.btn-delete').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm(`Are you sure you want to delete "${file.name}"?`)) {
+                    deleteItem(file.path);
+                }
+            });
+
+            storageFileList.appendChild(row);
+        });
+    }
+
+    // Delete item
+    deleteItem = async function(path) {
+        try {
+            const response = await fetch(`${API_BASE}/api/storage/delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: path })
+            });
+            const res = await response.json();
+            if (res.success) {
+                showToast(res.message || 'Item deleted successfully', 'success');
+                window.loadStorageDirectory(window.currentStoragePath);
+            } else {
+                showToast(res.message || 'Delete failed', 'error');
+            }
+        } catch (err) {
+            console.error('Delete failed:', err);
+            showToast('Network error during delete', 'error');
+        }
+    }
+
+    // Create folder
+    createFolder = async function(name) {
+        try {
+            const response = await fetch(`${API_BASE}/api/storage/mkdir`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ parent: window.currentStoragePath, name: name })
+            });
+            const res = await response.json();
+            if (res.success) {
+                showToast(res.message || 'Folder created successfully', 'success');
+                window.loadStorageDirectory(window.currentStoragePath);
+            } else {
+                showToast(res.message || 'Failed to create folder', 'error');
+            }
+        } catch (err) {
+            console.error('Mkdir failed:', err);
+            showToast('Network error during folder creation', 'error');
+        }
+    }
+
+    // Upload files sequentially with progress bar support
+    uploadFiles = async function(fileObjects) {
+        if (!fileObjects || fileObjects.length === 0) return;
+        
+        // Normalize input: convert File objects array to { file, relativePath: "" } objects array
+        const normalized = Array.from(fileObjects).map(item => {
+            if (item instanceof File) {
+                return { file: item, relativePath: "" };
+            }
+            return item;
+        });
+        
+        for (let i = 0; i < normalized.length; i++) {
+            const fileObj = normalized[i];
+            const file = fileObj.file;
+            const relativePath = fileObj.relativePath || "";
+            const displayName = relativePath || file.name;
+            
+            await new Promise((resolve) => {
+                const formData = new FormData();
+                formData.append('path', window.currentStoragePath);
+                formData.append('file', file);
+                if (relativePath) {
+                    formData.append('relativePath', relativePath);
+                }
+                
+                if (storageUploadProgressContainer) {
+                    storageUploadProgressContainer.style.display = 'block';
+                    if (storageUploadFilename) {
+                        storageUploadFilename.innerText = normalized.length > 1 
+                            ? `[${i + 1}/${normalized.length}] ${displayName}` 
+                            : displayName;
+                    }
+                    if (storageUploadPercentage) storageUploadPercentage.innerText = '0%';
+                    if (storageUploadBar) storageUploadBar.style.width = '0%';
+                }
+                
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `${API_BASE}/api/storage/upload`, true);
+                if (API_TOKEN) {
+                    xhr.setRequestHeader('X-ConnectPhone-Token', API_TOKEN);
+                }
+                
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable && storageUploadPercentage && storageUploadBar) {
+                        const percent = Math.round((e.loaded / e.total) * 100);
+                        storageUploadPercentage.innerText = `${percent}%`;
+                        storageUploadBar.style.width = `${percent}%`;
+                    }
+                });
+                
+                xhr.onload = () => {
+                    if (xhr.status === 200) {
+                        try {
+                            const res = JSON.parse(xhr.responseText);
+                            if (res.success) {
+                                showToast(`Uploaded: ${file.name}`, 'success');
+                            } else {
+                                showToast(`Failed to upload ${file.name}: ${res.message}`, 'error');
+                            }
+                        } catch (err) {
+                            showToast(`Uploaded: ${file.name}`, 'success');
+                        }
+                    } else {
+                        showToast(`Failed to upload ${file.name} (HTTP ${xhr.status})`, 'error');
+                    }
+                    resolve();
+                };
+                
+                xhr.onerror = () => {
+                    showToast(`Error uploading: ${file.name}`, 'error');
+                    resolve();
+                };
+                
+                xhr.send(formData);
+            });
+        }
+        
+        if (storageUploadProgressContainer) storageUploadProgressContainer.style.display = 'none';
+        window.loadStorageDirectory(window.currentStoragePath);
+    }
+
+    downloadFile = async function(remotePath, filename) {
+        try {
+            showToast(`Downloading: ${filename}...`, 'info');
+            const response = await fetch(`${API_BASE}/api/storage/download_external`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-ConnectPhone-Token': API_TOKEN
+                },
+                body: JSON.stringify({ path: remotePath })
+            });
+            const res = await response.json();
+            if (res.success) {
+                showToast(res.message || 'Download finished successfully!', 'success');
+            } else {
+                throw new Error(res.message || 'Server error');
+            }
+        } catch (err) {
+            console.error('Download failed:', err);
+            showToast(`Download failed: ${err.message}`, 'error');
+        }
+    }
+
+    // Image Gallery Preview Helper Logic
+    async function openGalleryPreview(filePath) {
+        if (!galleryModal || !galleryImg || !galleryFilename) return;
+        
+        currentImageIndex = currentImageFiles.findIndex(file => file.path === filePath);
+        if (currentImageIndex === -1) return;
+        
+        zoomLevel = 1;
+        rotateAngle = 0;
+        applyGalleryTransforms();
+        
+        galleryModal.style.display = 'flex';
+        setTimeout(() => {
+            galleryModal.classList.add('active');
+        }, 50);
+
+        await loadGalleryImage(filePath);
+        updateGalleryNavButtons();
+    }
+
+    async function loadGalleryImage(filePath) {
+        if (!galleryImg || !galleryFilename) return;
+        
+        const filename = filePath.split('/').pop();
+        galleryFilename.innerText = filename;
+        galleryImg.src = '';
+        galleryImg.style.opacity = '0.3';
+        
+        try {
+            const response = await fetch(`${API_BASE}/api/storage/download?path=${encodeURIComponent(filePath)}`, {
+                headers: { 'X-ConnectPhone-Token': API_TOKEN }
+            });
+            if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+            
+            const blob = await response.blob();
+            const objectUrl = window.URL.createObjectURL(blob);
+            galleryImg.src = objectUrl;
+            galleryImg.style.opacity = '1';
+        } catch (err) {
+            console.error('Failed to load image preview:', err);
+            showToast('Failed to load image preview', 'error');
+        }
+    }
+
+    function updateGalleryNavButtons() {
+        if (!galleryPrev || !galleryNext) return;
+        galleryPrev.style.display = currentImageIndex > 0 ? 'inline-flex' : 'none';
+        galleryNext.style.display = currentImageIndex < currentImageFiles.length - 1 ? 'inline-flex' : 'none';
+    }
+
+    function applyGalleryTransforms() {
+        if (!galleryImg) return;
+        galleryImg.style.transform = `scale(${zoomLevel}) rotate(${rotateAngle}deg)`;
+    }
+
+    function closeGalleryModal() {
+        if (!galleryModal || !galleryImg) return;
+        galleryModal.classList.remove('active');
+        setTimeout(() => {
+            galleryModal.style.display = 'none';
+            if (galleryImg.src.startsWith('blob:')) {
+                window.URL.revokeObjectURL(galleryImg.src);
+            }
+            galleryImg.src = '';
+        }, 300);
+    }
+
+    // Keyboard Shortcuts for Gallery Modal and Explorer Navigation
+    window.addEventListener('keydown', (e) => {
+        if (galleryModal && galleryModal.classList.contains('active')) {
+            if (e.key === 'Escape') {
+                closeGalleryModal();
+            } else if (e.key === 'ArrowLeft') {
+                if (galleryPrev && galleryPrev.style.display !== 'none') {
+                    galleryPrev.click();
+                }
+            } else if (e.key === 'ArrowRight') {
+                if (galleryNext && galleryNext.style.display !== 'none') {
+                    galleryNext.click();
+                }
+            }
+        } else {
+            // Ignore events if user is focused inside input elements
+            const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+            if (activeTag === 'input' || activeTag === 'textarea') {
+                return;
+            }
+            
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                if (storageBtnBack) {
+                    e.preventDefault();
+                    storageBtnBack.click();
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const itemsCount = document.querySelectorAll('.storage-item').length;
+                if (itemsCount > 0) {
+                    if (focusedIndex === -1) {
+                        focusItem(0);
+                    } else if (focusedIndex < itemsCount - 1) {
+                        focusItem(focusedIndex + 1);
+                    }
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const itemsCount = document.querySelectorAll('.storage-item').length;
+                if (itemsCount > 0) {
+                    if (focusedIndex === -1) {
+                        focusItem(itemsCount - 1);
+                    } else if (focusedIndex > 0) {
+                        focusItem(focusedIndex - 1);
+                    }
+                }
+            } else if (e.key === 'Enter') {
+                if (focusedIndex !== -1 && allFetchedFiles[focusedIndex]) {
+                    e.preventDefault();
+                    const file = allFetchedFiles[focusedIndex];
+                    if (file.is_dir) {
+                        window.loadStorageDirectory(file.path);
+                    } else {
+                        const ext = file.name.split('.').pop().toLowerCase();
+                        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) {
+                            openGalleryPreview(file.path);
+                        }
+                    }
+                }
+            } else if (e.key === ' ' || e.key === 'Spacebar') {
+                if (focusedIndex !== -1) {
+                    e.preventDefault();
+                    const items = document.querySelectorAll('.storage-item');
+                    if (items[focusedIndex]) {
+                        const cb = items[focusedIndex].querySelector('.storage-item-checkbox');
+                        if (cb) {
+                            cb.checked = !cb.checked;
+                            cb.dispatchEvent(new Event('change'));
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Event listeners
+    if (storageBtnBack) {
+        storageBtnBack.addEventListener('click', () => {
+            if (window.currentStoragePath === '/sdcard' || window.currentStoragePath === '/' || window.currentStoragePath === '/storage/emulated/0') {
+                showToast('Already at root directory', 'info');
+                return;
+            }
+            const parts = window.currentStoragePath.split('/');
+            parts.pop();
+            let parentPath = parts.join('/');
+            if (!parentPath) parentPath = '/';
+            window.loadStorageDirectory(parentPath);
+        });
+    }
+
+    if (storageCurrentPath) {
+        storageCurrentPath.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const path = storageCurrentPath.value.trim();
+                if (path) window.loadStorageDirectory(path);
+            }
+        });
+    }
+
+    if (storageBtnNewFolder) {
+        storageBtnNewFolder.addEventListener('click', () => {
+            const name = prompt('Enter new folder name:');
+            if (name) {
+                const cleanName = name.trim();
+                if (cleanName) createFolder(cleanName);
+            }
+        });
+    }
+
+    if (storageBtnRefresh) {
+        storageBtnRefresh.addEventListener('click', () => {
+            window.loadStorageDirectory(window.currentStoragePath);
+        });
+    }
+
+    if (storageBtnUploadTrigger) {
+        storageBtnUploadTrigger.addEventListener('click', () => {
+            if (storageFileUploadInput) storageFileUploadInput.click();
+        });
+    }
+
+    if (storageFileUploadInput) {
+        storageFileUploadInput.addEventListener('change', () => {
+            const files = storageFileUploadInput.files;
+            if (files && files.length > 0) {
+                uploadFile(files[0]);
+                storageFileUploadInput.value = '';
+            }
+        });
+    }
+
+    // Select all handler
+    if (storageSelectAll) {
+        storageSelectAll.addEventListener('change', () => {
+            const isChecked = storageSelectAll.checked;
+            const checkboxes = document.querySelectorAll('.storage-item-checkbox');
+            
+            selectedPaths = [];
+            checkboxes.forEach(cb => {
+                cb.checked = isChecked;
+                const path = cb.getAttribute('data-path');
+                if (isChecked && path) {
+                    selectedPaths.push(path);
+                }
+            });
+            updateBatchActionsBar();
+        });
+    }
+
+    // Cancel batch actions handler
+    if (batchBtnClear) {
+        batchBtnClear.addEventListener('click', () => {
+            selectedPaths = [];
+            updateBatchActionsBar();
+            const checkboxes = document.querySelectorAll('.storage-item-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+            if (storageSelectAll) storageSelectAll.checked = false;
+        });
+    }
+
+    // Real-time search filter input handler
+    if (storageSearchInput) {
+        storageSearchInput.addEventListener('input', () => {
+            const query = storageSearchInput.value.toLowerCase().trim();
+            const filtered = allFetchedFiles.filter(file => file.name.toLowerCase().includes(query));
+            renderFileList(filtered);
+        });
+    }
+
+    // View toggle handler (List/Grid view)
+    if (storageBtnViewToggle && storageBrowserCard && storageViewToggleIcon) {
+        storageBtnViewToggle.addEventListener('click', () => {
+            if (storageViewMode === 'list') {
+                storageViewMode = 'grid';
+                storageBrowserCard.classList.add('grid-mode');
+                storageViewToggleIcon.innerText = 'view_list';
+                storageBtnViewToggle.title = 'Switch to List View';
+            } else {
+                storageViewMode = 'list';
+                storageBrowserCard.classList.remove('grid-mode');
+                storageViewToggleIcon.innerText = 'grid_view';
+                storageBtnViewToggle.title = 'Switch to Grid View';
+            }
+        });
+    }
+
+    // Batch download handler
+    if (batchBtnDownload) {
+        batchBtnDownload.addEventListener('click', async () => {
+            if (selectedPaths.length === 0) return;
+            
+            const originalText = batchBtnDownload.innerHTML;
+            batchBtnDownload.disabled = true;
+            batchBtnDownload.innerHTML = '<span class="status-dot pulse" style="background:#fff; width:8px; height:8px; display:inline-block; margin-right:8px;"></span> Building ZIP...';
+            showToast('Preparing batch download... please wait.', 'info');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/storage/download_zip_external`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-ConnectPhone-Token': API_TOKEN
+                    },
+                    body: JSON.stringify({ paths: selectedPaths })
+                });
+
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message || 'Saved ZIP file to Downloads folder!', 'success');
+                    selectedPaths = [];
+                    updateBatchActionsBar();
+                    const checkboxes = document.querySelectorAll('.storage-item-checkbox');
+                    checkboxes.forEach(cb => cb.checked = false);
+                    if (storageSelectAll) storageSelectAll.checked = false;
+                } else {
+                    throw new Error(res.message || 'Server error');
+                }
+            } catch (err) {
+                console.error('Batch download failed:', err);
+                showToast(`Failed to compile files for download: ${err.message}`, 'error');
+            } finally {
+                batchBtnDownload.disabled = false;
+                batchBtnDownload.innerHTML = originalText;
+            }
+        });
+    }
+
+    // Batch delete handler
+    if (batchBtnDelete) {
+        batchBtnDelete.addEventListener('click', async () => {
+            if (selectedPaths.length === 0) return;
+            const confirmMsg = `Are you sure you want to delete the ${selectedPaths.length} selected item(s)? This action cannot be undone.`;
+            if (confirm(confirmMsg)) {
+                const originalText = batchBtnDelete.innerHTML;
+                batchBtnDelete.disabled = true;
+                batchBtnDelete.innerHTML = '<span class="status-dot pulse" style="background:#fff; width:8px; height:8px; display:inline-block; margin-right:8px;"></span> Deleting...';
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/storage/delete_multiple`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-ConnectPhone-Token': API_TOKEN
+                        },
+                        body: JSON.stringify({ paths: selectedPaths })
+                    });
+                    const res = await response.json();
+                    
+                    if (res.success) {
+                        showToast(res.message || 'Items deleted successfully', 'success');
+                        selectedPaths = [];
+                        updateBatchActionsBar();
+                        if (storageSelectAll) storageSelectAll.checked = false;
+                        window.loadStorageDirectory(window.currentStoragePath);
+                    } else {
+                        showToast(res.message || 'Failed to delete items', 'error');
+                    }
+                } catch (err) {
+                    console.error('Batch delete failed:', err);
+                    showToast('Network error during batch delete', 'error');
+                } finally {
+                    batchBtnDelete.disabled = false;
+                    batchBtnDelete.innerHTML = originalText;
+                }
+            }
+        });
+    }
+
+    // Gallery controller listeners
+    if (galleryClose) {
+        galleryClose.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeGalleryModal();
+        });
+    }
+
+    if (galleryPrev) {
+        galleryPrev.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (currentImageIndex > 0) {
+                currentImageIndex--;
+                zoomLevel = 1;
+                rotateAngle = 0;
+                applyGalleryTransforms();
+                await loadGalleryImage(currentImageFiles[currentImageIndex].path);
+                updateGalleryNavButtons();
+            }
+        });
+    }
+
+    if (galleryNext) {
+        galleryNext.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (currentImageIndex < currentImageFiles.length - 1) {
+                currentImageIndex++;
+                zoomLevel = 1;
+                rotateAngle = 0;
+                applyGalleryTransforms();
+                await loadGalleryImage(currentImageFiles[currentImageIndex].path);
+                updateGalleryNavButtons();
+            }
+        });
+    }
+
+    if (galleryBtnZoomIn) {
+        galleryBtnZoomIn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (zoomLevel < 3) {
+                zoomLevel += 0.25;
+                applyGalleryTransforms();
+            }
+        });
+    }
+
+    if (galleryBtnZoomOut) {
+        galleryBtnZoomOut.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (zoomLevel > 0.5) {
+                zoomLevel -= 0.25;
+                applyGalleryTransforms();
+            }
+        });
+    }
+
+    if (galleryBtnRotate) {
+        galleryBtnRotate.addEventListener('click', (e) => {
+            e.preventDefault();
+            rotateAngle = (rotateAngle + 90) % 360;
+            applyGalleryTransforms();
+        });
+    }
+
+    if (galleryBtnDownload) {
+        galleryBtnDownload.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (currentImageIndex !== -1) {
+                const img = currentImageFiles[currentImageIndex];
+                downloadFile(img.path, img.name);
+            }
+        });
+    }
+
+    // Drag and Drop (Mac to Phone)
+    if (storageExplorerZone && storageDropOverlay) {
+        let dragCounter = 0;
+
+        window.addEventListener('dragenter', (e) => {
+            // Only show overlay if we are dragging files and in the storage tab
+            const activeTabButton = document.querySelector('.nav-btn.active');
+            const activeTab = activeTabButton ? activeTabButton.getAttribute('data-tab') : '';
+            if (activeTab !== 'storage') return;
+
+            e.preventDefault();
+            dragCounter++;
+            if (dragCounter === 1) {
+                storageDropOverlay.classList.add('active');
+            }
+        });
+
+        window.addEventListener('dragover', (e) => {
+            const activeTabButton = document.querySelector('.nav-btn.active');
+            const activeTab = activeTabButton ? activeTabButton.getAttribute('data-tab') : '';
+            if (activeTab !== 'storage') return;
+            e.preventDefault();
+        });
+
+        window.addEventListener('dragleave', (e) => {
+            const activeTabButton = document.querySelector('.nav-btn.active');
+            const activeTab = activeTabButton ? activeTabButton.getAttribute('data-tab') : '';
+            if (activeTab !== 'storage') return;
+            
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                storageDropOverlay.classList.remove('active');
+            }
+        });
+
+        window.addEventListener('drop', async (e) => {
+            const activeTabButton = document.querySelector('.nav-btn.active');
+            const activeTab = activeTabButton ? activeTabButton.getAttribute('data-tab') : '';
+            if (activeTab !== 'storage') return;
+
+            e.preventDefault();
+            dragCounter = 0;
+            storageDropOverlay.classList.remove('active');
+            
+            const dt = e.dataTransfer;
+            if (dt.items && dt.items.length > 0) {
+                const entries = [];
+                for (let i = 0; i < dt.items.length; i++) {
+                    if (dt.items[i].kind === 'file') {
+                        const entry = dt.items[i].webkitGetAsEntry();
+                        if (entry) {
+                            entries.push(entry);
+                        }
+                    }
+                }
+                
+                if (entries.length > 0) {
+                    showToast("Scanning folder contents...", "info");
+                    
+                    // Recursive directory reader helper
+                    async function getFilesFromEntries(entriesList) {
+                        const fileObjects = [];
+                        async function traverse(entry, path = "") {
+                            if (entry.isFile) {
+                                const file = await new Promise((resFile, rejFile) => {
+                                    entry.file(resFile, rejFile);
+                                });
+                                fileObjects.push({
+                                    file: file,
+                                    relativePath: path + file.name
+                                });
+                            } else if (entry.isDirectory) {
+                                const dirReader = entry.createReader();
+                                const readEntries = async () => {
+                                    return new Promise((resolveEntries) => {
+                                        dirReader.readEntries((results) => {
+                                            resolveEntries(results || []);
+                                        });
+                                    });
+                                };
+                                
+                                let results = await readEntries();
+                                let allResults = [...results];
+                                while (results.length > 0) {
+                                    results = await readEntries();
+                                    if (results.length > 0) {
+                                        allResults = allResults.concat(results);
+                                    }
+                                }
+                                
+                                for (const childEntry of allResults) {
+                                    await traverse(childEntry, path + entry.name + "/");
+                                }
+                            }
+                        }
+                        for (const ent of entriesList) {
+                            await traverse(ent);
+                        }
+                        return fileObjects;
+                    }
+                    
+                    try {
+                        const filesToUpload = await getFilesFromEntries(entries);
+                        if (filesToUpload.length > 0) {
+                            uploadFiles(filesToUpload);
+                        } else {
+                            showToast("No files found to upload.", "warning");
+                        }
+                    } catch (err) {
+                        console.error("Error reading folder:", err);
+                        showToast("Failed to read dropped folder contents.", "error");
+                    }
+                }
+            } else if (dt.files && dt.files.length > 0) {
+                uploadFiles(Array.from(dt.files));
+            }
+        });
+    }
+
+    // Trackpad gestures (horizontal swipe back in directory list)
+    let dirSwipeCooldown = false;
+    function handleDirSwipe(deltaX) {
+        if (dirSwipeCooldown) return;
+        if (deltaX < -25) { // Left-to-right swipe (Back)
+            dirSwipeCooldown = true;
+            setTimeout(() => { dirSwipeCooldown = false; }, 400);
+            if (storageBtnBack) {
+                storageBtnBack.click();
+            }
+        }
+    }
+
+    if (storageFileList) {
+        storageFileList.addEventListener('wheel', (e) => {
+            const absX = Math.abs(e.deltaX);
+            const absY = Math.abs(e.deltaY);
+            if (absX > 15 && absX > absY * 1.5 && !e.ctrlKey) {
+                handleDirSwipe(e.deltaX);
+            }
+        });
+    }
+
+    // Trackpad gestures inside image previewer (pinch-to-zoom & two-finger swipe navigations)
+    let swipeCooldown = false;
+    function handleGallerySwipe(deltaX) {
+        if (swipeCooldown) return;
+        swipeCooldown = true;
+        setTimeout(() => { swipeCooldown = false; }, 350);
+        
+        if (deltaX < 0) {
+            if (galleryPrev && galleryPrev.style.display !== 'none') {
+                galleryPrev.click();
+            }
+        } else {
+            if (galleryNext && galleryNext.style.display !== 'none') {
+                galleryNext.click();
+            }
+        }
+    }
+
+    const galleryImageWrapper = document.querySelector('.gallery-image-wrapper');
+    if (galleryImageWrapper) {
+        galleryImageWrapper.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) {
+                // Pinch gesture
+                e.preventDefault();
+                // Proportional velocity-based zoom scaling
+                const delta = -e.deltaY * 0.008;
+                zoomLevel = Math.max(0.5, Math.min(3.5, zoomLevel + delta));
+                applyGalleryTransforms();
+            } else {
+                // Two-finger swipe gesture
+                const absX = Math.abs(e.deltaX);
+                const absY = Math.abs(e.deltaY);
+                if (absX > 15 && absX > absY * 1.5) {
+                    e.preventDefault();
+                    handleGallerySwipe(e.deltaX);
+                }
+            }
+        }, { passive: false });
+    }
+
+    // Storage auto-refresh loop (Real-time storage updates every 4 seconds)
+    setInterval(() => {
+        const activeTabButton = document.querySelector('.nav-btn.active');
+        const activeTab = activeTabButton ? activeTabButton.getAttribute('data-tab') : '';
+        if (activeTab === 'storage' && window.currentStoragePath && window.isConnected) {
+            const searchInput = document.getElementById('storage-search-input');
+            const pathInput = document.getElementById('storage-path-input');
+            const galleryModal = document.getElementById('gallery-modal');
+            const isPreviewActive = galleryModal && galleryModal.classList.contains('active');
+            
+            // Do not refresh if user is typing, inputting or previewing
+            if (document.activeElement === searchInput || document.activeElement === pathInput || isPreviewActive) {
+                return;
+            }
+            
+            // Also do not refresh if they are currently drag-overing
+            if (storageDropOverlay && storageDropOverlay.classList.contains('active')) {
+                return;
+            }
+            
+            // Soft refresh: fetch the directory content, maintaining selection/focus state
+            window.loadStorageDirectory(window.currentStoragePath, true);
+        }
+    }, 4000);
 });

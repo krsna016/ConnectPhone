@@ -95,7 +95,14 @@ class WebRTCCloudStreamer:
 
         @pc.on("iceconnectionstatechange")
         async def on_iceconnectionstatechange():
-            if pc.iceConnectionState == "failed" or pc.iceConnectionState == "closed":
+            if pc.iceConnectionState in ["failed", "closed"]:
+                await pc.close()
+                self.pcs.discard(pc)
+                await track.stop()
+
+        @pc.on("connectionstatechange")
+        async def on_connectionstatechange():
+            if pc.connectionState in ["failed", "closed"]:
                 await pc.close()
                 self.pcs.discard(pc)
                 await track.stop()

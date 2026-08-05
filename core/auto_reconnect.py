@@ -68,6 +68,7 @@ class AutoReconnector:
             with open(os.path.expanduser("~/.connectphone_config.json"), encoding="utf-8") as f:
                 config = json.load(f)
             endpoints = []
+            seen_ips = set()
             for item in config.get("saved_devices", []):
                 if not isinstance(item, dict) or not item.get("auto_reconnect", True):
                     continue
@@ -75,6 +76,12 @@ class AutoReconnector:
                 port = item.get("port")
                 try:
                     if isinstance(ipaddress.ip_address(ip), ipaddress.IPv4Address) and 1 <= int(port) <= 65535:
+                        # The config is newest-first. Wireless Debugging uses
+                        # rotating ports, so never retry older ports for the
+                        # same phone/IP. They are stale by definition.
+                        if ip in seen_ips:
+                            continue
+                        seen_ips.add(ip)
                         device_serial = item.get("device_serial")
                         if not device_serial:
                             continue
@@ -106,8 +113,17 @@ class AutoReconnector:
                     timeout=8,
                 )
                 identity = (identity_result.stdout or "").strip()
-                if identity != expected_serial:
-                    self.logger.error("Identity mismatch for %s; refusing reconnect", ip_port)
+                
+                # For wireless endpoints, the serial returned by adb is <ip>:<port>.
+                # Since the port changes dynamically, compare the IP portion to check authenticity.
+                is_wireless = ":" in ip_port
+                if is_wireless and expected_serial and ":" in expected_serial:
+                    identity_ok = (identity.split(":")[0] == expected_serial.split(":")[0])
+                else:
+                    identity_ok = (identity == expected_serial)
+
+                if not identity_ok:
+                    self.logger.error("Identity mismatch for %s; refusing reconnect (expected %s, got %s)", ip_port, expected_serial, identity)
                     subprocess.run(["adb", "disconnect", ip_port], capture_output=True, timeout=5)
                     return
                 print(f"[+] ✅ Trusted wireless endpoint connected: {ip_port}")

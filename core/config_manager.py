@@ -103,10 +103,14 @@ class ConfigurationManager:
             persisted = copy.deepcopy(self._config_data)
             for secret_name in self.SECRET_KEYS:
                 secret_value = persisted.pop(secret_name, "")
-                if secret_value:
-                    keychain.set(secret_name, secret_value)
+                if keychain.available():
+                    if secret_value:
+                        keychain.set(secret_name, secret_value)
+                    else:
+                        keychain.delete(secret_name)
                 else:
-                    keychain.delete(secret_name)
+                    persisted[secret_name] = secret_value
+
             fd, temp_path = tempfile.mkstemp(prefix=".connectphone-", dir=directory, text=True)
             try:
                 os.fchmod(fd, 0o600)

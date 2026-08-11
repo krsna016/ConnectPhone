@@ -106,21 +106,45 @@ class AutoReconnector:
                     self.logger.warning("Refusing unpinned wireless endpoint %s", ip_port)
                     subprocess.run(["adb", "disconnect", ip_port], capture_output=True, timeout=5)
                     return
-                identity_result = subprocess.run(
-                    ["adb", "-s", ip_port, "get-serialno"],
-                    capture_output=True,
-                    text=True,
-                    timeout=8,
-                )
-                identity = (identity_result.stdout or "").strip()
+                # Try to resolve physical serial number first
+                identity = None
+                for prop in ("ro.serialno", "ro.boot.serialno"):
+                    try:
+                        hw_res = subprocess.run(
+                            ["adb", "-s", ip_port, "shell", "getprop", prop],
+                            capture_output=True, text=True, timeout=4
+                        )
+                        val = (hw_res.stdout or "").strip()
+                        if hw_res.returncode == 0 and val and val.lower() not in {"unknown", "no permissions", "null", ""}:
+                            identity = val
+                            break
+                    except Exception:
+                        pass
                 
-                # For wireless endpoints, the serial returned by adb is <ip>:<port>.
-                # Since the port changes dynamically, compare the IP portion to check authenticity.
-                is_wireless = ":" in ip_port
-                if is_wireless and expected_serial and ":" in expected_serial:
-                    identity_ok = (identity.split(":")[0] == expected_serial.split(":")[0])
-                else:
-                    identity_ok = (identity == expected_serial)
+                if not identity:
+                    try:
+                        fallback_res = subprocess.run(
+                            ["adb", "-s", ip_port, "get-serialno"],
+                            capture_output=True, text=True, timeout=4
+                        )
+                        val = (fallback_res.stdout or "").strip()
+                        if fallback_res.returncode == 0 and val and val.lower() not in {"unknown", "no permissions", "null", ""}:
+                            identity = val
+                    except Exception:
+                        pass
+
+                
+                # Check identity matching robustly
+                identity_ok = False
+                if expected_serial and identity:
+                    if identity == expected_serial:
+                        identity_ok = True
+                    elif ":" in identity and ":" in expected_serial:
+                        identity_ok = (identity.split(":")[0] == expected_serial.split(":")[0])
+                    elif ":" in identity:
+                        identity_ok = (identity.split(":")[0] == ip_port.split(":")[0])
+                    elif ":" in expected_serial:
+                        identity_ok = (expected_serial.split(":")[0] == ip_port.split(":")[0])
 
                 if not identity_ok:
                     self.logger.error("Identity mismatch for %s; refusing reconnect (expected %s, got %s)", ip_port, expected_serial, identity)
@@ -152,4 +176,6 @@ class AutoReconnector:
 
     def stop_watching(self):
         self._is_running = False
+        self.scanner.stop()
         print("[-] Auto-Reconnector daemon stopped.")
+

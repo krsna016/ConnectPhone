@@ -28,6 +28,7 @@ for path in common_paths:
         current_path = path + os.pathsep + current_path
 os.environ["PATH"] = current_path
 
+
 CONFIG_FILE = os.path.expanduser("~/.connectphone_config.json")
 global_config_mgr = ConfigurationManager(CONFIG_FILE)
 

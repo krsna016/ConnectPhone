@@ -1580,8 +1580,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Load directory contents
-    window.loadStorageDirectory = async function(path, isSoft = false) {
+    let storageLoadRetryCount = 0;
+
+    window.loadStorageDirectory = async function(path, isSoft = false, isRetry = false) {
         if (!window.isConnected) return;
+        
+        if (!isRetry) {
+            storageLoadRetryCount = 0;
+        }
+
         window.currentStoragePath = path;
         if (storageCurrentPath) storageCurrentPath.value = path;
 
@@ -1600,17 +1607,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             
             if (!data.success) {
-                if (!isSoft) {
-                    showToast(data.message || 'Failed to list directory contents', 'error');
-                    storageFileList.innerHTML = `
-                        <div class="storage-loading">
-                            <i class="material-symbols-outlined" style="font-size:48px; color:var(--color-danger)">error</i>
-                            <p>${escapeHtml(data.message || 'Error loading directory')}</p>
-                        </div>
-                    `;
-                }
-                return;
+                throw new Error(data.message || 'Failed to list directory contents');
             }
+
+            // Success, reset retries
+            storageLoadRetryCount = 0;
 
             allFetchedFiles = data.files || [];
             if (!isSoft) {
@@ -1641,16 +1642,39 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             console.error('Failed to load directory:', err);
-            if (!isSoft) {
-                storageFileList.innerHTML = `
-                    <div class="storage-loading">
-                        <i class="material-symbols-outlined" style="font-size:48px; color:var(--color-danger)">cloud_off</i>
-                        <p>Failed to connect to phone storage.</p>
-                    </div>
-                `;
+            
+            // Retry if connected
+            if (window.isConnected && storageLoadRetryCount < 5) {
+                storageLoadRetryCount++;
+                if (storageFileList && !isSoft) {
+                    storageFileList.innerHTML = `
+                        <div class="storage-loading">
+                            <div class="spinner"></div>
+                            <p>Loading files from phone... (Attempt ${storageLoadRetryCount}/5)</p>
+                        </div>
+                    `;
+                }
+                setTimeout(() => {
+                    if (window.currentStoragePath === path) {
+                        window.loadStorageDirectory(path, isSoft, true);
+                    }
+                }, 1500);
+            } else {
+                if (!isSoft) {
+                    storageFileList.innerHTML = `
+                        <div class="storage-loading">
+                            <i class="material-symbols-outlined" style="font-size:48px; color:var(--color-danger)">cloud_off</i>
+                            <p>Failed to connect to phone storage. Ensure device is unlocked and authorized.</p>
+                            <button class="btn btn-sm btn-ghost" onclick="window.loadStorageDirectory(window.currentStoragePath)" style="margin-top: 10px;">
+                                <i class="material-symbols-outlined">refresh</i> Retry Now
+                            </button>
+                        </div>
+                    `;
+                }
             }
         }
     }
+
 
     renderFileList = function(files) {
         if (!storageFileList) return;

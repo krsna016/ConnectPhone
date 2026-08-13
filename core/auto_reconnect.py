@@ -1,181 +1,224 @@
-import logging
-import threading
-import subprocess
-import time
-import json
-import os
+"""Bounded, identity-pinned reconnect service for Wireless ADB."""
+
 import ipaddress
+import logging
+import os
+import socket
+import subprocess
+import threading
+import time
+
+from core.config_manager import ConfigurationManager
 from core.mdns_scanner import ZeroPingScanner
+from core.paths import migrate_legacy_config
+
 
 class AutoReconnector:
-    """
-    Enterprise-grade background service that enforces zero-interaction 
-    auto-reconnection for previously trusted devices.
-    """
-    def __init__(self):
+    def __init__(self, config_path=None, scanner=None, command_runner=None):
         self.logger = logging.getLogger(__name__)
-        self.scanner = ZeroPingScanner()
+        self.config_path = config_path or migrate_legacy_config()
+        self.scanner = scanner or ZeroPingScanner()
+        self._run = command_runner or subprocess.run
         self._is_running = False
         self._thread = None
+        self._stop_event = threading.Event()
         self.connected_endpoints = set()
+        self._next_attempt = {}
+        self._failures = {}
+        self._last_daemon_recovery = 0.0
+        self._pending_identity = {}
 
     def start_watching(self):
-        """Starts the autonomous network watcher on a background thread."""
-        if self._is_running:
+        if self._thread and self._thread.is_alive():
             return
-            
+        self._stop_event.clear()
         self._is_running = True
-        self._thread = threading.Thread(target=self._watch_loop, daemon=True)
+        self._thread = threading.Thread(target=self._watch_loop, name="ConnectPhone-Reconnect", daemon=True)
         self._thread.start()
-        print("[+] 🛡️ Secure Auto-Reconnector daemon started.")
-        print("[*] Waiting for trusted devices to appear on the Wi-Fi network...")
+        self.logger.info("Wireless auto-reconnect watcher started")
 
     def _watch_loop(self):
-        while self._is_running:
+        while not self._stop_event.is_set():
             try:
-                # Retry explicitly saved endpoints first. A Wi-Fi sleep or DHCP
-                # hiccup must not require the user to press Connect again.
-                for ip, port, device_serial in self._trusted_endpoints():
-                    ip_port = f"{ip}:{port}"
-                    if ip_port not in self.connected_endpoints:
-                        self._try_connect(ip_port, device_serial)
-
-                # Use our Zero-Ping engine to listen for beacons
-                devices = self.scanner.find_devices_instantly(search_time=2.0)
-                
-                # Periodically clean up the connected list by checking actual ADB status
+                trusted = self._trusted_endpoints()
+                trusted_by_ip = {ip: (port, serial) for ip, port, serial in trusted}
                 self._verify_connections()
-                
-                for device in devices:
-                    ip_port = f"{device['ip']}:{device['port']}"
-                    if not self._is_trusted_ip(device["ip"]):
-                        self.logger.warning("Ignoring untrusted mDNS ADB device at %s", ip_port)
-                        continue
-                    
-                    if ip_port not in self.connected_endpoints:
-                        print(f"[*] 📡 Device beacon detected at {ip_port}. Executing RSA handshake...")
-                        
-                        expected = next((serial for saved_ip, _, serial in self._trusted_endpoints() if saved_ip == device["ip"]), None)
-                        self._try_connect(ip_port, expected)
-                
-            except Exception as e:
-                self.logger.error(f"Auto-Reconnector loop error: {e}")
-                time.sleep(2)
 
-    @staticmethod
-    def _trusted_endpoints():
+                # A saved port is a fast hint only; Wireless Debugging ports rotate.
+                for ip, port, serial in trusted:
+                    endpoint = f"{ip}:{port}"
+                    # Do not gate ADB on a tiny raw-TCP preflight. Sleeping
+                    # phones on power-saving Wi-Fi routinely need >200 ms to
+                    # answer even though the TLS endpoint is healthy.
+                    if endpoint not in self.connected_endpoints:
+                        self._try_connect(endpoint, serial)
+
+                for device in self.scanner.find_devices_instantly(search_time=1.5):
+                    if device.get("type", "connect") != "connect":
+                        continue
+                    expected = trusted_by_ip.get(device.get("ip"))
+                    if not expected:
+                        continue
+                    endpoint = f"{device['ip']}:{int(device['port'])}"
+                    if endpoint not in self.connected_endpoints:
+                        self._try_connect(endpoint, expected[1])
+            except Exception:
+                self.logger.exception("Wireless reconnect iteration failed")
+            self._stop_event.wait(1.0)
+
+    def _trusted_endpoints(self):
         try:
-            with open(os.path.expanduser("~/.connectphone_config.json"), encoding="utf-8") as f:
-                config = json.load(f)
-            endpoints = []
-            seen_ips = set()
-            for item in config.get("saved_devices", []):
-                if not isinstance(item, dict) or not item.get("auto_reconnect", True):
-                    continue
-                ip = item.get("ip")
-                port = item.get("port")
-                try:
-                    if isinstance(ipaddress.ip_address(ip), ipaddress.IPv4Address) and 1 <= int(port) <= 65535:
-                        # The config is newest-first. Wireless Debugging uses
-                        # rotating ports, so never retry older ports for the
-                        # same phone/IP. They are stale by definition.
-                        if ip in seen_ips:
-                            continue
-                        seen_ips.add(ip)
-                        device_serial = item.get("device_serial")
-                        if not device_serial:
-                            continue
-                        endpoints.append((ip, int(port), str(device_serial)))
-                except (ValueError, TypeError):
-                    continue
-            # Legacy entries without an identity require one manual enrollment.
-            return endpoints
+            manager = ConfigurationManager(self.config_path)
+            config = manager.load()
         except (OSError, ValueError, TypeError):
             return []
+        endpoints = []
+        seen_ips = set()
+        for item in config.get("saved_devices", []):
+            if not isinstance(item, dict) or not item.get("auto_reconnect", True):
+                continue
+            ip, port, serial = item.get("ip"), item.get("port"), item.get("device_serial")
+            try:
+                valid_ip = isinstance(ipaddress.ip_address(ip), ipaddress.IPv4Address)
+                valid_port = 1 <= int(port) <= 65535
+            except (ValueError, TypeError):
+                continue
+            if valid_ip and valid_port and serial and ip not in seen_ips:
+                seen_ips.add(ip)
+                endpoints.append((ip, int(port), str(serial)))
+        return endpoints
 
-    def _is_trusted_ip(self, ip):
-        return any(saved_ip == ip for saved_ip, _, _ in self._trusted_endpoints())
-
-    def _try_connect(self, ip_port, expected_serial=None):
-        """Attempt one bounded reconnect without blocking the watcher forever."""
+    @staticmethod
+    def _port_open(ip, port, timeout):
         try:
-            res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True, timeout=8)
-            output = (res.stdout or "").lower()
-            if "connected to" in output or "already connected" in output:
-                if not expected_serial:
-                    self.logger.warning("Refusing unpinned wireless endpoint %s", ip_port)
-                    subprocess.run(["adb", "disconnect", ip_port], capture_output=True, timeout=5)
-                    return
-                # Try to resolve physical serial number first
-                identity = None
-                for prop in ("ro.serialno", "ro.boot.serialno"):
-                    try:
-                        hw_res = subprocess.run(
-                            ["adb", "-s", ip_port, "shell", "getprop", prop],
-                            capture_output=True, text=True, timeout=4
-                        )
-                        val = (hw_res.stdout or "").strip()
-                        if hw_res.returncode == 0 and val and val.lower() not in {"unknown", "no permissions", "null", ""}:
-                            identity = val
-                            break
-                    except Exception:
-                        pass
-                
-                if not identity:
-                    try:
-                        fallback_res = subprocess.run(
-                            ["adb", "-s", ip_port, "get-serialno"],
-                            capture_output=True, text=True, timeout=4
-                        )
-                        val = (fallback_res.stdout or "").strip()
-                        if fallback_res.returncode == 0 and val and val.lower() not in {"unknown", "no permissions", "null", ""}:
-                            identity = val
-                    except Exception:
-                        pass
+            with socket.create_connection((ip, int(port)), timeout=timeout):
+                return True
+        except OSError:
+            return False
 
-                
-                # Check identity matching robustly
-                identity_ok = False
-                if expected_serial and identity:
-                    if identity == expected_serial:
-                        identity_ok = True
-                    elif ":" in identity and ":" in expected_serial:
-                        identity_ok = (identity.split(":")[0] == expected_serial.split(":")[0])
-                    elif ":" in identity:
-                        identity_ok = (identity.split(":")[0] == ip_port.split(":")[0])
-                    elif ":" in expected_serial:
-                        identity_ok = (expected_serial.split(":")[0] == ip_port.split(":")[0])
+    def _run_adb(self, args, timeout):
+        return self._run(["adb", *args], capture_output=True, text=True, timeout=timeout)
 
-                if not identity_ok:
-                    self.logger.error("Identity mismatch for %s; refusing reconnect (expected %s, got %s)", ip_port, expected_serial, identity)
-                    subprocess.run(["adb", "disconnect", ip_port], capture_output=True, timeout=5)
-                    return
-                print(f"[+] ✅ Trusted wireless endpoint connected: {ip_port}")
-                self.connected_endpoints.add(ip_port)
-            elif "unauthorized" in output or "failed to authenticate" in output:
-                self.logger.warning("ADB rejected trusted endpoint %s; phone authorization is required", ip_port)
+    def _read_identity(self, endpoint):
+        for prop in ("ro.serialno", "ro.boot.serialno"):
+            try:
+                result = self._run_adb(["-s", endpoint, "shell", "getprop", prop], 4)
+                value = (result.stdout or "").strip()
+                if result.returncode == 0 and value and value.lower() not in {"unknown", "null", "no permissions"}:
+                    return value
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+        return None
+
+    def _schedule_failure(self, endpoint):
+        failures = min(self._failures.get(endpoint, 0) + 1, 8)
+        self._failures[endpoint] = failures
+        self._next_attempt[endpoint] = time.monotonic() + min(15.0, 2 ** failures)
+
+    def _maybe_recover_stale_adb_daemon(self, endpoint):
+        """Repair a stale host daemon only when TCP proves the phone is reachable."""
+        if self._failures.get(endpoint, 0) < 3 or time.monotonic() - self._last_daemon_recovery < 60:
+            return False
+        ip, port = endpoint.rsplit(":", 1)
+        if not self._port_open(ip, int(port), 0.5):
+            return False
+        try:
+            self.logger.warning("ADB daemon is stale while %s is reachable; restarting it once", endpoint)
+            self._run_adb(["kill-server"], 5)
+            self._run_adb(["start-server"], 8)
+            self._last_daemon_recovery = time.monotonic()
+            self._next_attempt[endpoint] = time.monotonic() + 1.0
+            return True
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+    def _try_connect(self, endpoint, expected_serial=None):
+        if not expected_serial or time.monotonic() < self._next_attempt.get(endpoint, 0):
+            return False
+        try:
+            result = self._run_adb(["connect", endpoint], 8)
+            output = f"{result.stdout or ''} {result.stderr or ''}".lower()
+            if "connected to" not in output and "already connected" not in output:
+                self._schedule_failure(endpoint)
+                self._maybe_recover_stale_adb_daemon(endpoint)
+                return False
+            identity = self._read_identity(endpoint)
+            if identity is None:
+                # Android may expose the transport in `adb devices` before
+                # property queries are ready. Keep the accepted TLS transport
+                # pending and verify it later without issuing another connect
+                # handshake (which causes repeated phone notifications).
+                self.connected_endpoints.add(endpoint)
+                self._pending_identity[endpoint] = expected_serial
+                self.logger.info("Wireless endpoint awaiting identity verification: %s", endpoint)
+                return False
+            if identity != expected_serial:
+                self.logger.error("Rejected wireless identity at %s (expected %s, got %s)", endpoint, expected_serial, identity)
+                self._run_adb(["disconnect", endpoint], 5)
+                self._pending_identity.pop(endpoint, None)
+                self._schedule_failure(endpoint)
+                return False
+            self.connected_endpoints.add(endpoint)
+            self._failures.pop(endpoint, None)
+            self._next_attempt.pop(endpoint, None)
+            self._pending_identity.pop(endpoint, None)
+            self._persist_current_endpoint(endpoint, identity)
+            self.logger.info("Trusted wireless endpoint connected: %s", endpoint)
+            return True
         except (OSError, subprocess.TimeoutExpired) as exc:
-            self.logger.debug("Reconnect attempt failed for %s: %s", ip_port, exc)
+            self.logger.debug("Reconnect failed for %s: %s", endpoint, exc)
+            self._schedule_failure(endpoint)
+            return False
+
+    def _persist_current_endpoint(self, endpoint, identity):
+        ip, port = endpoint.rsplit(":", 1)
+        try:
+            manager = ConfigurationManager(self.config_path)
+            manager.load()
+            manager.update_last_connection(ip, int(port), identity)
+        except (OSError, ValueError, TypeError, RuntimeError):
+            self.logger.exception("Could not persist refreshed wireless endpoint %s", endpoint)
 
     def _verify_connections(self):
-        """Removes devices from tracking if they disconnected from the network."""
         try:
-            res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=8)
+            result = self._run_adb(["devices"], 5)
+            active = {
+                line.split()[0]
+                for line in (result.stdout or "").splitlines()[1:]
+                if len(line.split()) >= 2 and line.split()[1] == "device" and ":" in line.split()[0]
+            }
         except (OSError, subprocess.TimeoutExpired):
             return
-        active_list = res.stdout
-        
-        stale_endpoints = []
-        for endpoint in self.connected_endpoints:
-            if endpoint not in active_list:
-                stale_endpoints.append(endpoint)
-                
-        for stale in stale_endpoints:
-            self.connected_endpoints.remove(stale)
-            print(f"[*] 🔌 Device {stale} disconnected. Ready for next auto-reconnect.")
+        self.connected_endpoints.intersection_update(active)
+        for endpoint in list(self._pending_identity):
+            if endpoint not in active:
+                self._pending_identity.pop(endpoint, None)
+                self.connected_endpoints.discard(endpoint)
+                continue
+            expected = self._pending_identity[endpoint]
+            identity = self._read_identity(endpoint)
+            if identity is None:
+                continue
+            if identity != expected:
+                self.logger.error("Rejected pending wireless identity at %s", endpoint)
+                try:
+                    self._run_adb(["disconnect", endpoint], 5)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                self.connected_endpoints.discard(endpoint)
+                self._pending_identity.pop(endpoint, None)
+                self._schedule_failure(endpoint)
+                continue
+            self._pending_identity.pop(endpoint, None)
+            self._failures.pop(endpoint, None)
+            self._next_attempt.pop(endpoint, None)
+            self._persist_current_endpoint(endpoint, identity)
+            self.logger.info("Pending wireless identity verified: %s", endpoint)
 
     def stop_watching(self):
         self._is_running = False
+        self._stop_event.set()
         self.scanner.stop()
-        print("[-] Auto-Reconnector daemon stopped.")
-
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=3)
+        self._thread = None

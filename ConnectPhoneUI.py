@@ -15,6 +15,8 @@ import secrets
 import re
 from urllib.parse import urlsplit, parse_qs
 import tempfile
+import posixpath
+import shutil
 
 # Inject common macOS binary paths (crucial when run as a Dock app shortcut without zsh profiles loaded)
 common_paths = [
@@ -34,10 +36,19 @@ os.environ["PATH"] = current_path
 
 
 # Setup logging to a file in user's home directory so the logs can be inspected
-LOG_FILE_PATH = os.path.expanduser("~/.connectphone_debug.log")
+LOG_DIRECTORY = os.path.expanduser("~/Library/Logs/ConnectPhone")
+os.makedirs(LOG_DIRECTORY, mode=0o700, exist_ok=True)
 try:
-    with open(LOG_FILE_PATH, "a", encoding="utf-8") as f:
-        f.write(f"\n--- ConnectPhone Started at {datetime.datetime.now()} ---\n")
+    os.chmod(LOG_DIRECTORY, 0o700)
+except OSError:
+    pass
+LOG_FILE_PATH = os.path.join(LOG_DIRECTORY, "connectphone.log")
+try:
+    if os.path.exists(LOG_FILE_PATH) and os.path.getsize(LOG_FILE_PATH) > 5 * 1024 * 1024:
+        os.replace(LOG_FILE_PATH, f"{LOG_FILE_PATH}.1")
+    log_fd = os.open(LOG_FILE_PATH, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.close(log_fd)
+    os.chmod(LOG_FILE_PATH, 0o600)
 except Exception:
     pass
 
@@ -45,19 +56,27 @@ class TeeStream:
     def __init__(self, original, file_path):
         self.original = original
         self.file_path = file_path
+        self._lock = threading.Lock()
+        try:
+            self._file = open(file_path, "a", encoding="utf-8", buffering=1)
+        except OSError:
+            self._file = None
 
     def write(self, data):
         if self.original:
             self.original.write(data)
-        try:
-            with open(self.file_path, "a", encoding="utf-8") as f:
-                f.write(data)
-        except Exception:
-            pass
+        if self._file:
+            try:
+                with self._lock:
+                    self._file.write(data)
+            except OSError:
+                pass
 
     def flush(self):
         if self.original and hasattr(self.original, 'flush'):
             self.original.flush()
+        if self._file:
+            self._file.flush()
 
     def isatty(self):
         if self.original and hasattr(self.original, 'isatty'):
@@ -72,13 +91,14 @@ class TeeStream:
 
 sys.stdout = TeeStream(sys.stdout, LOG_FILE_PATH)
 sys.stderr = TeeStream(sys.stderr, LOG_FILE_PATH)
+print(f"\n--- ConnectPhone Started at {datetime.datetime.now()} ---")
 
 # Add project dir to path to import ConnectPhone
 if getattr(sys, 'frozen', False):
     # If the application is run as a bundle, the PyInstaller bootloader
     # extends the sys module by a flag frozen=True and sets the app 
     # path into variable _MEIPASS'.
-    PROJECT_DIR = sys._MEIPASS
+    PROJECT_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.realpath(__file__)))
 else:
     PROJECT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -95,6 +115,9 @@ except Exception:
 
 import ConnectPhone
 from core import keychain
+from core.wireless_pairing import pair_with_code, pair_with_secret
+from core.qr_pairing import new_qr_credentials, svg_data_url
+from core.remote_paths import valid_remote_path as _valid_remote_path, safe_download_name as _safe_download_name
 
 PORT = 8282
 UI_HOST = "127.0.0.1"
@@ -133,16 +156,6 @@ def _token_allowed(handler):
     if secrets.compare_digest(header_token, API_TOKEN):
         return True
     
-    # Fallback to query parameter (needed for browser downloads/drags where headers cannot be set)
-    try:
-        parsed = urlsplit(handler.path)
-        query = parse_qs(parsed.query)
-        query_token = query.get("token", [""])[0]
-        if secrets.compare_digest(query_token, API_TOKEN):
-            return True
-    except Exception:
-        pass
-        
     return False
 
 
@@ -166,6 +179,8 @@ def _valid_port(value):
         return 1 <= int(value) <= 65535
     except (TypeError, ValueError):
         return False
+
+
 
 
 def parse_multipart(rfile, headers):
@@ -255,7 +270,7 @@ def _validated_settings(data):
     return updates
 
 
-def _get_adb_device_serial(endpoint):
+def _get_adb_device_serial(endpoint, timeout=4, fallback_attempts=3):
     """Read the Android identity behind an already-authorized ADB endpoint."""
     # Strategy A: Try to get the real hardware serial number
     for prop in ("ro.serialno", "ro.boot.serialno"):
@@ -264,7 +279,7 @@ def _get_adb_device_serial(endpoint):
                 ["adb", "-s", endpoint, "shell", "getprop", prop],
                 capture_output=True,
                 text=True,
-                timeout=4
+                timeout=timeout
             )
             val = (result.stdout or "").strip()
             if result.returncode == 0 and val and val.lower() not in {"unknown", "no permissions", "null", ""}:
@@ -273,20 +288,20 @@ def _get_adb_device_serial(endpoint):
             pass
 
     # Strategy B: Fallback to standard get-serialno
-    for attempt in range(3):
+    for attempt in range(max(1, int(fallback_attempts))):
         try:
             result = subprocess.run(
                 ["adb", "-s", endpoint, "get-serialno"],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=timeout,
             )
             serial = (result.stdout or "").strip()
             if result.returncode == 0 and serial and serial.lower() not in {"unknown", "no permissions", ""}:
                 return serial
         except (OSError, subprocess.TimeoutExpired):
             pass
-        if attempt < 2:
+        if attempt + 1 < max(1, int(fallback_attempts)):
             time.sleep(0.2)
     return None
 
@@ -305,39 +320,20 @@ def _accept_auto_wireless_connection(ip, port):
     """Verify a reconnect target before persisting it as the trusted endpoint."""
     endpoint = f"{ip}:{int(port)}"
     expected = _saved_wireless_serial(ip)
-    actual = _get_adb_device_serial(endpoint)
-    
-    if expected and actual:
-        # Check if actual matches expected
-        match_ok = False
-        if actual == expected:
-            match_ok = True
-        elif ":" in actual and ":" in expected:
-            # Both are ip:port format, compare IP address part
-            match_ok = (actual.split(":")[0] == expected.split(":")[0])
-        elif ":" in actual:
-            # Actual is ip:port (Wi-Fi), expected is physical serial (USB)
-            # Accept if the IP portion matches the target ip
-            match_ok = (actual.split(":")[0] == ip)
-        elif ":" in expected:
-            # Expected is ip:port (Wi-Fi), actual is physical serial (USB)
-            # Accept if the IP portion matches the target ip
-            match_ok = (expected.split(":")[0] == ip)
-            
-        if not match_ok:
-            subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
-            return False, f"Wireless identity mismatch; connection rejected. Expected {expected}, got {actual}"
-            
-    # Always save the updated endpoint with the best serial (prefer hardware serial over ip:port)
-    best_serial = actual or expected
-    if best_serial and ":" in best_serial and expected and ":" not in expected:
-        best_serial = expected
-        
-    ConnectPhone.save_wireless_endpoint(ip, int(port), best_serial)
-    return True, best_serial
+    actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1)
+
+    # IP addresses and ADB's endpoint-form get-serialno value are not device
+    # identities. Automatic trust requires a previously pinned physical serial
+    # and an exact match from Android system properties.
+    if not expected or ":" in expected or not actual or ":" in actual or actual != expected:
+        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
+        return False, "Wireless device identity could not be verified; pair it explicitly before auto-connecting."
+
+    ConnectPhone.save_wireless_endpoint(ip, int(port), actual)
+    return True, actual
 
 
-def _adb_connect(ip, port, attempts=2):
+def _adb_connect(ip, port, attempts=2, timeout=8):
     """Connect without tearing down a healthy ADB transport first.
 
     ``adb connect`` is idempotent. Calling ``adb disconnect`` immediately
@@ -352,7 +348,7 @@ def _adb_connect(ip, port, attempts=2):
                 ["adb", "connect", endpoint],
                 capture_output=True,
                 text=True,
-                timeout=8,
+                timeout=timeout,
             )
             last_output = ((result.stdout or "") + " " + (result.stderr or "")).strip()
             lowered = last_output.lower()
@@ -449,6 +445,9 @@ def run_termux_install_background():
 _status_cache = None
 _status_cache_lock = threading.Lock()
 _status_cache_event = threading.Event()   # set when a fresh refresh is wanted
+_input_permission_cache: dict[object, tuple] = {}
+_device_info_cache: dict[object, tuple] = {}
+_adb_action_lock = threading.RLock()
 
 def _build_status_payload():
     """Build the full /api/status payload. Called from background thread."""
@@ -457,21 +456,24 @@ def _build_status_payload():
     active_device = check_and_autoselect_device(devices_detailed)
     device_connected = len(devices_detailed) > 0 and any(d["status"] == "device" for d in devices_detailed)
 
-    # Run slow ADB calls in parallel
+    # Device information is fetched off the request threads. Input-injection
+    # capability is intentionally sampled infrequently because the probe is
+    # itself an Android key event and must not fire every poll cycle.
     device_info = None
     input_injection_granted = True
     if device_connected:
-        results = {}
-        def _get_info():
-            results["info"] = ConnectPhone.get_device_info()
-        def _get_perm():
-            results["perm"] = ConnectPhone.check_input_injection_permission()
-        t1 = threading.Thread(target=_get_info, daemon=True)
-        t2 = threading.Thread(target=_get_perm, daemon=True)
-        t1.start(); t2.start()
-        t1.join(timeout=4); t2.join(timeout=4)
-        device_info = results.get("info")
-        input_injection_granted = results.get("perm", True)
+        cached_info = _device_info_cache.get(active_device)
+        if cached_info and time.monotonic() - cached_info[0] < 15:
+            device_info = cached_info[1]
+        else:
+            device_info = ConnectPhone.get_device_info()
+            _device_info_cache[active_device] = (time.monotonic(), device_info)
+        cached_permission = _input_permission_cache.get(active_device)
+        if cached_permission and time.monotonic() - cached_permission[0] < 120:
+            input_injection_granted = cached_permission[1]
+        else:
+            input_injection_granted = ConnectPhone.check_input_injection_permission()
+            _input_permission_cache[active_device] = (time.monotonic(), input_injection_granted)
 
     scrcpy_running = scrcpy_proc is not None and scrcpy_proc.poll() is None
     config = ConnectPhone.load_config()
@@ -491,7 +493,8 @@ def _build_status_payload():
         "sync_watcher_active": sync_watcher_active,
         "mirror_type": scrcpy_state["mirror_type"],
         "input_injection_granted": input_injection_granted,
-        "config": public_config
+        "config": public_config,
+        "dependencies": {name: bool(shutil.which(name)) for name in ("adb", "scrcpy", "ffmpeg", "ffprobe")},
     }
 
 def _status_cache_worker():
@@ -499,13 +502,17 @@ def _status_cache_worker():
     global _status_cache
     while True:
         try:
+            # Status collection may block on a sleeping/offline phone. It must
+            # never hold the foreground action lock and delay a user-requested
+            # reconnect by the sum of its ADB timeouts.
             payload = _build_status_payload()
             with _status_cache_lock:
                 _status_cache = payload
         except Exception as e:
             print(f"[StatusCache] Error: {e}")
-        # Wait up to 1.2 s, but wake immediately if signalled
-        _status_cache_event.wait(timeout=1.2)
+        # ADB device metadata is not volatile enough to justify a 1.2-second
+        # command storm. Actions still invalidate the cache immediately.
+        _status_cache_event.wait(timeout=3.0)
         _status_cache_event.clear()
 
 def _invalidate_status_cache():
@@ -873,9 +880,23 @@ def get_live_metrics():
         return metrics
         
     metrics["connected"] = True
+
+    active_serial = os.environ.get("ANDROID_SERIAL", "")
+    serial = active_serial if active_serial in devices else devices[0]
+
+    def metric_shell(*args):
+        try:
+            return subprocess.run(
+                ["adb", "-s", serial, "shell", *args],
+                capture_output=True,
+                text=True,
+                timeout=4,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return subprocess.CompletedProcess(args, 124, "", "metric command timed out")
     
     # 1. Query battery
-    res_bat = subprocess.run(["adb", "shell", "dumpsys battery"], capture_output=True, text=True, timeout=5)
+    res_bat = metric_shell("dumpsys battery")
     bat_data = {}
     for line in res_bat.stdout.splitlines():
         line = line.strip()
@@ -916,7 +937,7 @@ def get_live_metrics():
         pass
 
     # 2. Query RAM (/proc/meminfo)
-    res_ram = subprocess.run(["adb", "shell", "cat /proc/meminfo"], capture_output=True, text=True, timeout=5)
+    res_ram = metric_shell("cat /proc/meminfo")
     ram_data = {}
     for line in res_ram.stdout.splitlines():
         if ":" in line:
@@ -942,7 +963,7 @@ def get_live_metrics():
         pass
 
     # 3. Query Storage (df -k /data)
-    res_store = subprocess.run(["adb", "shell", "df -k /data"], capture_output=True, text=True, timeout=5)
+    res_store = metric_shell("df -k /data")
     try:
         lines = res_store.stdout.splitlines()
         if len(lines) >= 2:
@@ -963,7 +984,7 @@ def get_live_metrics():
 
     # 4. Network Info
     ip = "Disconnected"
-    res_route = subprocess.run(["adb", "shell", "ip route"], capture_output=True, text=True, timeout=5)
+    res_route = metric_shell("ip route")
     for line in res_route.stdout.splitlines():
         if "src" in line:
             parts = line.split()
@@ -974,7 +995,6 @@ def get_live_metrics():
             except Exception:
                 pass
                 
-    serial = devices[0]
     conn_type = "USB connection"
     if ":" in serial or "." in serial:
         conn_type = "Wi-Fi connection"
@@ -987,7 +1007,7 @@ def get_live_metrics():
     # 5. Uptime & Load Avg
     uptime_str = "--"
     load_avg = "--"
-    res_uptime = subprocess.run(["adb", "shell", "uptime"], capture_output=True, text=True, timeout=5)
+    res_uptime = metric_shell("uptime")
     try:
         out = res_uptime.stdout.strip()
         if "up" in out:
@@ -1078,6 +1098,18 @@ def check_and_autoselect_device(devices_detailed):
 
 def discover_all_mdns_services(timeout=2.0, target_ip=None):
     try:
+        from core.mdns_scanner import ZeroPingScanner
+        scanner = ZeroPingScanner(include_pairing=True)
+        try:
+            services = scanner.find_devices_instantly(search_time=timeout)
+        finally:
+            scanner.stop()
+        services = [item for item in services if not target_ip or item.get("ip") == target_ip]
+        if services:
+            return services
+    except Exception as exc:
+        print(f"[mDNS] Primary Bonjour discovery failed: {exc}")
+    try:
         from zeroconf import Zeroconf, ServiceBrowser
     except Exception:
         Zeroconf = None
@@ -1158,6 +1190,329 @@ def discover_all_mdns_services(timeout=2.0, target_ip=None):
     return discovered
 
 
+def pair_and_connect_wireless(ip, port, code):
+    """Complete one secure pairing attempt, then resolve the connect service."""
+    endpoint = f"{ip}:{int(port)}"
+    success, detail = pair_with_code(endpoint, code)
+    if not success:
+        return {
+            "success": False,
+            "message": (
+                f"Pairing failed: {detail}\n\n"
+                "Keep the pairing-code dialog open on the phone and submit its current "
+                "six-digit code and pairing port. Codes expire quickly; request a new code "
+                "after any failed attempt."
+            ),
+        }
+
+    return _connect_after_pairing(ip)
+
+
+def _connect_after_pairing(ip):
+    """Resolve Android's distinct TLS connect service after either pairing mode."""
+    deadline = time.monotonic() + 6.0
+    attempted = set()
+    last_error = ""
+    while time.monotonic() < deadline:
+        services = discover_all_mdns_services(timeout=1.2, target_ip=ip)
+        connect_ports = [
+            int(item["port"])
+            for item in services
+            if item.get("type") == "connect" and _valid_port(item.get("port"))
+        ]
+        for connect_port in connect_ports:
+            if connect_port in attempted:
+                continue
+            attempted.add(connect_port)
+            connected, last_error = _adb_connect(ip, connect_port, attempts=2)
+            if not connected:
+                continue
+            wireless_endpoint = f"{ip}:{connect_port}"
+            serial = _get_adb_device_serial(wireless_endpoint)
+            if not serial or ":" in serial:
+                subprocess.run(["adb", "disconnect", wireless_endpoint], capture_output=True, timeout=5)
+                last_error = "Android hardware identity could not be verified"
+                continue
+            os.environ["ANDROID_SERIAL"] = wireless_endpoint
+            ConnectPhone.save_wireless_endpoint(ip, connect_port, serial)
+            _invalidate_status_cache()
+            return {"success": True, "message": f"Paired and connected securely to {wireless_endpoint}."}
+        time.sleep(0.3)
+    return {
+        "success": True,
+        "message": (
+            "Pairing succeeded, but the phone has not advertised its connect service yet. "
+            "Keep Wireless Debugging enabled and click Scan Network, then Connect."
+            + (f" Last connection error: {last_error}" if last_error else "")
+        ),
+    }
+
+
+def connect_previously_authorized_devices():
+    """Fast-connect a saved phone, falling back to authorized mDNS targets."""
+    candidates = []
+    seen = set()
+
+    # The endpoint persisted after the last successful identity check is the
+    # overwhelmingly common path. Trying it before Bonjour removes seconds of
+    # avoidable discovery latency and still re-verifies the physical serial.
+    config = ConnectPhone.load_config()
+    saved = [item for item in config.get("saved_devices", []) if isinstance(item, dict)]
+    saved.sort(key=lambda item: item.get("ip") != config.get("last_ip"))
+    for item in saved:
+        ip, port = str(item.get("ip", "")).strip(), item.get("port")
+        serial = str(item.get("device_serial", "")).strip()
+        if _valid_ipv4(ip) and _valid_port(port) and serial and ":" not in serial:
+            endpoint = (ip, int(port), serial)
+            if endpoint[:2] not in seen:
+                seen.add(endpoint[:2])
+                candidates.append(endpoint)
+
+    for ip, port, expected_serial in candidates:
+        endpoint = f"{ip}:{port}"
+        accepted, _detail = _adb_connect(ip, port, attempts=1, timeout=8)
+        if not accepted:
+            continue
+        serial = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1)
+        if serial == expected_serial:
+            os.environ["ANDROID_SERIAL"] = endpoint
+            ConnectPhone.save_wireless_endpoint(ip, port, serial)
+            _publish_connected_endpoint(endpoint, serial)
+            return {
+                "success": True,
+                "message": f"Connected instantly to {endpoint}.",
+                "devices": [{"endpoint": endpoint, "serial": serial}],
+                "authorization_required": 0,
+                "fast_path": True,
+            }
+        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
+
+    # Saved ports rotate. Only pay the Bonjour cost after the direct path
+    # fails, and keep the scan window short because the scanner retains live
+    # service snapshots.
+    services = discover_all_mdns_services(timeout=0.8)
+    candidates = []
+    for item in services:
+        if item.get("type") != "connect":
+            continue
+        ip, port = str(item.get("ip", "")).strip(), item.get("port")
+        if not _valid_ipv4(ip) or not _valid_port(port):
+            continue
+        endpoint = (ip, int(port))
+        if endpoint not in seen:
+            seen.add(endpoint)
+            candidates.append(endpoint)
+
+    connected = []
+    authorization_required = 0
+    for ip, port in candidates:
+        endpoint = f"{ip}:{port}"
+        accepted, _detail = _adb_connect(ip, port, attempts=1, timeout=3)
+        if not accepted:
+            authorization_required += 1
+            continue
+        serial = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1)
+        if not serial or ":" in serial:
+            subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
+            authorization_required += 1
+            continue
+        ConnectPhone.save_wireless_endpoint(ip, port, serial)
+        connected.append({"endpoint": endpoint, "serial": serial})
+
+    if connected:
+        os.environ["ANDROID_SERIAL"] = connected[0]["endpoint"]
+        _publish_connected_endpoint(connected[0]["endpoint"], connected[0]["serial"])
+        return {
+            "success": True,
+            "message": f"Connected {len(connected)} previously authorized device(s).",
+            "devices": connected,
+            "authorization_required": authorization_required,
+        }
+    return {
+        "success": False,
+        "message": (
+            "No previously authorized phones accepted this Mac's ADB key. "
+            "Turn on Wireless Debugging; a new phone requires one initial pairing authorization."
+        ),
+        "devices": [],
+        "authorization_required": authorization_required,
+    }
+
+
+def _publish_connected_endpoint(endpoint, physical_serial):
+    """Make a successful foreground connection visible without a cache wait."""
+    global _status_cache
+    with _status_cache_lock:
+        if not isinstance(_status_cache, dict):
+            _invalidate_status_cache()
+            return
+        payload = dict(_status_cache)
+        details = [dict(item) for item in payload.get("devices_detailed", []) if item.get("serial") != endpoint]
+        details.append({
+            "serial": endpoint,
+            "status": "device",
+            "type": "wireless",
+            "model": next((item.get("model") for item in details if item.get("serial") == physical_serial), "Android Device"),
+            "product": "wireless",
+        })
+        payload.update(
+            connected=True,
+            active_device=endpoint,
+            devices=[item["serial"] for item in details if item.get("status") == "device"],
+            devices_detailed=details,
+        )
+        _status_cache = payload
+    _invalidate_status_cache()
+
+
+_foreground_connect_lock = threading.Lock()
+_foreground_connect_thread = None
+_foreground_connect_result = None
+
+
+def _saved_online_endpoint():
+    try:
+        result = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=1)
+        active = {
+            line.split()[0] for line in (result.stdout or "").splitlines()[1:]
+            if len(line.split()) >= 2 and line.split()[1] == "device"
+        }
+        config = ConnectPhone.load_config()
+        for item in config.get("saved_devices", []):
+            if not isinstance(item, dict):
+                continue
+            endpoint = f"{item.get('ip')}:{item.get('port')}"
+            serial = item.get("device_serial")
+            if endpoint in active and serial:
+                return endpoint, serial
+    except (OSError, subprocess.TimeoutExpired, TypeError, ValueError):
+        pass
+    return None
+
+
+def _foreground_connect_worker():
+    global _foreground_connect_result
+    result = connect_previously_authorized_devices()
+    with _foreground_connect_lock:
+        _foreground_connect_result = result
+
+
+def start_foreground_connect():
+    """Acknowledge the tap immediately and run the cold-phone wake in background."""
+    global _foreground_connect_thread, _foreground_connect_result
+    online = _saved_online_endpoint()
+    if online:
+        _publish_connected_endpoint(*online)
+        return {"success": True, "pending": False, "message": f"Already connected to {online[0]}."}
+    with _foreground_connect_lock:
+        if _foreground_connect_thread and _foreground_connect_thread.is_alive():
+            return {"success": True, "pending": True, "message": "Connection is already in progress…"}
+        _foreground_connect_result = None
+        _foreground_connect_thread = threading.Thread(
+            target=_foreground_connect_worker,
+            name="ConnectPhone-ForegroundConnect",
+            daemon=True,
+        )
+        _foreground_connect_thread.start()
+    return {
+        "success": True,
+        "pending": True,
+        "message": "Connecting to the saved phone now…",
+    }
+
+
+_qr_pairing_sessions: dict[str, dict] = {}
+_qr_pairing_lock = threading.RLock()
+
+
+def _public_qr_session(session):
+    return {
+        "status": session["status"],
+        "message": session["message"],
+        "expires_at": session["expires_at"],
+    }
+
+
+def _qr_pairing_worker(session_id):
+    with _qr_pairing_lock:
+        session = _qr_pairing_sessions.get(session_id)
+        if not session:
+            return
+        service_name = session["service_name"]
+        password = session["password"]
+        expires_at = session["expires_at"]
+
+    while time.time() < expires_at:
+        services = discover_all_mdns_services(timeout=1.2)
+        match = next(
+            (
+                item for item in services
+                if item.get("type") == "pairing"
+                and str(item.get("name", "")).split(".", 1)[0] == service_name
+                and _valid_ipv4(str(item.get("ip", "")))
+                and _valid_port(item.get("port"))
+            ),
+            None,
+        )
+        if not match:
+            time.sleep(0.25)
+            continue
+
+        endpoint = f"{match['ip']}:{int(match['port'])}"
+        success, detail = pair_with_secret(endpoint, password, timeout=15)
+        if success:
+            result = _connect_after_pairing(str(match["ip"]))
+            status = "success" if result.get("success") else "error"
+            message = result.get("message", "QR pairing completed.")
+        else:
+            status = "error"
+            message = f"QR pairing failed: {detail}"
+        with _qr_pairing_lock:
+            current = _qr_pairing_sessions.get(session_id)
+            if current:
+                current.update(status=status, message=message, password=None)
+        return
+
+    with _qr_pairing_lock:
+        current = _qr_pairing_sessions.get(session_id)
+        if current:
+            current.update(
+                status="expired",
+                message="QR code expired. Generate a new code and scan it again.",
+                password=None,
+            )
+
+
+def start_qr_pairing():
+    now = time.time()
+    with _qr_pairing_lock:
+        for key in list(_qr_pairing_sessions):
+            if _qr_pairing_sessions[key]["expires_at"] + 30 < now:
+                del _qr_pairing_sessions[key]
+        if sum(1 for item in _qr_pairing_sessions.values() if item["status"] == "waiting") >= 2:
+            return {"success": False, "message": "Two QR pairing sessions are already active."}
+
+        service_name, password, payload = new_qr_credentials()
+        session_id = secrets.token_urlsafe(18)
+        expires_at = now + 90
+        _qr_pairing_sessions[session_id] = {
+            "service_name": service_name,
+            "password": password,
+            "status": "waiting",
+            "message": "Waiting for a phone to scan this QR code…",
+            "expires_at": expires_at,
+        }
+        qr_url = svg_data_url(payload)
+
+    threading.Thread(target=_qr_pairing_worker, args=(session_id,), daemon=True).start()
+    return {
+        "success": True,
+        "session_id": session_id,
+        "qr_image": qr_url,
+        "expires_at": expires_at,
+    }
+
+
 
 
 
@@ -1166,8 +1521,28 @@ def discover_all_mdns_services(timeout=2.0, target_ip=None):
 class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
     # Suppress verbose log messages on terminal for clean output
     def log_message(self, format, *args):
-        sys.stdout.write(f"[UI Server] {format % args}\n")
+        # The WebView polls this cached endpoint frequently; successful polls
+        # add no diagnostic value and otherwise rotate logs every few days.
+        rendered = format % args
+        if '"GET /api/status ' in rendered and '" 200 ' in rendered:
+            return
+        message = re.sub(r"([?&]token=)[^&\s]+", r"\1[REDACTED]", rendered)
+        sys.stdout.write(f"[UI Server] {message}\n")
         sys.stdout.flush()
+
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' blob: data:; "
+            "style-src 'self' 'unsafe-inline'; font-src 'self'; "
+            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        )
+        super().end_headers()
 
     def do_OPTIONS(self):
         if not _origin_allowed(self.headers.get("Origin")):
@@ -1189,7 +1564,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(401, "Authentication required")
             return
         if self.path.startswith('/api/'):
-            self.handle_api_get()
+            if self.path.split("?", 1)[0] == "/api/status":
+                self.handle_api_get()
+            else:
+                with _adb_action_lock:
+                    self.handle_api_get()
         else:
             self.serve_static_files()
 
@@ -1201,7 +1580,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(401, "Authentication required")
             return
         if self.path.startswith('/api/'):
-            self.handle_api_post()
+            with _adb_action_lock:
+                self.handle_api_post()
         else:
             self.send_error(404, "Not Found")
 
@@ -1253,6 +1633,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         retired = {
             "/api/termux/install/status",
             "/api/screenshots/list",
+            "/api/clipboard/sync/status",
         }
         if self.path in retired:
             self.send_response(410)
@@ -1260,13 +1641,25 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"error": "This feature has been retired from ConnectPhone."}).encode('utf-8'))
             return
+        parsed_path = urlsplit(self.path)
+        if parsed_path.path == '/api/storage/list':
+            target_path = str(parse_qs(parsed_path.query).get("path", ["/sdcard"])[0]).strip() or "/sdcard"
+            if not _valid_remote_path(target_path):
+                self.send_error(400, "Invalid directory path")
+                return
+
+        known_get_paths = {"/api/status", "/api/metrics", "/api/settings/audio_devices", "/api/mdns/discover", "/api/pair/qr/status", "/api/storage/list", "/api/storage/download"}
+        if parsed_path.path not in known_get_paths:
+            self.send_error(404, "Unknown GET endpoint")
+            return
+
         if not self.path.startswith('/api/storage/download'):
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
 
         if self.path == '/api/status':
-            # Serve from cache (refreshed every ~1.2 s in background) — sub-millisecond response
+            # Serve from cache (refreshed every ~3 s in background) — sub-millisecond response
             with _status_cache_lock:
                 payload = _status_cache
             if payload is None:
@@ -1290,6 +1683,16 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             discovered = discover_all_mdns_services(target_ip=requested_ip or None)
             self.wfile.write(json.dumps({"success": True, "services": discovered}).encode('utf-8'))
 
+        elif self.path.startswith('/api/pair/qr/status'):
+            session_id = str(parse_qs(urlsplit(self.path).query).get("id", [""])[0])
+            with _qr_pairing_lock:
+                session = _qr_pairing_sessions.get(session_id)
+                response = _public_qr_session(session) if session else None
+            if response is None:
+                self.wfile.write(json.dumps({"success": False, "message": "QR pairing session not found."}).encode('utf-8'))
+            else:
+                self.wfile.write(json.dumps({"success": True, **response}).encode('utf-8'))
+
         elif self.path == '/api/screenshots/list':
             try:
                 # Find screenshots from common paths and sort by newest first
@@ -1308,11 +1711,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             target_path = str(query.get("path", ["/sdcard"])[0]).strip()
             if not target_path:
                 target_path = "/sdcard"
-            if not target_path.startswith(('/sdcard', '/storage')) or '..' in target_path or any(c in target_path for c in ';&|$`'):
+            if not _valid_remote_path(target_path):
                 self.wfile.write(json.dumps({"success": False, "message": "Invalid directory path"}).encode('utf-8'))
                 return
             try:
-                cmd = f'find -L "{target_path}" -mindepth 1 -maxdepth 1 -exec stat -L -c "%F|%s|%Y|%n" {{}} +'
+                cmd = f'find -L {shlex.quote(target_path)} -mindepth 1 -maxdepth 1 -exec stat -L -c "%F|%s|%Y|%n" {{}} +'
                 res = run_adb_cmd_with_retry(["adb", "shell", cmd], timeout=15)
                 files = []
                 lines = (res.stdout or "").split('\n')
@@ -1351,17 +1754,17 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             parsed = urlsplit(self.path)
             query = parse_qs(parsed.query)
             remote_path = str(query.get("path", [""])[0]).strip()
-            if not remote_path or not remote_path.startswith(('/sdcard', '/storage')) or '..' in remote_path or any(c in remote_path for c in ';&|$`'):
+            if not _valid_remote_path(remote_path):
                 self.send_error(400, "Invalid remote path")
                 return
                 
             try:
                 # Check if it is a directory on the phone
-                check_dir = subprocess.run(["adb", "shell", f"[ -d '{remote_path}' ]"], capture_output=True)
+                check_dir = subprocess.run(["adb", "shell", "test", "-d", remote_path], capture_output=True, timeout=5)
                 is_directory = (check_dir.returncode == 0)
                 
                 if is_directory:
-                    filename = os.path.basename(remote_path.rstrip('/')) + ".zip"
+                    filename = _safe_download_name(remote_path, "phone-folder") + ".zip"
                     # Pull folder and zip it
                     with tempfile.TemporaryDirectory() as tmp_dir:
                         pull_dest = os.path.join(tmp_dir, os.path.basename(remote_path.rstrip('/')))
@@ -1394,7 +1797,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                                 except Exception:
                                     pass
                 else:
-                    filename = os.path.basename(remote_path)
+                    filename = _safe_download_name(remote_path)
                     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
                         tmp_path = tmp_file.name
                     try:
@@ -1430,6 +1833,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
 
         if self.path == '/api/storage/upload':
             try:
+                try:
+                    upload_length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    upload_length = -1
+                if upload_length <= 0 or upload_length > 64 * 1024 * 1024:
+                    self.send_error(413, "Upload must be between 1 byte and 64 MiB")
+                    return
                 fields, files = parse_multipart(self.rfile, self.headers)
                 if not fields or not files or 'file' not in files:
                     self.send_response(400)
@@ -1439,7 +1849,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     return
                 
                 remote_dir = fields.get("path", "/sdcard/Download").strip()
-                if not remote_dir.startswith(('/sdcard', '/storage')) or '..' in remote_dir or any(c in remote_dir for c in ';&|$`'):
+                if not _valid_remote_path(remote_dir):
                     self.send_response(400)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
@@ -1454,9 +1864,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 is_folder_file = False
                 if rel_path:
                     # Clean the path
-                    rel_path = os.path.normpath(rel_path).replace('\\', '/')
-                    # Ensure no directory traversal or shell characters
-                    if '..' in rel_path or any(c in rel_path for c in ';&|$`'):
+                    rel_path = posixpath.normpath(rel_path.replace('\\', '/'))
+                    if rel_path.startswith("/") or rel_path == ".." or rel_path.startswith("../") or any(ord(c) < 32 for c in rel_path):
                         self.send_response(400)
                         self.send_header('Content-Type', 'application/json')
                         self.end_headers()
@@ -1465,7 +1874,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     filename = rel_path
                     is_folder_file = True
                 else:
-                    if not filename or '/' in filename or '\\' in filename:
+                    if not filename or '/' in filename or '\\' in filename or any(ord(c) < 32 for c in filename):
                         self.send_response(400)
                         self.send_header('Content-Type', 'application/json')
                         self.end_headers()
@@ -1477,8 +1886,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     tmp_file.write(uploaded_file['content'])
                     
                 try:
-                    remote_dest = os.path.join(remote_dir, filename)
-                    remote_parent = os.path.dirname(remote_dest)
+                    remote_dest = posixpath.join(remote_dir, filename)
+                    remote_parent = posixpath.dirname(remote_dest)
+                    if not _valid_remote_path(remote_dest):
+                        raise ValueError("Invalid upload destination")
                     
                     # Create parent directories recursively on phone first!
                     subprocess.run(["adb", "shell", "mkdir", "-p", remote_parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1488,28 +1899,6 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         # 1. Trigger MediaScanner so the phone indices register the new file instantly!
                         subprocess.run(["adb", "shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", f"file://{remote_dest}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         
-                        # 2. Only trigger launch intents for single file uploads (avoids spam and preview errors on folder uploads)
-                        if not is_folder_file:
-                            # If it is an APK, install it automatically so it works immediately!
-                            if filename.lower().endswith(".apk"):
-                                subprocess.run(["adb", "shell", "pm", "install", "-r", remote_dest], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                                
-                            # For images, videos, audio, text, PDFs, trigger a View intent to open it on the phone!
-                            ext = os.path.splitext(filename)[1].lower()
-                            if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp4', '.mp3', '.pdf', '.txt'):
-                                mime = "text/plain"
-                                if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif'):
-                                    mime = "image/*"
-                                elif ext == '.mp4':
-                                    mime = "video/*"
-                                elif ext == '.mp3':
-                                    mime = "audio/*"
-                                elif ext == '.pdf':
-                                    mime = "application/pdf"
-                                
-                                # Start view intent to pop the file open on the phone screen
-                                subprocess.run(["adb", "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", f"file://{remote_dest}", "-t", mime], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
                         self.send_response(200)
                         self.send_header('Content-Type', 'application/json')
                         self.end_headers()
@@ -1552,7 +1941,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
 
             # Sanitize paths
             for p in paths:
-                if not p.startswith(('/sdcard', '/storage')) or '..' in p or any(c in p for c in ';&|$`'):
+                if not _valid_remote_path(p):
                     self.send_error(400, f"Invalid path detected: {p}")
                     return
 
@@ -1642,7 +2031,20 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = json.loads(post_data.decode('utf-8'))
             except Exception:
-                pass
+                self.send_error(400, "Request body must be valid JSON")
+                return
+
+        if self.path == '/api/storage/delete':
+            if not _valid_remote_path(str(data.get("path", "")).strip(), destructive=True):
+                self.send_error(400, "Invalid remote path")
+                return
+        if self.path == '/api/storage/delete_multiple':
+            paths = data.get("paths")
+            if not isinstance(paths, list) or not paths or any(
+                not _valid_remote_path(path, destructive=True) for path in paths
+            ):
+                self.send_error(400, "Invalid remote path list")
+                return
                 
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -1664,10 +2066,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = f"Target device serial set to {serial}."
             elif self.path == '/api/storage/delete':
                 remote_path = str(data.get("path", "")).strip()
-                if not remote_path or not remote_path.startswith(('/sdcard', '/storage')) or '..' in remote_path or any(c in remote_path for c in ';&|$`'):
+                if not _valid_remote_path(remote_path, destructive=True):
                     res_data["message"] = "Invalid remote path"
                 else:
-                    res = run_adb_cmd_with_retry(["adb", "shell", "rm", "-rf", remote_path], timeout=10)
+                    res = run_adb_cmd_with_retry(["adb", "shell", "rm", "-rf", "--", remote_path], timeout=10)
                     if res.returncode == 0:
                         res_data["success"] = True
                         res_data["message"] = f"Deleted {os.path.basename(remote_path)}"
@@ -1680,7 +2082,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     invalid = False
                     for p in paths:
-                        if not p.startswith(('/sdcard', '/storage')) or '..' in p or any(c in p for c in ';&|$`'):
+                        if not _valid_remote_path(p, destructive=True):
                             invalid = True
                             break
                     if invalid:
@@ -1689,7 +2091,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         success_count = 0
                         errors = []
                         for p in paths:
-                            res = run_adb_cmd_with_retry(["adb", "shell", "rm", "-rf", p], timeout=10)
+                            res = run_adb_cmd_with_retry(["adb", "shell", "rm", "-rf", "--", p], timeout=10)
                             if res.returncode == 0:
                                 success_count += 1
                             else:
@@ -1703,10 +2105,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             res_data["message"] = f"Deleted {success_count}/{len(paths)} items. Errors: {', '.join(errors)}"
             elif self.path == '/api/storage/download_external':
                 remote_path = str(data.get("path", "")).strip()
-                if not remote_path or not remote_path.startswith(('/sdcard', '/storage')) or '..' in remote_path or any(c in remote_path for c in ';&|$`'):
+                if not _valid_remote_path(remote_path):
                     res_data["message"] = "Invalid remote path"
                 else:
-                    filename = os.path.basename(remote_path)
+                    filename = _safe_download_name(remote_path)
                     downloads_dir = os.path.expanduser("~/Downloads")
                     local_path = os.path.join(downloads_dir, filename)
                     
@@ -1731,7 +2133,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     invalid = False
                     for p in paths:
-                        if not p.startswith(('/sdcard', '/storage')) or '..' in p or any(c in p for c in ';&|$`'):
+                        if not _valid_remote_path(p):
                             invalid = True
                             break
                     if invalid:
@@ -1777,7 +2179,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             elif self.path == '/api/storage/mkdir':
                 parent_dir = str(data.get("parent", "")).strip()
                 name = str(data.get("name", "")).strip()
-                if not parent_dir or not parent_dir.startswith(('/sdcard', '/storage')) or '..' in parent_dir or any(c in parent_dir for c in ';&|$`'):
+                if not _valid_remote_path(parent_dir):
                     res_data["message"] = "Invalid parent path"
                 elif not name or '/' in name or '\\' in name or any(c in name for c in ';&|$`'):
                     res_data["message"] = "Invalid folder name"
@@ -1798,7 +2200,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = "A valid TCP port is required."
                 else:
                     ip_port = f"{ip}:{port}"
-                    connected, output = _adb_connect(ip, int(port), attempts=3)
+                    connected, output = _adb_connect(ip, int(port), attempts=1, timeout=4)
                     if connected:
                         res_data["success"] = True
                         os.environ["ANDROID_SERIAL"] = ip_port
@@ -1806,6 +2208,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         if device_serial:
                             ConnectPhone.save_wireless_endpoint(ip, int(port), device_serial)
                             res_data["message"] = f"Connected to {ip_port}; identity pinned for persistent reconnect."
+                            _publish_connected_endpoint(ip_port, device_serial)
                         else:
                             res_data["message"] = "Connected, but Android identity could not be verified; persistent reconnect is disabled until you reconnect manually."
                         # Cache this port for lightning reconnect
@@ -1827,7 +2230,19 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             "• Or, your phone screen turned off and went to sleep, closing the active connection. Wake your phone and toggle Wireless Debugging OFF and ON."
                         )
                         
+            elif self.path == '/api/pair/qr/start':
+                res_data.update(start_qr_pairing())
+
+            elif self.path == '/api/connect/authorized':
+                res_data.update(start_foreground_connect())
+
             elif self.path == '/api/connect/auto':
+                # Use the same identity-pinned fast connector as the explicit
+                # Authorized button. The legacy implementation below remains
+                # as compatibility code but is intentionally bypassed.
+                res_data.update(start_foreground_connect())
+                self.wfile.write(json.dumps(res_data).encode('utf-8'))
+                return
                 config = ConnectPhone.load_config()
                 saved = [
                     item for item in config.get("saved_devices", [])
@@ -1853,38 +2268,28 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         return
                     connected = False
 
-                    # 0. Lightning path: try the last-known port directly (< 300 ms if phone kept same port)
+                    # 0. Lightning path: ask ADB directly. A raw TCP preflight
+                    # produced false negatives on power-saving Wi-Fi and sent
+                    # healthy endpoints through the slow discovery fallback.
                     if last_port and last_port not in (5555,):
-                        import socket as _sock
-                        try:
-                            s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
-                            s.settimeout(0.25)
-                            open_result = s.connect_ex((ip, last_port))
-                            s.close()
-                        except Exception:
-                            open_result = 1
-                        if open_result == 0:
-                            ip_port = f"{ip}:{last_port}"
-                            connected_now, _ = _adb_connect(ip, int(last_port), attempts=2)
-                            if connected_now:
-                                accepted, _ = _accept_auto_wireless_connection(ip, int(last_port))
-                                if accepted:
-                                    os.environ["ANDROID_SERIAL"] = ip_port
-                                    res_data["success"] = True
-                                    res_data["message"] = f"⚡ Instantly reconnected to {ip_port}!"
-                                    connected = True
-                                    _invalidate_status_cache()
+                        ip_port = f"{ip}:{last_port}"
+                        connected_now, _ = _adb_connect(ip, int(last_port), attempts=1, timeout=3)
+                        if connected_now:
+                            accepted, identity = _accept_auto_wireless_connection(ip, int(last_port))
+                            if accepted:
+                                os.environ["ANDROID_SERIAL"] = ip_port
+                                res_data["success"] = True
+                                res_data["message"] = f"⚡ Instantly reconnected to {ip_port}!"
+                                connected = True
+                                _publish_connected_endpoint(ip_port, identity)
 
                     # 1. mDNS discovery (1.5 s timeout — usually resolves in < 200 ms)
                     if not connected:
-                        _, mdns_port = discover_adb_service_hybrid(
-                            "_adb-tls-connect._tcp.local.",
-                            target_ip=ip,
-                            timeout=1.5
-                        )
+                        services = discover_all_mdns_services(timeout=0.8, target_ip=ip)
+                        mdns_port = next((item["port"] for item in services if item.get("type") == "connect"), None)
                         if mdns_port:
                             ip_port = f"{ip}:{mdns_port}"
-                            connected_now, _ = _adb_connect(ip, int(mdns_port), attempts=2)
+                            connected_now, _ = _adb_connect(ip, int(mdns_port), attempts=1, timeout=3)
                             if connected_now:
                                 accepted, _ = _accept_auto_wireless_connection(ip, int(mdns_port))
                                 if accepted:
@@ -1892,11 +2297,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                                     res_data["success"] = True
                                     res_data["message"] = f"Successfully auto-connected to phone at {ip_port}!"
                                     connected = True
-                                    _invalidate_status_cache()
+                                    _publish_connected_endpoint(ip_port, _saved_wireless_serial(ip))
 
                     # 2. Parallel port scan fallback
                     if not connected:
-                        target_port = scan_and_connect_wireless_debug(ip, last_known_port=last_port, allow_port_scan=True)
+                        target_port = scan_and_connect_wireless_debug(ip, last_known_port=last_port, allow_port_scan=False)
                         if target_port:
                             accepted, _ = _accept_auto_wireless_connection(ip, int(target_port))
                             if accepted:
@@ -1964,6 +2369,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 if not _valid_ipv4(ip) or not _valid_port(port) or not code.isdigit() or len(code) != 6:
                     res_data["message"] = "Enter a valid IPv4 address, TCP port, and 6-digit pairing code."
                 else:
+                    res_data.update(pair_and_connect_wireless(ip, int(port), code))
+                    self.wfile.write(json.dumps(res_data).encode('utf-8'))
+                    return
                     ip_port = f"{ip}:{port}"
                     print(f"[UI Server] Attempting wireless pairing to {ip_port}...")
 
@@ -2209,6 +2617,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 
             elif self.path == '/api/mirror':
                 mirror_type = data.get("type", "screen") # screen, camera, audio, record
+                if mirror_type not in {"screen", "camera", "audio", "record"}:
+                    raise ValueError("Unsupported mirroring mode")
                 config = ConnectPhone.load_config()
                 
                 preset = config.get("audio_preset", "voice_communication")
@@ -2225,7 +2635,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     audio_args = ["--audio-source=mic", "--audio-codec=opus", "--audio-bit-rate=128000"]
                 
                 devices = ConnectPhone.check_adb_devices()
-                is_wireless = any(":" in d for d in devices) if devices else False
+                is_wireless = ":" in os.environ.get("ANDROID_SERIAL", "")
 
                 cmd = ["scrcpy", "--window-title", "ConnectPhone"]
                 a_buf = config.get("audio_buffer", "20")
@@ -2263,6 +2673,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     facing = data.get("camera_facing", "back")
                     resolution = data.get("resolution", "1080p")
                     no_audio = data.get("no_audio", False)
+                    if facing not in {"front", "back"} or resolution not in {"720p", "1080p", "4k"} or not isinstance(no_audio, bool):
+                        raise ValueError("Invalid camera options")
                     
                     cmd += ["--video-source=camera", f"--camera-facing={facing}"]
                     if no_audio:
@@ -2372,6 +2784,25 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         pass
                 
                 scrcpy_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                time.sleep(0.35)
+                if scrcpy_proc.poll() is not None:
+                    output = (scrcpy_proc.communicate(timeout=1)[0] or b"").decode("utf-8", errors="replace").strip()
+                    scrcpy_proc = None
+                    scrcpy_state["mirror_type"] = None
+                    raise RuntimeError(output[-1200:] or "scrcpy exited before the stream initialized")
+
+                if mirror_type == "camera" and temp_mkv_path:
+                    def enforce_camera_file_limit(process, path, limit=2 * 1024 * 1024 * 1024):
+                        while process.poll() is None:
+                            try:
+                                if os.path.getsize(path) > limit:
+                                    print("[Camera] Temporary recording reached 2 GiB; stopping to protect disk space")
+                                    process.terminate()
+                                    return
+                            except OSError:
+                                pass
+                            time.sleep(10)
+                    threading.Thread(target=enforce_camera_file_limit, args=(scrcpy_proc, temp_mkv_path), daemon=True).start()
                 
                 # Auto-unlock lock screen concurrently via macOS Touch ID
                 if mirror_type == "screen" and ConnectPhone.is_keyguard_locked():
@@ -2466,7 +2897,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             elif self.path == '/api/screenshots/pull':
                 filepath = str(data.get("path", "")).strip()
                 allowed_roots = ("/sdcard/DCIM/Screenshots/", "/sdcard/Pictures/Screenshots/")
-                if not filepath or not filepath.startswith(allowed_roots) or os.path.basename(filepath) in {"", ".", ".."} or "/" in os.path.basename(filepath):
+                if not _valid_remote_path(filepath) or not filepath.startswith(allowed_roots) or posixpath.basename(filepath) in {"", ".", ".."}:
                     res_data["message"] = "File path is required."
                 else:
                     desk_path = os.path.expanduser("~/Desktop")
@@ -2687,9 +3118,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     time.sleep(0.5)
                     import sys, os
                     if getattr(sys, "frozen", False):
-                        # A PyInstaller executable must be relaunched as the
-                        # executable itself, not as "python3" plus arguments.
-                        subprocess.Popen([sys.executable], start_new_session=True)
+                        subprocess.Popen(
+                            [sys.executable, "--relaunch-wait", str(os.getpid())],
+                            start_new_session=True,
+                            close_fds=True,
+                        )
                         os._exit(0)
                     os.execv(sys.executable, [sys.executable] + sys.argv)
                 threading.Thread(target=restart_server).start()
@@ -2969,6 +3402,20 @@ def start_server_in_thread(httpd):
         stop_scrcpy_bg()
 
 def run_server():
+    if "--relaunch-wait" in sys.argv:
+        try:
+            index = sys.argv.index("--relaunch-wait")
+            old_pid = int(sys.argv[index + 1])
+            del sys.argv[index:index + 2]
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(old_pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.1)
+        except (ValueError, IndexError):
+            pass
     # Prompt biometric/passcode authentication before starting the application!
     script_dir = os.path.dirname(os.path.realpath(__file__))
     helper_path = os.path.join(script_dir, "touch_id_helper")
@@ -3009,16 +3456,7 @@ def run_server():
     except OSError as e:
         # errno 48 is Address already in use on macOS
         if e.errno == 48 or "already in use" in str(e).lower():
-            print(f"\nℹ️ ConnectPhone UI Dashboard is already running on http://localhost:{PORT}")
-            try:
-                import webview
-                webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
-                js_api = WebviewApi()
-                win = webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False, js_api=js_api)
-                js_api.set_window(win)
-                webview.start(debug=True)
-            except ImportError:
-                webbrowser.open(f"http://localhost:{PORT}/#token={API_TOKEN}")
+            print(f"\nℹ️ TCP port {PORT} is already in use; refusing to disclose credentials to an unverified listener.")
             sys.exit(0)
         else:
             raise e
@@ -3034,14 +3472,9 @@ def run_server():
 
     print(f"\n🚀 ConnectPhone UI Dashboard Running on http://localhost:{PORT}")
     
-    # --- START NEW ASGI FASTAPI ENGINE ---
-    from core.api_server import start_fastapi_server, set_api_token, set_status_provider
-    set_api_token(API_TOKEN)
-    set_status_provider(_build_status_payload)
-    fastapi_thread = threading.Thread(target=start_fastapi_server, args=(8283,))
-    fastapi_thread.daemon = True
-    fastapi_thread.start()
-    # -------------------------------------
+    from core.auto_reconnect import AutoReconnector
+    auto_reconnector = AutoReconnector()
+    auto_reconnector.start_watching()
     
     server_thread = threading.Thread(target=start_server_in_thread, args=(httpd,))
     server_thread.daemon = True
@@ -3053,7 +3486,7 @@ def run_server():
         js_api = WebviewApi()
         win = webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False, js_api=js_api)
         js_api.set_window(win)
-        webview.start(debug=True)
+        webview.start(debug=False)
     except ImportError:
         print("💡 pywebview not found, falling back to standard web browser.")
         webbrowser.open(f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}")
@@ -3062,6 +3495,7 @@ def run_server():
         except KeyboardInterrupt:
             pass
     finally:
+        auto_reconnector.stop_watching()
         httpd.shutdown()
         stop_scrcpy_bg()
 

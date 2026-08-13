@@ -33,6 +33,17 @@ class ConfigurationSafetyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             manager.update_last_connection("not-an-ip", 5555)
 
+    def test_corrupt_config_is_quarantined_and_rebuilt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("{broken")
+            manager = ConfigurationManager(path)
+            loaded = manager.load()
+            self.assertEqual(loaded["saved_devices"], [])
+            self.assertTrue(os.path.exists(path))
+            self.assertTrue(any(name.startswith("config.json.corrupt-") for name in os.listdir(directory)))
+
 
 if __name__ == "__main__":
     unittest.main()

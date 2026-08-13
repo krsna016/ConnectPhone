@@ -38,7 +38,7 @@ class ScrcpySession:
         # duplicate --video-codec flags and makes the effective quality
         # dependent on argument ordering.
         hw_args = [
-            "--display-buffer=0"  # no intentional playback buffering
+            "--video-buffer=0"  # no intentional playback buffering
         ]
         
         cmd = ["scrcpy", "--window-title", "ConnectPhone", f"--audio-buffer={audio_buffer}"] + hw_args + args

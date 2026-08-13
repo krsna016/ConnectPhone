@@ -4,11 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ConnectPhone - Dashboard</title>
-    <!-- Google Fonts Outfit & Inter -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link rel="stylesheet" href="local-fonts.css">
     <link rel="stylesheet" href="index.css?v=1.0.5">
 </head>
 <body>
@@ -30,7 +26,7 @@
                 </div>
                 <div class="brand-text">
                     <h1>ConnectPhone</h1>
-                    <span class="version">CONNECT.DEBUG.DEPLOY</span>
+                    <span class="version">VERSION 2.0.0</span>
                 </div>
             </div>
             
@@ -187,11 +183,14 @@
                             
                             <!-- mDNS Discovery Card -->
                             <div class="card mdns-discovery-card">
-                                <div class="card-header-row">
+                                <div class="card-header-row mdns-card-header">
                                     <h3><i class="material-symbols-outlined">wifi</i> Wireless Auto-Discovery (mDNS)</h3>
-                                    <button class="btn btn-sm btn-scan-mdns" id="btn-scan-mdns-devices"><i class="material-symbols-outlined">search</i> Scan Network</button>
+                                    <div class="mdns-card-actions">
+                                        <button class="btn btn-sm btn-scan-mdns" id="btn-scan-mdns-devices"><i class="material-symbols-outlined">search</i> Scan Network</button>
+                                        <button class="btn btn-sm btn-primary" id="btn-connect-authorized"><i class="material-symbols-outlined">wifi_find</i> Connect Authorized</button>
+                                    </div>
                                 </div>
-                                <p class="card-desc">Discovers phones broadcasting Wireless Debugging on your local subnet automatically.</p>
+                                <p class="card-desc">Discovers Wireless Debugging phones. Devices that already trust this Mac connect without another code.</p>
                                 <div class="mdns-devices-list" id="mdns-discovered-list">
                                     <p class="list-placeholder">Click 'Scan Network' to find local wireless debugging broadcasts.</p>
                                 </div>
@@ -217,10 +216,10 @@
                                         </div>
                                         <div class="form-group">
                                             <label for="conn-port">Port:</label>
-                                            <input type="text" id="conn-port" value="5555">
+                                            <input type="text" id="conn-port" inputmode="numeric" placeholder="Discovered TLS port">
                                         </div>
                                     </div>
-                                    <button class="btn btn-accent btn-autoconnect" id="btn-conn-autoconnect"><i class="material-symbols-outlined">bolt</i> Auto-Connect Device (Port Scan)</button>
+                                    <button class="btn btn-accent btn-autoconnect" id="btn-conn-autoconnect"><i class="material-symbols-outlined">bolt</i> Auto-Connect Device</button>
                                     <button class="btn btn-primary" id="btn-conn-connect">Connect & Keep Reconnecting</button>
                                 </div>
                             </div>
@@ -233,14 +232,22 @@
                                     <div class="form-row">
                                         <div class="form-group">
                                             <label for="pair-port">Pairing Port:</label>
-                                            <input type="text" id="pair-port" placeholder="e.g. 40561">
+                                            <input type="text" id="pair-port" inputmode="numeric" autocomplete="off" placeholder="e.g. 40561">
                                         </div>
                                         <div class="form-group">
                                             <label for="pair-code">Pairing Code:</label>
-                                            <input type="text" id="pair-code" placeholder="e.g. 129035">
+                                            <input type="password" id="pair-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code">
                                         </div>
                                     </div>
-                                    <button class="btn btn-primary" id="btn-conn-pair">Pair Wireless Device</button>
+                                    <div class="pairing-actions">
+                                        <button class="btn btn-primary" id="btn-conn-pair">Pair With 6-Digit Code</button>
+                                        <button class="btn btn-accent" id="btn-pair-qr"><i class="material-symbols-outlined">qr_code_2</i> Pair Using QR Code</button>
+                                    </div>
+                                    <div id="qr-pairing-panel" class="hidden" style="margin-top:16px; text-align:center">
+                                        <img id="qr-pairing-image" alt="Android Wireless Debugging pairing QR code" style="width:260px; height:260px; background:white; padding:10px; border-radius:12px">
+                                        <p style="margin-top:10px">On Android, open <strong>Wireless debugging → Pair device with QR code</strong>, then scan this code.</p>
+                                        <p id="qr-pairing-status" class="list-placeholder">Waiting for scan…</p>
+                                    </div>
                                 </div>
                             </div>
                             
@@ -324,7 +331,7 @@
                         </div>
                         
                         <!-- Mode 5: Ghost Driver AI -->
-                        <div id="ghost-driver-card" class="card mirror-card highlight" style="border: 1px solid #00ffcc; box-shadow: 0 0 15px rgba(0,255,204,0.15);">
+                        <div id="ghost-driver-card" class="card mirror-card highlight" hidden style="border: 1px solid #00ffcc; box-shadow: 0 0 15px rgba(0,255,204,0.15);">
                             <div class="card-badge" style="background:#00ffcc; color:#000;">AI</div>
                             <div class="card-icon"><i class="material-symbols-outlined" style="color:#00ffcc;">smart_toy</i></div>
                             <h3>Ghost Driver Automation</h3>
@@ -336,7 +343,7 @@
                         </div>
 
                         <!-- Mode 6: Tesseract OCR -->
-                        <div id="screen-text-card" class="card mirror-card highlight" style="border: 1px solid #ffbd2e; box-shadow: 0 0 15px rgba(255,189,46,0.15);">
+                        <div id="screen-text-card" class="card mirror-card highlight" hidden style="border: 1px solid #ffbd2e; box-shadow: 0 0 15px rgba(255,189,46,0.15);">
                             <div class="card-badge" style="background:#ffbd2e; color:#000;">AI</div>
                             <div class="card-icon"><i class="material-symbols-outlined" style="color:#ffbd2e;">document_scanner</i></div>
                             <h3>Extract Screen Text</h3>
@@ -603,8 +610,8 @@
                                 <div class="stat-row"><span>System Load:</span> <strong id="metric-sys-load">--</strong></div>
                             </div>
                             <div class="ping-section">
-                                <button class="btn btn-accent" id="btn-ping-test"><i class="material-symbols-outlined">bolt</i> Run Connection Ping Test</button>
-                                <div class="ping-result" id="ping-test-result">Click test to calculate round-trip latency.</div>
+                                <button class="btn btn-accent" id="btn-ping-test-metrics"><i class="material-symbols-outlined">bolt</i> Run Connection Ping Test</button>
+                                <div class="ping-result" id="ping-test-result-metrics">Click test to calculate round-trip latency.</div>
                             </div>
                         </div>
                     </div>

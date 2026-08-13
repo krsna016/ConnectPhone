@@ -2,6 +2,7 @@ from adb_client import check_adb_devices, get_device_info, push_file_to_phone, i
 from ui_controller import print_header, run_mirroring_menu, run_files_menu, run_controls_menu
 from core.config_manager import ConfigurationManager
 from core.scrcpy_session import ScrcpySession
+from core.paths import migrate_legacy_config
 import subprocess
 import sys
 import os
@@ -29,7 +30,7 @@ for path in common_paths:
 os.environ["PATH"] = current_path
 
 
-CONFIG_FILE = os.path.expanduser("~/.connectphone_config.json")
+CONFIG_FILE = migrate_legacy_config()
 global_config_mgr = ConfigurationManager(CONFIG_FILE)
 
 # ANSI Escape Codes for CLI Styling (macOS terminal native)

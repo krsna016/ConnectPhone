@@ -4,8 +4,12 @@ import logging
 import tempfile
 import copy
 import ipaddress
+import time
+import threading
 from typing import Dict, Any
 from core import keychain
+
+_CONFIG_LOCK = threading.RLock()
 
 class ConfigurationManager:
     """
@@ -56,8 +60,12 @@ class ConfigurationManager:
                 os.chmod(self.config_path, 0o600)
             except OSError:
                 pass
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            if os.path.islink(self.config_path):
+                raise PermissionError("Refusing to read a symbolic-link configuration file")
+            with _CONFIG_LOCK, open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            if not isinstance(data, dict):
+                raise json.JSONDecodeError("Configuration root must be an object", "", 0)
 
             # Migrate legacy plaintext secrets once, then hydrate memory from Keychain.
             migrated_legacy_secret = False
@@ -88,9 +96,15 @@ class ConfigurationManager:
             return self._config_data
             
         except json.JSONDecodeError as e:
-            self.logger.error(f"Config file is corrupted. JSON decode failed: {e}")
-            # Raise exception instead of silent pass, so the app can handle it gracefully.
-            raise
+            backup_path = f"{self.config_path}.corrupt-{int(time.time())}"
+            self.logger.error("Configuration is corrupt; preserving it at %s: %s", backup_path, e)
+            try:
+                os.replace(self.config_path, backup_path)
+            except OSError:
+                pass
+            self._config_data = copy.deepcopy(self.DEFAULT_CONFIG)
+            self.save()
+            return self._config_data
         except PermissionError as e:
             self.logger.error(f"Permission denied reading config: {e}")
             raise
@@ -104,10 +118,11 @@ class ConfigurationManager:
             for secret_name in self.SECRET_KEYS:
                 secret_value = persisted.pop(secret_name, "")
                 if keychain.available():
+                    # Saving an unrelated preference must never erase a
+                    # Keychain secret merely because this manager instance
+                    # has not hydrated it yet (notably in tests/migrations).
                     if secret_value:
                         keychain.set(secret_name, secret_value)
-                    else:
-                        keychain.delete(secret_name)
                 else:
                     persisted[secret_name] = secret_value
 
@@ -119,7 +134,16 @@ class ConfigurationManager:
                     f.write("\n")
                     f.flush()
                     os.fsync(f.fileno())
-                os.replace(temp_path, self.config_path)
+                with _CONFIG_LOCK:
+                    os.replace(temp_path, self.config_path)
+                    try:
+                        dir_fd = os.open(directory, os.O_RDONLY)
+                        try:
+                            os.fsync(dir_fd)
+                        finally:
+                            os.close(dir_fd)
+                    except OSError:
+                        pass
             except Exception:
                 try:
                     os.unlink(temp_path)

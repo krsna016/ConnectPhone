@@ -3,14 +3,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:8282' : '';
     // Keep the token in the URL fragment so it is not sent to the local HTTP
     // server in request logs or included in Referer headers. Cache it in
-    // localStorage so that page reloads or external browser visits remain authenticated.
+    // sessionStorage so the capability disappears when the app view closes.
     let hashToken = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token');
     if (hashToken) {
-        localStorage.setItem('cp_api_token', hashToken);
+        sessionStorage.setItem('cp_api_token', hashToken);
         // Clear hash to prevent leaking the token in history or sharing
         window.location.hash = '';
     }
-    const API_TOKEN = localStorage.getItem('cp_api_token') || '';
+    const API_TOKEN = sessionStorage.getItem('cp_api_token') || '';
 
     const nativeFetch = window.fetch.bind(window);
     window.fetch = (input, init = {}) => {
@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let scrcpyWasRunning = false;
     let isRecording = false;
     let _actionInFlight = false;  // pause polling during long operations
+    let dependencyWarningShown = false;
 
     // Storage Manager State
     window.currentStoragePath = '/sdcard';
@@ -186,6 +187,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateConnectionUI(data) {
+        const missingDependencies = Object.entries(data.dependencies || {}).filter(([, available]) => !available).map(([name]) => name);
+        if (missingDependencies.length && !dependencyWarningShown) {
+            dependencyWarningShown = true;
+            showToast(`Missing required tools: ${missingDependencies.join(', ')}. Install Android Platform Tools, scrcpy, and FFmpeg.`, 'error');
+        }
         const cleanInfo = (data.device_info || "").replace(/\\033\[[0-9;]*m/g, '').replace(/\x1b\[[0-9;]*m/g, '');
         
         const wasConnected = window.isConnected;
@@ -485,13 +491,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (config.last_ip && connIpInput && !connIpInput.value) {
             connIpInput.value = config.last_ip;
         }
+        const connPortInput = document.getElementById('conn-port');
+        if (config.last_port && connPortInput && !connPortInput.value) {
+            connPortInput.value = config.last_port;
+        }
         
         // Populate saved IPs dropdowns
         const dropdown1 = document.getElementById('saved-ips-dropdown');
         const dropdown2 = document.getElementById('modal-saved-ips-dropdown');
         const savedDevices = Array.isArray(config.saved_devices) && config.saved_devices.length
             ? config.saved_devices
-            : (config.saved_ips || []).map(ip => ({ ip, port: config.last_port || 5555 }));
+            : (config.saved_ips || []).map(ip => ({ ip, port: config.last_port || null }));
         
         [dropdown1, dropdown2].forEach(dropdown => {
             if (dropdown) {
@@ -499,7 +509,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 savedDevices.forEach(device => {
                     const option = document.createElement('option');
                     option.value = JSON.stringify({ ip: device.ip, port: device.port });
-                    option.textContent = `${device.ip}:${device.port || config.last_port || 5555}`;
+                    option.textContent = device.port ? `${device.ip}:${device.port}` : device.ip;
                     dropdown.appendChild(option);
                 });
                 dropdown.onchange = () => {
@@ -603,8 +613,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnConnect) btnConnect.addEventListener('click', () => {
         const ip = document.getElementById('conn-ip').value.trim();
         const port = document.getElementById('conn-port').value.trim();
-        if (!ip) {
-            showToast('IP address is required.', 'error');
+        if (!ip || !port) {
+            showToast('IP address and the current Wireless Debugging port are required. Use Scan Network to fill them.', 'error');
             return;
         }
         showToast(`Connecting to ${ip}:${port}...`, 'info');
@@ -621,7 +631,55 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         showToast('Pairing wirelessly with device...', 'info');
-        postAction('/api/pair', { ip: ip, port: port, code: code }, btnPair);
+        postAction('/api/pair', { ip: ip, port: port, code: code }, btnPair).finally(() => {
+            document.getElementById('pair-code').value = '';
+        });
+    });
+
+    const btnPairQr = document.getElementById('btn-pair-qr');
+    const qrPairingPanel = document.getElementById('qr-pairing-panel');
+    const qrPairingImage = document.getElementById('qr-pairing-image');
+    const qrPairingStatus = document.getElementById('qr-pairing-status');
+    let qrPairingPoll = null;
+    if (btnPairQr) btnPairQr.addEventListener('click', async () => {
+        if (qrPairingPoll) clearInterval(qrPairingPoll);
+        btnPairQr.disabled = true;
+        try {
+            const response = await fetch(`${API_BASE}/api/pair/qr/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || 'Could not start QR pairing');
+            qrPairingImage.src = data.qr_image;
+            qrPairingPanel.classList.remove('hidden');
+            qrPairingStatus.textContent = 'Waiting for a phone to scan this QR code…';
+            const sessionId = data.session_id;
+            qrPairingPoll = setInterval(async () => {
+                try {
+                    const statusResponse = await fetch(`${API_BASE}/api/pair/qr/status?id=${encodeURIComponent(sessionId)}`);
+                    const status = await statusResponse.json();
+                    qrPairingStatus.textContent = status.message || 'Waiting for scan…';
+                    if (['success', 'error', 'expired'].includes(status.status)) {
+                        clearInterval(qrPairingPoll);
+                        qrPairingPoll = null;
+                        btnPairQr.disabled = false;
+                        if (status.status === 'success') {
+                            showToast(status.message, 'success');
+                            fetchStatus(true);
+                        } else {
+                            showToast(status.message, 'error');
+                        }
+                    }
+                } catch (error) {
+                    qrPairingStatus.textContent = `Status check failed: ${error.message}`;
+                }
+            }, 1000);
+        } catch (error) {
+            btnPairQr.disabled = false;
+            showToast(error.message, 'error');
+        }
     });
 
     const btnDisconnectAll = document.getElementById('btn-disconnect-all');
@@ -637,11 +695,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // mDNS Auto-Discovery Logic
     const btnScanMdns = document.getElementById('btn-scan-mdns-devices');
+    const btnConnectAuthorized = document.getElementById('btn-connect-authorized');
     const mdnsList = document.getElementById('mdns-discovered-list');
 
     if (btnScanMdns && mdnsList) {
         btnScanMdns.addEventListener('click', () => {
             executeMdnsScan();
+        });
+    }
+
+    if (btnConnectAuthorized) {
+        btnConnectAuthorized.addEventListener('click', () => {
+            showToast('Discovering phones that already authorize this Mac...', 'info');
+            postAction('/api/connect/authorized', {}, btnConnectAuthorized).then(() => {
+                fetchStatus(true);
+                executeMdnsScan();
+            });
         });
     }
 
@@ -861,6 +930,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    const btnPingMetrics = document.getElementById('btn-ping-test-metrics');
+    const pingResultMetrics = document.getElementById('ping-test-result-metrics');
+    if (btnPingMetrics && pingResultMetrics) {
+        btnPingMetrics.addEventListener('click', async () => {
+            pingResultMetrics.textContent = 'Running latency test...';
+            pingResultMetrics.className = 'ping-result running';
+            const manualIp = document.getElementById('conn-ip').value.trim();
+            const res = await postAction('/api/ping', manualIp ? { ip: manualIp } : {});
+            pingResultMetrics.textContent = res ? res.message : 'Ping test failed.';
+            pingResultMetrics.className = `ping-result ${res && res.success ? 'success' : 'error'}`;
+        });
+    }
 
     async function loadMacAudioDevices() {
         try {
@@ -990,23 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Check initial status on load
-    if (clipboardSyncStatus) {
-        fetch('/api/clipboard/sync/status', { method: 'POST' })
-            .then(r => r.json())
-            .then(res => {
-                if(res && res.success) updateClipboardBadge(res.is_running);
-            }).catch(e => console.error(e));
-        
-        // Poll every 5 seconds to ensure accuracy
-        setInterval(() => {
-            fetch('/api/clipboard/sync/status', { method: 'POST' })
-                .then(r => r.json())
-                .then(res => {
-                    if(res && res.success) updateClipboardBadge(res.is_running);
-                }).catch(e => console.error(e));
-        }, 5000);
-    }
+    // Clipboard sync is retired; do not poll a hidden 410 endpoint.
 
     const btnTypeMacClipboard = document.getElementById('btn-type-mac-clipboard');
     if (btnTypeMacClipboard) {
@@ -1328,7 +1393,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadMacAudioDevices();
         fetchStatus();
         // Keep the dashboard responsive without competing with ADB actions.
-        statusInterval = setInterval(fetchStatus, 1200);
+        statusInterval = setInterval(fetchStatus, 2500);
     }
     
     initDashboard();
@@ -1339,7 +1404,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:8282' : '';
-    const API_TOKEN = localStorage.getItem('cp_api_token') || '';
+    const API_TOKEN = sessionStorage.getItem('cp_api_token') || '';
     const toastContainer = document.getElementById('toast-container');
 
     function escapeHtml(value) {
@@ -1699,7 +1764,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 focusItem(index);
             });
             
-            const downloadUrl = `http://localhost:8282/api/storage/download?path=${encodeURIComponent(file.path)}&token=${API_TOKEN}`;
+            const downloadUrl = '#';
             const iconClass = getFileIconClass(file.name, file.is_dir);
             const sizeStr = file.is_dir ? '--' : formatFileSize(file.size);
             const dateStr = formatDate(file.mtime);
@@ -1710,7 +1775,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <input type="checkbox" class="storage-checkbox storage-item-checkbox" data-path="${escapeHtml(file.path)}" ${selectedPaths.includes(file.path) ? 'checked' : ''}>
                 </div>
                 <div class="col-name">
-                    <a href="${downloadUrl}" class="col-name-link" draggable="true" title="Drag to Mac Desktop to download / Double-click to open" style="color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; width: 100%;">
+                    <a href="${downloadUrl}" class="col-name-link" draggable="false" title="Double-click to open" style="color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; width: 100%;">
                         <i class="material-symbols-outlined ${iconClass}" style="flex-shrink: 0;">${file.is_dir ? 'folder' : 'draft'}</i>
                         <span class="col-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(file.name)}</span>
                     </a>
@@ -1747,14 +1812,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // Drag out configuration - bind on anchor link directly to satisfy macOS WebKit restrictions
+            // Prevent navigation; authenticated downloads use fetch or the Download button.
             const link = row.querySelector('.col-name-link');
             if (link) {
-                link.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.effectAllowed = 'copy';
-                    const dragFilename = file.is_dir ? `${file.name}.zip` : file.name;
-                    e.dataTransfer.setData('DownloadURL', `application/octet-stream:${dragFilename}:${downloadUrl}`);
-                });
+                link.addEventListener('click', (e) => e.preventDefault());
             }
 
             // Stop click propagation on checkbox

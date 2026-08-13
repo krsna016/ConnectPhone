@@ -2,16 +2,9 @@
 
 # Python Libraries:
 qrcode==8.2
-pillow==12.3.0
 zeroconf==0.150.0
-fastapi==0.140.7
-uvicorn==0.51.0
 pywebview==6.2.1
-aiortc==1.15.0
-av==17.1.0
-numpy==2.5.1
-pyaudio==0.2.14
-pytesseract==0.3.13
+pyinstaller==6.21.0
 
 # System-level dependencies:
 # - adb (Android Debug Bridge) - e.g. brew install android-platform-tools

@@ -26,15 +26,23 @@ def check_adb_devices():
 
 def get_device_info():
     try:
-        # Get battery
-        battery_out = subprocess.check_output(["adb", "shell", "dumpsys battery"], stderr=subprocess.DEVNULL).decode("utf-8")
+        result = subprocess.run(
+            ["adb", "shell", "sh", "-c", "echo __BATTERY__; dumpsys battery; echo __STORAGE__; df -h /sdcard; echo __MODEL__; getprop ro.product.model"],
+            capture_output=True,
+            text=True,
+            timeout=6,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or "ADB device query failed").strip())
+        output = result.stdout or ""
+        battery_out = output.split("__BATTERY__", 1)[-1].split("__STORAGE__", 1)[0]
+        storage_out = output.split("__STORAGE__", 1)[-1].split("__MODEL__", 1)[0]
+        model = output.split("__MODEL__", 1)[-1].strip() or "Android Device"
         level = "Unknown"
         for line in battery_out.split("\n"):
             if line.strip().startswith("level:"):
                 level = line.split(":")[-1].strip() + "%"
         
-        # Get storage
-        storage_out = subprocess.check_output(["adb", "shell", "df -h /sdcard"], stderr=subprocess.DEVNULL).decode("utf-8")
         storage_lines = storage_out.strip().split("\n")
         storage_info = "Unknown"
         if len(storage_lines) >= 2:
@@ -42,12 +50,9 @@ def get_device_info():
             if len(parts) >= 5:
                 storage_info = f"{parts[2]}/{parts[1]} used ({parts[4]})"
                 
-        # Get Model
-        model = subprocess.check_output(["adb", "shell", "getprop ro.product.model"], stderr=subprocess.DEVNULL).decode("utf-8").strip()
-        
         return f"{GREEN}{BOLD}Device: {model} | Battery: {level} | Storage: {storage_info}{RESET}"
     except Exception as e:
-        print(f"Exception: {e}")
+        print(f"Device info unavailable: {e}")
         return f"{GREEN}{BOLD}Connected: Android Device{RESET}"
 
 def push_file_to_phone():

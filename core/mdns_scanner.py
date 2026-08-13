@@ -1,94 +1,133 @@
+"""Thread-safe Bonjour discovery for Android Wireless Debugging."""
+
+import ipaddress
 import logging
-import socket
-import time
 import threading
-from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+import time
+
+from zeroconf import IPVersion, ServiceBrowser, ServiceListener, Zeroconf
+
+
+ADB_CONNECT_SERVICE = "_adb-tls-connect._tcp.local."
+ADB_PAIRING_SERVICE = "_adb-tls-pairing._tcp.local."
+
 
 class AdbMdnsListener(ServiceListener):
-    """Event listener that triggers the exact millisecond an Android beacon is detected."""
+    """Maintain a live service snapshot and wake waiters on every change."""
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.found_devices = []
-        self.lock = threading.Lock()
+        self._devices = {}
+        self.lock = threading.RLock()
+        self.changed = threading.Event()
 
-    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+    @property
+    def found_devices(self):
         with self.lock:
-            self.found_devices = [d for d in self.found_devices if d.get("name") != name]
-        print(f"[-] ⚡ mDNS Service Removed: {name}")
+            return list(self._devices.values())
 
-    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        # Same as add_service, just refresh
+    def remove_service(self, zc, type_, name):
+        with self.lock:
+            self._devices.pop((type_, name), None)
+        self.changed.set()
+
+    def update_service(self, zc, type_, name):
         self.add_service(zc, type_, name)
 
-    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+    def add_service(self, zc, type_, name):
         try:
-            info = zc.get_service_info(type_, name)
-            if info:
-                addresses = [socket.inet_ntoa(addr) for addr in info.addresses]
-                if addresses:
-                    ip = addresses[0]
-                    port = info.port
-                    device = {"ip": ip, "port": port, "name": name}
-                    with self.lock:
-                        # Avoid duplicates: update if name matches, else append
-                        for idx, d in enumerate(self.found_devices):
-                            if d.get("name") == name:
-                                self.found_devices[idx] = device
-                                return
-                        self.found_devices.append(device)
-                    print(f"[+] ⚡ Instant mDNS Discovery! Found Android at {ip}:{port}")
-        except Exception as e:
-            self.logger.error(f"Error in add_service: {e}")
+            info = zc.get_service_info(type_, name, timeout=1500)
+            if not info:
+                return
+            ipv4 = []
+            for address in info.parsed_addresses(IPVersion.V4Only):
+                try:
+                    parsed = ipaddress.ip_address(address)
+                    if isinstance(parsed, ipaddress.IPv4Address) and not parsed.is_unspecified:
+                        ipv4.append(str(parsed))
+                except ValueError:
+                    continue
+            if not ipv4 or not 1 <= int(info.port) <= 65535:
+                return
+            device = {
+                "ip": ipv4[0],
+                "port": int(info.port),
+                "name": name,
+                "type": "pairing" if "pairing" in type_ else "connect",
+                "seen_at": time.monotonic(),
+            }
+            with self.lock:
+                self._devices[(type_, name)] = device
+            self.changed.set()
+        except Exception as exc:
+            self.logger.warning("Could not resolve mDNS service %s: %s", name, exc)
+
 
 class ZeroPingScanner:
-    """
-    Zero-Ping mDNS Discovery Engine for Wireless ADB.
-    Completely eliminates the need for port scanning by hooking into macOS Bonjour network layers.
-    """
-    def __init__(self):
+    """Persistent IPv4 Bonjour browser with bounded, interruptible waits."""
+
+    def __init__(self, include_pairing=False):
         self.logger = logging.getLogger(__name__)
+        self.include_pairing = include_pairing
         self._zc = None
         self._listener = None
-        self._browser = None
-        self._lock = threading.Lock()
+        self._browsers = []
+        self._lock = threading.RLock()
 
     def start(self):
         with self._lock:
-            if self._zc is None:
-                try:
-                    self._zc = Zeroconf()
-                    self._listener = AdbMdnsListener()
-                    self._browser = ServiceBrowser(self._zc, "_adb-tls-connect._tcp.local.", self._listener)
-                except Exception as e:
-                    self.logger.error(f"Failed to start Zero-Ping mDNS scanner: {e}")
-                    self._zc = None
-                    self._listener = None
-                    self._browser = None
+            if self._zc is not None:
+                return True
+            try:
+                self._zc = Zeroconf(ip_version=IPVersion.V4Only)
+                self._listener = AdbMdnsListener()
+                types = [ADB_CONNECT_SERVICE]
+                if self.include_pairing:
+                    types.append(ADB_PAIRING_SERVICE)
+                self._browsers = [ServiceBrowser(self._zc, item, self._listener) for item in types]
+                return True
+            except Exception as exc:
+                self.logger.error("Failed to start Bonjour discovery: %s", exc)
+                self._close_locked()
+                return False
+
+    def _close_locked(self):
+        for browser in self._browsers:
+            try:
+                browser.cancel()
+            except Exception:
+                pass
+        self._browsers = []
+        if self._zc:
+            try:
+                self._zc.close()
+            except Exception:
+                pass
+        self._zc = None
+        self._listener = None
 
     def stop(self):
         with self._lock:
-            if self._browser:
-                try:
-                    self._browser.cancel()
-                except Exception:
-                    pass
-                self._browser = None
-            if self._zc:
-                try:
-                    self._zc.close()
-                except Exception:
-                    pass
-                self._zc = None
-            self._listener = None
+            self._close_locked()
 
     def find_devices_instantly(self, search_time=1.5):
-        """Listens for the invisible _adb-tls-connect._tcp beacon."""
-        self.start()
-        # Sleep to allow discovery
-        time.sleep(search_time)
+        """Return a current snapshot after at most ``search_time`` seconds."""
+        if not self.start():
+            return []
         with self._lock:
-            if self._listener:
-                with self._listener.lock:
-                    return list(self._listener.found_devices)
-        return []
-
+            listener = self._listener
+        if listener is None:
+            return []
+        deadline = time.monotonic() + max(0.0, float(search_time))
+        listener.changed.wait(timeout=max(0.0, deadline - time.monotonic()))
+        listener.changed.clear()
+        while time.monotonic() < deadline:
+            if not listener.changed.wait(timeout=min(0.25, deadline - time.monotonic())):
+                break
+            listener.changed.clear()
+        devices = listener.found_devices
+        # Prefer the newest advertisement and suppress exact duplicates.
+        unique = {}
+        for device in sorted(devices, key=lambda item: item.get("seen_at", 0), reverse=True):
+            unique.setdefault((device["ip"], device["port"], device["type"]), device)
+        return list(unique.values())

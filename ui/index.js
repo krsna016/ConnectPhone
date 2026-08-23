@@ -178,11 +178,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     showToast('No active devices found. Pair or connect wirelessly.', 'error');
                 }
             }
+            return data;
         } catch (err) {
             console.error("Failed to query API status:", err);
             if (connStatus) connStatus.className = 'connection-badge server-offline';
             if (connStatusText) connStatusText.textContent = 'Server Offline';
             if (headerDevice) headerDevice.textContent = 'Cannot reach Python API server. Please run ConnectPhoneUI.app or start ConnectPhoneUI.py in terminal.';
+            return null;
         }
     }
 
@@ -196,10 +198,13 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const wasConnected = window.isConnected;
         window.isConnected = !!data.connected;
+        window.activeDevice = data.connected ? (data.active_device || '') : '';
+        syncMdnsConnectionButtons();
         if (storageDisconnectedAlert && storageMainView) {
             if (window.isConnected) {
                 storageDisconnectedAlert.style.display = 'none';
                 storageMainView.style.display = 'flex';
+                if (!wasConnected) loadPhoneStorages();
                 
                 // If we just connected, or if we are on the storage tab and it hasn't loaded yet (e.g. empty path input)
                 if ((!wasConnected || !storageCurrentPath.value) && currentTab === 'storage') {
@@ -714,6 +719,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function syncMdnsConnectionButtons() {
+        document.querySelectorAll('.btn-mdns-action[data-type="connect"]').forEach(button => {
+            const endpoint = `${button.dataset.ip}:${button.dataset.port}`;
+            const connected = window.isConnected && endpoint === window.activeDevice;
+            button.disabled = connected;
+            button.classList.toggle('connected-device', connected);
+            button.innerHTML = connected
+                ? '<i class="material-symbols-outlined">check_circle</i> Connected'
+                : '<i class="material-symbols-outlined">bolt</i> Connect';
+        });
+    }
+
     async function executeMdnsScan() {
         mdnsList.innerHTML = `<p class="list-placeholder"><i class="material-symbols-outlined">bolt</i> Scanning Wi-Fi network for active devices...</p>`;
         btnScanMdns.disabled = true;
@@ -753,12 +770,20 @@ document.addEventListener('DOMContentLoaded', () => {
                         } else {
                             document.getElementById('conn-port').value = service.port;
                             showToast(`Connecting to discovered device at ${service.ip}:${service.port}...`, 'info');
-                            postAction('/api/connect', { ip: service.ip, port: service.port });
+                            postAction('/api/connect', { ip: service.ip, port: service.port }, actionBtn).then(result => {
+                                if (result && result.success) {
+                                    window.isConnected = true;
+                                    window.activeDevice = `${service.ip}:${service.port}`;
+                                    syncMdnsConnectionButtons();
+                                    fetchStatus();
+                                }
+                            });
                         }
                     });
                     
                     mdnsList.appendChild(row);
                 });
+                syncMdnsConnectionButtons();
             } else {
                 mdnsList.innerHTML = '<p class="list-placeholder">No active wireless debugging services discovered on local network. Verify "Wireless Debugging" is toggled ON in Developer Options.</p>';
             }
@@ -1391,11 +1416,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     async function initDashboard() {
         await loadMacAudioDevices();
-        fetchStatus();
+        const initialStatus = await fetchStatus();
+        const hasTrustedPhone = (initialStatus?.config?.saved_devices || []).some(device =>
+            device && device.auto_reconnect !== false && device.device_serial
+        );
+        if (initialStatus && !initialStatus.connected && hasTrustedPhone && !sessionStorage.getItem('cp_startup_connect_attempted')) {
+            sessionStorage.setItem('cp_startup_connect_attempted', '1');
+            showToast('Connecting automatically to your saved phone…', 'info');
+            postAction('/api/connect/auto');
+        }
         // Keep the dashboard responsive without competing with ADB actions.
         statusInterval = setInterval(fetchStatus, 2500);
     }
-    
+
     initDashboard();
 });
 
@@ -1561,6 +1594,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const storageBtnViewToggle = document.getElementById('storage-btn-view-toggle');
     const storageViewToggleIcon = document.getElementById('storage-view-toggle-icon');
     const storageBrowserCard = document.querySelector('.storage-browser-card');
+    const localRootSelect = document.getElementById('local-root-select');
+    const localBtnBack = document.getElementById('local-btn-back');
+    const localCurrentPath = document.getElementById('local-current-path');
+    const localBtnNewFolder = document.getElementById('local-btn-new-folder');
+    const localBtnRefresh = document.getElementById('local-btn-refresh');
+    const localSearchInput = document.getElementById('local-search-input');
+    const localSelectAll = document.getElementById('local-select-all');
+    const localFileList = document.getElementById('local-file-list');
+    const phoneStorageSelect = document.getElementById('phone-storage-select');
+    const transferToPhone = document.getElementById('transfer-to-phone');
+    const transferToMac = document.getElementById('transfer-to-mac');
+    const transferConflictPolicy = document.getElementById('transfer-conflict-policy');
+    const filesShowHidden = document.getElementById('files-show-hidden');
+    const filesSortMode = document.getElementById('files-sort-mode');
+    const transferQueueSummary = document.getElementById('transfer-queue-summary');
+    const transferQueueList = document.getElementById('transfer-queue-list');
 
     // Storage Manager scoped variables
     let renderFileList, deleteItem, createFolder, uploadFile, downloadFile;
@@ -1572,6 +1621,26 @@ document.addEventListener('DOMContentLoaded', () => {
     let zoomLevel = 1;            // Current zoom level for gallery modal preview
     let rotateAngle = 0;          // Current rotation angle for gallery modal preview
     let focusedIndex = -1;        // Track selected index for keyboard controls
+    let localFiles = [];
+    let localSelectedPaths = [];
+    let currentLocalPath = '';
+    let refreshedTransferIds = new Set();
+    let activeFilePane = 'phone';
+    let localFocusedPath = '';
+    let hasActiveTransfers = false;
+
+    function sortedFiles(files) {
+        const mode = filesSortMode ? filesSortMode.value : 'name-asc';
+        const result = [...files];
+        result.sort((a, b) => {
+            if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+            if (mode === 'name-desc') return b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' });
+            if (mode === 'date-desc') return (b.mtime || 0) - (a.mtime || 0) || a.name.localeCompare(b.name);
+            if (mode === 'size-desc') return (b.size || 0) - (a.size || 0) || a.name.localeCompare(b.name);
+            return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+        });
+        return result;
+    }
 
     function focusItem(index) {
         const items = document.querySelectorAll('.storage-item');
@@ -1667,7 +1736,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            const response = await fetch(`${API_BASE}/api/storage/list?path=${encodeURIComponent(path)}`);
+            const hidden = filesShowHidden && filesShowHidden.checked ? '1' : '0';
+            const response = await fetch(`${API_BASE}/api/storage/list?path=${encodeURIComponent(path)}&show_hidden=${hidden}`);
             if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
             const data = await response.json();
             
@@ -1678,7 +1748,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Success, reset retries
             storageLoadRetryCount = 0;
 
-            allFetchedFiles = data.files || [];
+            allFetchedFiles = sortedFiles(data.files || []);
             if (!isSoft) {
                 selectedPaths = [];
                 updateBatchActionsBar();
@@ -1761,6 +1831,7 @@ document.addEventListener('DOMContentLoaded', () => {
             row.setAttribute('tabindex', '0');
             
             row.addEventListener('click', () => {
+                activeFilePane = 'phone';
                 focusItem(index);
             });
             
@@ -1788,6 +1859,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             <i class="material-symbols-outlined" style="font-size:18px;">download</i>
                         </button>
                     ` : ''}
+                    <button class="btn btn-icon-only btn-rename" title="Rename item" style="padding:4px; display:inline-flex;">
+                        <i class="material-symbols-outlined" style="font-size:18px;">drive_file_rename_outline</i>
+                    </button>
                     <button class="btn btn-icon-only btn-delete" title="Delete item" style="padding:4px; display:inline-flex; border-color: rgba(240, 107, 120, 0.2); color: var(--color-danger);">
                         <i class="material-symbols-outlined" style="font-size:18px;">delete</i>
                     </button>
@@ -1841,6 +1915,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     downloadFile(file.path, file.name);
                 });
             }
+
+            row.querySelector('.btn-rename').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const name = prompt('Rename item:', file.name);
+                if (!name || name.trim() === file.name) return;
+                try {
+                    const response = await fetch(`${API_BASE}/api/files/remote/rename`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: file.path, name: name.trim() })
+                    });
+                    const res = await response.json();
+                    showToast(res.message || (res.success ? 'Item renamed' : 'Rename failed'), res.success ? 'success' : 'error');
+                    if (res.success) window.loadStorageDirectory(window.currentStoragePath);
+                } catch (err) {
+                    showToast(`Rename failed: ${err.message}`, 'error');
+                }
+            });
 
             // Delete handler
             row.querySelector('.btn-delete').addEventListener('click', (e) => {
@@ -2088,6 +2179,34 @@ document.addEventListener('DOMContentLoaded', () => {
             if (activeTag === 'input' || activeTag === 'textarea') {
                 return;
             }
+
+            if (activeFilePane === 'local') {
+                const isCommand = e.metaKey || e.ctrlKey;
+                if (isCommand && e.key.toLowerCase() === 'a') {
+                    e.preventDefault();
+                    if (localSelectAll) { localSelectAll.checked = true; localSelectAll.dispatchEvent(new Event('change')); }
+                } else if (isCommand && e.key.toLowerCase() === 'r') {
+                    e.preventDefault();
+                    loadLocalDirectory(currentLocalPath);
+                } else if (e.key === 'Backspace') {
+                    e.preventDefault();
+                    loadLocalDirectory(localParent(currentLocalPath));
+                } else if (e.key === 'F2' || (e.metaKey && e.key === 'Enter')) {
+                    e.preventDefault();
+                    const row = [...document.querySelectorAll('.local-file-item')].find(item => item.dataset.path === localFocusedPath);
+                    const rename = row && row.querySelector('.local-rename');
+                    if (rename) rename.click();
+                } else if (e.key === 'Enter' && localFocusedPath) {
+                    const file = localFiles.find(item => item.path === localFocusedPath);
+                    if (file && file.is_dir) loadLocalDirectory(file.path);
+                } else if ((e.key === ' ' || e.key === 'Spacebar') && localFocusedPath) {
+                    e.preventDefault();
+                    const row = [...document.querySelectorAll('.local-file-item')].find(item => item.dataset.path === localFocusedPath);
+                    const checkbox = row && row.querySelector('.local-item-checkbox');
+                    if (checkbox) { checkbox.checked = !checkbox.checked; checkbox.dispatchEvent(new Event('change')); }
+                }
+                return;
+            }
             
             if (e.key === 'Backspace' || e.key === 'Delete') {
                 if (storageBtnBack) {
@@ -2193,7 +2312,7 @@ document.addEventListener('DOMContentLoaded', () => {
         storageFileUploadInput.addEventListener('change', () => {
             const files = storageFileUploadInput.files;
             if (files && files.length > 0) {
-                uploadFile(files[0]);
+                uploadFiles(Array.from(files));
                 storageFileUploadInput.value = '';
             }
         });
@@ -2593,11 +2712,223 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: false });
     }
 
+    // OpenMTP-style local pane and queued bidirectional transfers
+    async function postJson(path, body) {
+        const response = await fetch(`${API_BASE}${path}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-ConnectPhone-Token': API_TOKEN },
+            body: JSON.stringify(body)
+        });
+        return response.json();
+    }
+
+    function localParent(path) {
+        const clean = String(path || '').replace(/\/$/, '');
+        const index = clean.lastIndexOf('/');
+        return index <= 0 ? '/' : clean.slice(0, index);
+    }
+
+    function renderLocalFiles() {
+        if (!localFileList) return;
+        const query = localSearchInput ? localSearchInput.value.toLowerCase().trim() : '';
+        const files = sortedFiles(localFiles).filter(file => !query || file.name.toLowerCase().includes(query));
+        if (!files.length) {
+            localFileList.innerHTML = '<div class="storage-loading"><i class="material-symbols-outlined" style="font-size:48px;color:var(--text-muted)">folder_open</i><p>No items found.</p></div>';
+            return;
+        }
+        localFileList.innerHTML = '';
+        files.forEach(file => {
+            const row = document.createElement('div');
+            row.className = 'local-file-item';
+            row.tabIndex = 0;
+            row.dataset.path = file.path;
+            row.innerHTML = `
+                <div class="col-checkbox"><input type="checkbox" class="storage-checkbox local-item-checkbox" ${localSelectedPaths.includes(file.path) ? 'checked' : ''}></div>
+                <div class="col-name"><i class="material-symbols-outlined ${getFileIconClass(file.name, file.is_dir)}">${file.is_dir ? 'folder' : 'draft'}</i><span class="col-name-text">${escapeHtml(file.name)}</span></div>
+                <div class="col-size">${file.is_dir ? '--' : formatFileSize(file.size)}</div>
+                <div class="col-date">${formatDate(file.mtime)}</div>
+                <div class="col-actions">
+                    <button class="btn btn-icon-only local-rename" title="Rename"><i class="material-symbols-outlined">drive_file_rename_outline</i></button>
+                    <button class="btn btn-icon-only local-trash" title="Move to Trash"><i class="material-symbols-outlined">delete</i></button>
+                </div>`;
+            row.addEventListener('dblclick', () => { if (file.is_dir) loadLocalDirectory(file.path); });
+            row.addEventListener('click', () => {
+                activeFilePane = 'local';
+                localFocusedPath = file.path;
+                document.querySelectorAll('.local-file-item.active-focus').forEach(item => item.classList.remove('active-focus'));
+                row.classList.add('active-focus');
+                row.focus();
+            });
+            const checkbox = row.querySelector('.local-item-checkbox');
+            checkbox.addEventListener('click', e => e.stopPropagation());
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked && !localSelectedPaths.includes(file.path)) localSelectedPaths.push(file.path);
+                if (!checkbox.checked) localSelectedPaths = localSelectedPaths.filter(path => path !== file.path);
+            });
+            row.querySelector('.local-rename').addEventListener('click', async e => {
+                e.stopPropagation();
+                const name = prompt('Rename item:', file.name);
+                if (!name || name.trim() === file.name) return;
+                const res = await postJson('/api/files/local/rename', { path: file.path, name: name.trim() });
+                showToast(res.message || (res.success ? 'Item renamed' : 'Rename failed'), res.success ? 'success' : 'error');
+                if (res.success) loadLocalDirectory(currentLocalPath);
+            });
+            row.querySelector('.local-trash').addEventListener('click', async e => {
+                e.stopPropagation();
+                if (!confirm(`Move "${file.name}" to Trash?`)) return;
+                const res = await postJson('/api/files/local/trash', { path: file.path });
+                showToast(res.message || (res.success ? 'Moved to Trash' : 'Move failed'), res.success ? 'success' : 'error');
+                if (res.success) loadLocalDirectory(currentLocalPath);
+            });
+            localFileList.appendChild(row);
+        });
+    }
+
+    async function loadLocalDirectory(path, soft = false) {
+        if (!path) return;
+        if (!soft && localFileList) localFileList.innerHTML = '<div class="storage-loading"><div class="spinner"></div><p>Loading Mac files…</p></div>';
+        try {
+            const hidden = filesShowHidden && filesShowHidden.checked ? '1' : '0';
+            const response = await fetch(`${API_BASE}/api/files/local?path=${encodeURIComponent(path)}&show_hidden=${hidden}`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || 'Could not open local folder');
+            currentLocalPath = data.path;
+            localFiles = data.files || [];
+            localSelectedPaths = localSelectedPaths.filter(selected => localFiles.some(file => file.path === selected));
+            if (localCurrentPath) localCurrentPath.value = currentLocalPath;
+            if (localSelectAll) localSelectAll.checked = false;
+            renderLocalFiles();
+        } catch (err) {
+            if (localFileList) localFileList.innerHTML = `<div class="storage-loading"><i class="material-symbols-outlined">error</i><p>${escapeHtml(err.message)}</p></div>`;
+        }
+    }
+
+    async function loadLocalRoots() {
+        if (!localRootSelect) return;
+        try {
+            const response = await fetch(`${API_BASE}/api/files/roots`);
+            const data = await response.json();
+            if (!data.success || !data.roots.length) return;
+            localRootSelect.innerHTML = data.roots.map(root => `<option value="${escapeHtml(root.path)}">${escapeHtml(root.name)}</option>`).join('');
+            const preferred = data.roots.find(root => root.name === 'Downloads') || data.roots[0];
+            localRootSelect.value = preferred.path;
+            await loadLocalDirectory(preferred.path);
+        } catch (err) {
+            showToast(`Could not load Mac folders: ${err.message}`, 'error');
+        }
+    }
+
+    async function loadPhoneStorages() {
+        if (!window.isConnected || !phoneStorageSelect) return;
+        try {
+            const response = await fetch(`${API_BASE}/api/files/storages`);
+            const data = await response.json();
+            if (!data.success || !data.storages.length) return;
+            phoneStorageSelect.innerHTML = data.storages.map(storage => `<option value="${escapeHtml(storage.path)}">${escapeHtml(storage.name)}</option>`).join('');
+            const current = data.storages.find(storage => window.currentStoragePath && window.currentStoragePath.startsWith(storage.path));
+            phoneStorageSelect.value = current ? current.path : data.storages[0].path;
+        } catch (err) {
+            console.error('Could not discover phone storage:', err);
+        }
+    }
+
+    async function queueTransfer(direction) {
+        const localToPhone = direction === 'local_to_phone';
+        const paths = localToPhone ? localSelectedPaths : selectedPaths;
+        const source = localToPhone ? localFiles : allFetchedFiles;
+        const destination = localToPhone ? window.currentStoragePath : currentLocalPath;
+        const items = source.filter(file => paths.includes(file.path)).map(file => ({ path: file.path, size: file.size, is_dir: file.is_dir }));
+        if (!items.length) {
+            showToast(`Select one or more ${localToPhone ? 'Mac' : 'phone'} items first.`, 'info');
+            return;
+        }
+        const res = await postJson('/api/transfers/start', { direction, items, destination, conflict: transferConflictPolicy ? transferConflictPolicy.value : 'rename' });
+        showToast(res.message || (res.success ? 'Transfer queued' : 'Transfer failed'), res.success ? 'success' : 'error');
+        if (res.success) pollTransfers();
+    }
+
+    async function cancelTransfer(id) {
+        const res = await postJson('/api/transfers/cancel', { id });
+        showToast(res.message, res.success ? 'info' : 'error');
+        pollTransfers();
+    }
+
+    async function pollTransfers() {
+        if (!transferQueueList || !transferQueueSummary) return;
+        try {
+            const response = await fetch(`${API_BASE}/api/transfers`);
+            const data = await response.json();
+            const jobs = data.jobs || [];
+            const active = jobs.filter(job => ['queued', 'running'].includes(job.status));
+            hasActiveTransfers = active.length > 0;
+            transferQueueSummary.innerText = active.length ? `${active.length} active` : (jobs.length ? `${jobs.length} recent` : 'No transfers');
+            if (!jobs.length) {
+                hasActiveTransfers = false;
+                transferQueueList.innerHTML = '<div class="transfer-empty">Select items in either pane and use the transfer arrows.</div>';
+                return;
+            }
+            transferQueueList.innerHTML = '';
+            jobs.slice(0, 8).forEach(job => {
+                const direction = job.direction === 'local_to_phone' ? 'Mac → Phone' : 'Phone → Mac';
+                const errors = job.errors && job.errors.length ? `<div class="transfer-error">${escapeHtml(job.errors[0])}</div>` : '';
+                const item = document.createElement('div');
+                item.className = `transfer-job transfer-${job.status}`;
+                item.innerHTML = `<div class="transfer-job-top"><strong>${direction}</strong><span>${escapeHtml(job.active_name || `${job.total_items} item(s)`)}</span><em>${escapeHtml(job.status)}</em>${['queued', 'running'].includes(job.status) ? '<button class="btn btn-sm btn-ghost">Cancel</button>' : ''}</div><div class="progress-bar-track"><div class="progress-bar-fill" style="width:${Math.max(0, Math.min(100, job.progress || job.active_progress || 0))}%"></div></div>${errors}`;
+                const cancel = item.querySelector('button');
+                if (cancel) cancel.addEventListener('click', () => cancelTransfer(job.id));
+                transferQueueList.appendChild(item);
+                if (['completed', 'failed'].includes(job.status) && !refreshedTransferIds.has(job.id)) {
+                    refreshedTransferIds.add(job.id);
+                    if (currentLocalPath) loadLocalDirectory(currentLocalPath, true);
+                    if (window.isConnected && window.currentStoragePath) window.loadStorageDirectory(window.currentStoragePath, true);
+                }
+            });
+        } catch (err) {
+            console.error('Transfer queue polling failed:', err);
+        }
+    }
+
+    if (localRootSelect) localRootSelect.addEventListener('change', () => loadLocalDirectory(localRootSelect.value));
+    if (phoneStorageSelect) phoneStorageSelect.addEventListener('change', () => window.loadStorageDirectory(phoneStorageSelect.value));
+    if (localBtnBack) localBtnBack.addEventListener('click', () => loadLocalDirectory(localParent(currentLocalPath)));
+    if (localBtnRefresh) localBtnRefresh.addEventListener('click', () => loadLocalDirectory(currentLocalPath));
+    if (localCurrentPath) localCurrentPath.addEventListener('keydown', e => { if (e.key === 'Enter') loadLocalDirectory(localCurrentPath.value.trim()); });
+    if (localSearchInput) localSearchInput.addEventListener('input', renderLocalFiles);
+    if (localBtnNewFolder) localBtnNewFolder.addEventListener('click', async () => {
+        const name = prompt('Enter new folder name:');
+        if (!name) return;
+        const res = await postJson('/api/files/local/mkdir', { parent: currentLocalPath, name: name.trim() });
+        showToast(res.message || (res.success ? 'Folder created' : 'Could not create folder'), res.success ? 'success' : 'error');
+        if (res.success) loadLocalDirectory(currentLocalPath);
+    });
+    if (localSelectAll) localSelectAll.addEventListener('change', () => {
+        const query = localSearchInput ? localSearchInput.value.toLowerCase().trim() : '';
+        const visible = sortedFiles(localFiles).filter(file => !query || file.name.toLowerCase().includes(query));
+        localSelectedPaths = localSelectAll.checked ? visible.map(file => file.path) : [];
+        renderLocalFiles();
+    });
+    if (transferToPhone) transferToPhone.addEventListener('click', () => queueTransfer('local_to_phone'));
+    if (transferToMac) transferToMac.addEventListener('click', () => queueTransfer('phone_to_local'));
+    if (filesShowHidden) filesShowHidden.addEventListener('change', () => {
+        if (currentLocalPath) loadLocalDirectory(currentLocalPath);
+        if (window.isConnected && window.currentStoragePath) window.loadStorageDirectory(window.currentStoragePath);
+    });
+    if (filesSortMode) filesSortMode.addEventListener('change', () => {
+        allFetchedFiles = sortedFiles(allFetchedFiles);
+        renderFileList(allFetchedFiles);
+        renderLocalFiles();
+    });
+
+    loadLocalRoots();
+    loadPhoneStorages();
+    pollTransfers();
+    setInterval(pollTransfers, 1000);
+
     // Storage auto-refresh loop (Real-time storage updates every 4 seconds)
     setInterval(() => {
         const activeTabButton = document.querySelector('.nav-btn.active');
         const activeTab = activeTabButton ? activeTabButton.getAttribute('data-tab') : '';
-        if (activeTab === 'storage' && window.currentStoragePath && window.isConnected) {
+        if (activeTab === 'storage' && window.currentStoragePath && window.isConnected && !hasActiveTransfers) {
             const searchInput = document.getElementById('storage-search-input');
             const pathInput = document.getElementById('storage-path-input');
             const galleryModal = document.getElementById('gallery-modal');

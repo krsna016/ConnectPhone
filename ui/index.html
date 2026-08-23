@@ -796,83 +796,73 @@
                         </div>
                     </div>
 
-                    <!-- Main Storage Layout (shows only when connected) -->
+                    <!-- OpenMTP-style dual-pane storage layout -->
                     <div class="storage-container" id="storage-main-view">
-                        <!-- Breadcrumbs & Directory Operations -->
-                        <div class="card toolbar-card" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px !important; flex-direction: row; flex-wrap: nowrap;">
-                            <div class="toolbar-nav" style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px;">
-                                <button class="btn btn-secondary btn-icon-only" id="storage-btn-back" title="Go back to parent directory" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; min-width: 34px; border-radius: 8px;">
-                                    <i class="material-symbols-outlined" style="font-size: 18px;">arrow_upward</i>
-                                </button>
-                                <div class="path-bar-container" style="flex: 1;">
-                                    <input type="text" id="storage-current-path" value="/sdcard" placeholder="Current directory path" style="font-family: monospace; font-size: 13px; padding: 6px 12px; height: 34px; box-sizing: border-box; border-radius: 8px;">
-                                </div>
-                            </div>
-                            <div class="toolbar-actions" style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                                <div class="storage-search-container" style="height: 34px; min-width: 160px; margin-right: 0; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 8px;">
-                                    <i class="material-symbols-outlined search-icon" style="font-size: 18px; color: var(--text-secondary); margin-right: 6px;">search</i>
-                                    <input type="text" id="storage-search-input" placeholder="Search..." style="background: transparent !important; border: none !important; padding: 6px 0; color: var(--text-primary); font-size: 13px; width: 100%; outline: none;">
-                                </div>
-                                <button class="btn btn-secondary btn-icon-only" id="storage-btn-new-folder" title="New Folder" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px;">
-                                    <i class="material-symbols-outlined" style="font-size: 18px;">create_new_folder</i>
-                                </button>
-                                <button class="btn btn-secondary btn-icon-only" id="storage-btn-refresh" title="Refresh" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px;">
-                                    <i class="material-symbols-outlined" style="font-size: 18px;">refresh</i>
-                                </button>
-                                <button class="btn btn-secondary btn-icon-only" id="storage-btn-view-toggle" title="Toggle List/Grid View" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px;">
-                                    <i class="material-symbols-outlined" id="storage-view-toggle-icon" style="font-size: 18px;">grid_view</i>
-                                </button>
-                                <button class="btn btn-accent btn-icon-only" id="storage-btn-upload-trigger" title="Upload File" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px;">
-                                    <i class="material-symbols-outlined" style="font-size: 18px;">cloud_upload</i>
-                                </button>
-                                <input type="file" id="storage-file-upload-input" style="display: none;">
-                            </div>
+                        <div class="card openmtp-command-bar">
+                            <div class="openmtp-brand"><i class="material-symbols-outlined">compare_arrows</i><span>Mac ↔ Phone File Manager</span></div>
+                            <label>When an item exists
+                                <select id="transfer-conflict-policy">
+                                    <option value="rename">Keep both</option>
+                                    <option value="overwrite">Replace</option>
+                                    <option value="skip">Skip</option>
+                                </select>
+                            </label>
+                            <label class="compact-check"><input type="checkbox" id="files-show-hidden"> Show hidden files</label>
+                            <select id="files-sort-mode" title="Sort files">
+                                <option value="name-asc">Name A–Z</option>
+                                <option value="name-desc">Name Z–A</option>
+                                <option value="date-desc">Newest first</option>
+                                <option value="size-desc">Largest first</option>
+                            </select>
                         </div>
 
-                        <!-- Dropzone for Drag-and-Drop uploads -->
-                        <div class="storage-explorer-zone" id="storage-explorer-zone">
-                            <div class="upload-drop-overlay" id="storage-drop-overlay">
-                                <div class="drop-message">
-                                    <i class="material-symbols-outlined">upload_file</i>
-                                    <h3>Drop files to upload</h3>
-                                    <p>Uploading to the current folder</p>
+                        <div class="openmtp-split-layout">
+                            <section class="openmtp-pane local-pane" aria-label="Mac files">
+                                <div class="openmtp-pane-title"><i class="material-symbols-outlined">laptop_mac</i><strong>This Mac</strong><select id="local-root-select"></select></div>
+                                <div class="openmtp-pane-toolbar">
+                                    <button class="btn btn-secondary btn-icon-only" id="local-btn-back" title="Parent folder"><i class="material-symbols-outlined">arrow_upward</i></button>
+                                    <input type="text" id="local-current-path" placeholder="Local folder">
+                                    <button class="btn btn-secondary btn-icon-only" id="local-btn-new-folder" title="New folder"><i class="material-symbols-outlined">create_new_folder</i></button>
+                                    <button class="btn btn-secondary btn-icon-only" id="local-btn-refresh" title="Refresh"><i class="material-symbols-outlined">refresh</i></button>
                                 </div>
+                                <div class="openmtp-search"><i class="material-symbols-outlined">search</i><input type="search" id="local-search-input" placeholder="Search this Mac folder"></div>
+                                <div class="openmtp-list-header"><span><input type="checkbox" id="local-select-all" class="storage-checkbox"></span><button data-sort="name">Name</button><button data-sort="size">Size</button><button data-sort="mtime">Modified</button><span>Actions</span></div>
+                                <div class="openmtp-file-list" id="local-file-list"><div class="storage-loading"><div class="spinner"></div><p>Loading Mac files…</p></div></div>
+                            </section>
+
+                            <div class="openmtp-transfer-rail" aria-label="Transfer controls">
+                                <button class="btn btn-accent transfer-arrow" id="transfer-to-phone" title="Copy selected Mac items to phone"><i class="material-symbols-outlined">arrow_forward</i><span>To phone</span></button>
+                                <button class="btn btn-primary transfer-arrow" id="transfer-to-mac" title="Copy selected phone items to Mac"><i class="material-symbols-outlined">arrow_back</i><span>To Mac</span></button>
                             </div>
 
-                            <!-- File Browser List/Grid Card -->
-                            <div class="card storage-browser-card">
-                                <div class="storage-browser-header">
-                                    <div class="col-checkbox">
-                                        <input type="checkbox" id="storage-select-all" class="storage-checkbox" title="Select all items">
-                                    </div>
-                                    <div class="col-name">Name</div>
-                                    <div class="col-size">Size</div>
-                                    <div class="col-date">Date Modified</div>
-                                    <div class="col-actions">Actions</div>
+                            <section class="openmtp-pane phone-pane" aria-label="Phone files">
+                                <div class="openmtp-pane-title"><i class="material-symbols-outlined">smartphone</i><strong>Android</strong><select id="phone-storage-select"><option value="/sdcard">Internal storage</option></select></div>
+                                <div class="openmtp-pane-toolbar">
+                                    <button class="btn btn-secondary btn-icon-only" id="storage-btn-back" title="Parent folder"><i class="material-symbols-outlined">arrow_upward</i></button>
+                                    <input type="text" id="storage-current-path" value="/sdcard" placeholder="Phone folder">
+                                    <button class="btn btn-secondary btn-icon-only" id="storage-btn-new-folder" title="New folder"><i class="material-symbols-outlined">create_new_folder</i></button>
+                                    <button class="btn btn-secondary btn-icon-only" id="storage-btn-refresh" title="Refresh"><i class="material-symbols-outlined">refresh</i></button>
+                                    <button class="btn btn-secondary btn-icon-only" id="storage-btn-view-toggle" title="List/grid view"><i class="material-symbols-outlined" id="storage-view-toggle-icon">grid_view</i></button>
+                                    <button class="btn btn-accent btn-icon-only" id="storage-btn-upload-trigger" title="Choose files from Finder"><i class="material-symbols-outlined">upload_file</i></button>
+                                    <input type="file" id="storage-file-upload-input" multiple style="display:none">
                                 </div>
-                                <div class="storage-browser-body" id="storage-file-list">
-                                    <!-- Items loaded dynamically -->
-                                    <div class="storage-loading">
-                                        <div class="spinner"></div>
-                                        <p>Loading files from phone...</p>
+                                <div class="openmtp-search"><i class="material-symbols-outlined">search</i><input type="search" id="storage-search-input" placeholder="Search this phone folder"></div>
+                                <div class="storage-explorer-zone" id="storage-explorer-zone">
+                                    <div class="upload-drop-overlay" id="storage-drop-overlay"><div class="drop-message"><i class="material-symbols-outlined">upload_file</i><h3>Drop files to upload</h3><p>Uploading to the current phone folder</p></div></div>
+                                    <div class="card storage-browser-card">
+                                        <div class="storage-browser-header"><div class="col-checkbox"><input type="checkbox" id="storage-select-all" class="storage-checkbox"></div><div class="col-name">Name</div><div class="col-size">Size</div><div class="col-date">Modified</div><div class="col-actions">Actions</div></div>
+                                        <div class="storage-browser-body" id="storage-file-list"><div class="storage-loading"><div class="spinner"></div><p>Loading phone files…</p></div></div>
                                     </div>
                                 </div>
-                            </div>
+                            </section>
                         </div>
 
-                        <!-- Upload progress status list -->
-                        <div class="upload-progress-container" id="storage-upload-progress-container" style="display: none;">
-                            <div class="card progress-card">
-                                <div class="progress-details">
-                                    <i class="material-symbols-outlined">sync</i>
-                                    <span id="storage-upload-filename">filename.ext</span>
-                                    <span id="storage-upload-percentage">0%</span>
-                                </div>
-                                <div class="progress-bar-track">
-                                    <div class="progress-bar-fill" id="storage-upload-bar" style="width: 0%;"></div>
-                                </div>
-                            </div>
+                        <div class="card transfer-queue-card">
+                            <div class="transfer-queue-header"><span><i class="material-symbols-outlined">sync_alt</i> Transfer Queue</span><span id="transfer-queue-summary">No transfers</span></div>
+                            <div id="transfer-queue-list" class="transfer-queue-list"><div class="transfer-empty">Select items in either pane and use the transfer arrows.</div></div>
                         </div>
+
+                        <div class="upload-progress-container" id="storage-upload-progress-container" style="display:none"><div class="card progress-card"><div class="progress-details"><i class="material-symbols-outlined">sync</i><span id="storage-upload-filename">filename.ext</span><span id="storage-upload-percentage">0%</span></div><div class="progress-bar-track"><div class="progress-bar-fill" id="storage-upload-bar"></div></div></div></div>
                     </div>
                 </section>
                 

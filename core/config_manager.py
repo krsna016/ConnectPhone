@@ -11,6 +11,17 @@ from core import keychain
 
 _CONFIG_LOCK = threading.RLock()
 
+
+def persist_current_endpoint(config_path, endpoint, identity):
+    try:
+        ip, port = endpoint.rsplit(":", 1)
+        manager = ConfigurationManager(config_path)
+        manager.load()
+        manager.update_last_connection(ip, int(port), identity)
+        return True
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return False
+
 class ConfigurationManager:
     """
     Handles loading, saving, and managing configuration settings.
@@ -190,7 +201,8 @@ class ConfigurationManager:
                 # ports for the same IP makes the background reconnector
                 # hammer dead endpoints forever and can make ADB appear
                 # intermittently broken. Retain one current endpoint per IP.
-                if item.get("ip") != ip and not is_same:
+                same_identity = bool(device_serial and item.get("device_serial") == device_serial)
+                if item.get("ip") != ip and not is_same and not same_identity:
                     devices.append(item)
         # Auto-discovery often knows the endpoint before it has re-read the
         # device serial. Never erase an enrolled identity during that path.

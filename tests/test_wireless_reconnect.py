@@ -80,7 +80,7 @@ class WirelessReconnectTests(unittest.TestCase):
 
         reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
         endpoint = "192.0.2.10:43210"
-        self.assertFalse(reconnector._try_connect(endpoint, "SERIAL-A"))
+        self.assertTrue(reconnector._try_connect(endpoint, "SERIAL-A"))
         self.assertIn(endpoint, reconnector.connected_endpoints)
         self.assertEqual(reconnector._pending_identity[endpoint], "SERIAL-A")
         self.assertNotIn(["adb", "disconnect", endpoint], commands)
@@ -99,11 +99,30 @@ class WirelessReconnectTests(unittest.TestCase):
 
         reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
         with mock.patch.object(reconnector, "_port_open", return_value=True):
-            for _ in range(3):
+            for _ in range(5):
                 reconnector._next_attempt.clear()
                 self.assertFalse(reconnector._try_connect("192.0.2.10:43210", "SERIAL-A"))
         self.assertEqual(commands.count(["adb", "kill-server"]), 1)
         self.assertEqual(commands.count(["adb", "start-server"]), 1)
+
+    def test_stale_daemon_is_not_restarted_during_transfer(self):
+        commands = []
+
+        def runner(command, **_kwargs):
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 1, "", "No route to host")
+
+        reconnector = AutoReconnector(
+            "/nonexistent",
+            scanner=FakeScanner(),
+            command_runner=runner,
+            busy_check=lambda: True,
+        )
+        with mock.patch.object(reconnector, "_port_open", return_value=True):
+            for _ in range(5):
+                reconnector._next_attempt.clear()
+                self.assertFalse(reconnector._try_connect("192.0.2.10:43210", "SERIAL-A"))
+        self.assertNotIn(["adb", "kill-server"], commands)
 
 
 if __name__ == "__main__":

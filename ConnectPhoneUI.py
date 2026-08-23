@@ -16,7 +16,10 @@ import re
 from urllib.parse import urlsplit, parse_qs
 import tempfile
 import posixpath
+import pathlib
 import shutil
+import atexit
+import signal
 
 # Inject common macOS binary paths (crucial when run as a Dock app shortcut without zsh profiles loaded)
 common_paths = [
@@ -33,6 +36,11 @@ for path in common_paths:
     if path and path not in current_path.split(os.pathsep):
         current_path = path + os.pathsep + current_path
 os.environ["PATH"] = current_path
+
+# ConnectPhone discovers the phone itself, pins its physical serial, and then
+# connects to the current IP:port. Disable ADB's separate Bonjour auto-connect
+# path so one phone cannot appear as both an IP transport and an mDNS transport.
+os.environ["ADB_MDNS_AUTO_CONNECT"] = "0"
 
 
 # Setup logging to a file in user's home directory so the logs can be inspected
@@ -115,9 +123,23 @@ except Exception:
 
 import ConnectPhone
 from core import keychain
+from core.adb_lifecycle import AdbLifecycle
 from core.wireless_pairing import pair_with_code, pair_with_secret
 from core.qr_pairing import new_qr_credentials, svg_data_url
 from core.remote_paths import valid_remote_path as _valid_remote_path, safe_download_name as _safe_download_name
+from core.file_manager import (
+    create_local_folder,
+    list_local_files,
+    list_phone_storages,
+    local_roots,
+    move_local_item_to_trash,
+    rename_local_item,
+    rename_remote_item,
+)
+from core.transfer_manager import TransferManager
+
+ADB_LIFECYCLE = AdbLifecycle()
+TRANSFER_MANAGER = TransferManager()
 
 PORT = 8282
 UI_HOST = "127.0.0.1"
@@ -353,6 +375,7 @@ def _adb_connect(ip, port, attempts=2, timeout=8):
             last_output = ((result.stdout or "") + " " + (result.stderr or "")).strip()
             lowered = last_output.lower()
             if "connected to" in lowered or "already connected" in lowered:
+                ADB_LIFECYCLE.register(endpoint)
                 return True, last_output
         except (OSError, subprocess.TimeoutExpired) as exc:
             last_output = str(exc)
@@ -445,6 +468,7 @@ def run_termux_install_background():
 _status_cache = None
 _status_cache_lock = threading.Lock()
 _status_cache_event = threading.Event()   # set when a fresh refresh is wanted
+_shutdown_event = threading.Event()
 _input_permission_cache: dict[object, tuple] = {}
 _device_info_cache: dict[object, tuple] = {}
 _adb_action_lock = threading.RLock()
@@ -461,7 +485,8 @@ def _build_status_payload():
     # itself an Android key event and must not fire every poll cycle.
     device_info = None
     input_injection_granted = True
-    if device_connected:
+    transfer_active = TRANSFER_MANAGER.has_active()
+    if device_connected and not transfer_active:
         cached_info = _device_info_cache.get(active_device)
         if cached_info and time.monotonic() - cached_info[0] < 15:
             device_info = cached_info[1]
@@ -493,6 +518,7 @@ def _build_status_payload():
         "sync_watcher_active": sync_watcher_active,
         "mirror_type": scrcpy_state["mirror_type"],
         "input_injection_granted": input_injection_granted,
+        "transfer_active": transfer_active,
         "config": public_config,
         "dependencies": {name: bool(shutil.which(name)) for name in ("adb", "scrcpy", "ffmpeg", "ffprobe")},
     }
@@ -500,7 +526,7 @@ def _build_status_payload():
 def _status_cache_worker():
     """Background thread: refresh cache every 1.2 s or immediately on demand."""
     global _status_cache
-    while True:
+    while not _shutdown_event.is_set():
         try:
             # Status collection may block on a sleeping/offline phone. It must
             # never hold the foreground action lock and delay a user-requested
@@ -1648,7 +1674,12 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(400, "Invalid directory path")
                 return
 
-        known_get_paths = {"/api/status", "/api/metrics", "/api/settings/audio_devices", "/api/mdns/discover", "/api/pair/qr/status", "/api/storage/list", "/api/storage/download"}
+        known_get_paths = {
+            "/api/status", "/api/metrics", "/api/settings/audio_devices",
+            "/api/mdns/discover", "/api/pair/qr/status", "/api/storage/list",
+            "/api/storage/download", "/api/files/roots", "/api/files/local",
+            "/api/files/storages", "/api/transfers",
+        }
         if parsed_path.path not in known_get_paths:
             self.send_error(404, "Unknown GET endpoint")
             return
@@ -1693,6 +1724,28 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.wfile.write(json.dumps({"success": True, **response}).encode('utf-8'))
 
+        elif parsed_path.path == '/api/files/roots':
+            self.wfile.write(json.dumps({"success": True, "roots": local_roots()}).encode('utf-8'))
+
+        elif parsed_path.path == '/api/files/local':
+            query = parse_qs(parsed_path.query)
+            requested = str(query.get("path", [str(pathlib.Path.home())])[0]).strip()
+            show_hidden = str(query.get("show_hidden", ["0"])[0]).lower() in {"1", "true", "yes"}
+            try:
+                listing = list_local_files(requested, show_hidden=show_hidden)
+                self.wfile.write(json.dumps({"success": True, **listing}).encode('utf-8'))
+            except (OSError, ValueError) as exc:
+                self.wfile.write(json.dumps({"success": False, "message": str(exc)}).encode('utf-8'))
+
+        elif parsed_path.path == '/api/files/storages':
+            try:
+                self.wfile.write(json.dumps({"success": True, "storages": list_phone_storages()}).encode('utf-8'))
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                self.wfile.write(json.dumps({"success": False, "message": str(exc), "storages": []}).encode('utf-8'))
+
+        elif parsed_path.path == '/api/transfers':
+            self.wfile.write(json.dumps({"success": True, "jobs": TRANSFER_MANAGER.list()}).encode('utf-8'))
+
         elif self.path == '/api/screenshots/list':
             try:
                 # Find screenshots from common paths and sort by newest first
@@ -1711,6 +1764,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             target_path = str(query.get("path", ["/sdcard"])[0]).strip()
             if not target_path:
                 target_path = "/sdcard"
+            show_hidden = str(query.get("show_hidden", ["0"])[0]).lower() in {"1", "true", "yes"}
             if not _valid_remote_path(target_path):
                 self.wfile.write(json.dumps({"success": False, "message": "Invalid directory path"}).encode('utf-8'))
                 return
@@ -1738,6 +1792,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         mtime = 0
                     name = os.path.basename(full_path)
                     if name in ('.', '..'):
+                        continue
+                    if not show_hidden and name.startswith('.'):
                         continue
                     files.append({
                         "name": name,
@@ -2056,7 +2112,22 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         res_data = {"success": False, "message": ""}
         
         try:
-            if self.path == '/api/devices/select':
+            if self.path == '/api/transfers/start':
+                try:
+                    job = TRANSFER_MANAGER.start(
+                        direction=str(data.get("direction", "")),
+                        items=data.get("items", []),
+                        destination=str(data.get("destination", "")),
+                        conflict=str(data.get("conflict", "rename")),
+                    )
+                    res_data.update(success=True, message="Transfer queued", job=job)
+                except (OSError, ValueError) as exc:
+                    res_data["message"] = str(exc)
+            elif self.path == '/api/transfers/cancel':
+                job_id = str(data.get("id", ""))
+                cancelled = TRANSFER_MANAGER.cancel(job_id)
+                res_data.update(success=cancelled, message="Cancellation requested" if cancelled else "Transfer not found or already finished")
+            elif self.path == '/api/devices/select':
                 serial = str(data.get("serial", "")).strip()
                 if not serial:
                     res_data["message"] = "Serial is required."
@@ -2191,6 +2262,30 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         res_data["message"] = f"Created folder '{name}'"
                     else:
                         res_data["message"] = f"Failed to create folder: {res.stderr.strip()}"
+            elif self.path == '/api/files/local/mkdir':
+                try:
+                    destination = create_local_folder(str(data.get("parent", "")), str(data.get("name", "")))
+                    res_data.update(success=True, message="Folder created", path=destination)
+                except (OSError, ValueError) as exc:
+                    res_data["message"] = str(exc)
+            elif self.path == '/api/files/local/rename':
+                try:
+                    destination = rename_local_item(str(data.get("path", "")), str(data.get("name", "")))
+                    res_data.update(success=True, message="Item renamed", path=destination)
+                except (OSError, ValueError) as exc:
+                    res_data["message"] = str(exc)
+            elif self.path == '/api/files/local/trash':
+                try:
+                    destination = move_local_item_to_trash(str(data.get("path", "")))
+                    res_data.update(success=True, message="Item moved to Trash", path=destination)
+                except (OSError, ValueError) as exc:
+                    res_data["message"] = str(exc)
+            elif self.path == '/api/files/remote/rename':
+                try:
+                    destination = rename_remote_item(str(data.get("path", "")), str(data.get("name", "")))
+                    res_data.update(success=True, message="Item renamed", path=destination)
+                except (OSError, ValueError, RuntimeError) as exc:
+                    res_data["message"] = str(exc)
             elif self.path == '/api/connect':
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "5555")).strip()
@@ -3383,7 +3478,7 @@ def camera_capture():
 
 def adb_keepalive_loop():
     import time
-    while True:
+    while not _shutdown_event.is_set():
         try:
             config = ConnectPhone.load_config()
             if config.get("device_profile") == "oneplus":
@@ -3391,7 +3486,7 @@ def adb_keepalive_loop():
                 subprocess.run(["adb", "shell", "true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
-        time.sleep(30)
+        _shutdown_event.wait(30)
 
 def start_server_in_thread(httpd):
     try:
@@ -3402,6 +3497,7 @@ def start_server_in_thread(httpd):
         stop_scrcpy_bg()
 
 def run_server():
+    _shutdown_event.clear()
     if "--relaunch-wait" in sys.argv:
         try:
             index = sys.argv.index("--relaunch-wait")
@@ -3473,8 +3569,47 @@ def run_server():
     print(f"\n🚀 ConnectPhone UI Dashboard Running on http://localhost:{PORT}")
     
     from core.auto_reconnect import AutoReconnector
-    auto_reconnector = AutoReconnector()
+    auto_reconnector = AutoReconnector(busy_check=TRANSFER_MANAGER.has_active)
     auto_reconnector.start_watching()
+
+    cleanup_lock = threading.Lock()
+    cleanup_complete = False
+
+    def cleanup_resources(*_args):
+        nonlocal cleanup_complete
+        with cleanup_lock:
+            if cleanup_complete:
+                return
+            cleanup_complete = True
+        print("ConnectPhone is closing; cleaning up local services and ADB transports.")
+        _shutdown_event.set()
+        _status_cache_event.set()
+        auto_reconnector.stop_watching()
+        if cache_thread.is_alive():
+            cache_thread.join(timeout=15)
+        if keepalive_thread.is_alive():
+            keepalive_thread.join(timeout=2)
+        stop_scrcpy_bg()
+        TRANSFER_MANAGER.shutdown()
+        try:
+            saved = ConnectPhone.load_config().get("saved_devices", [])
+            owned_serials = {
+                item.get("device_serial")
+                for item in saved
+                if isinstance(item, dict) and item.get("device_serial")
+            }
+        except (OSError, TypeError, ValueError):
+            owned_serials = set()
+        ADB_LIFECYCLE.cleanup(auto_reconnector.connected_endpoints, owned_serials)
+        httpd.shutdown()
+
+    atexit.register(cleanup_resources)
+
+    def handle_termination(_signum, _frame):
+        cleanup_resources()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, handle_termination)
     
     server_thread = threading.Thread(target=start_server_in_thread, args=(httpd,))
     server_thread.daemon = True
@@ -3486,6 +3621,8 @@ def run_server():
         js_api = WebviewApi()
         win = webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False, js_api=js_api)
         js_api.set_window(win)
+        win.events.closing += cleanup_resources
+        win.events.closed += cleanup_resources
         webview.start(debug=False)
     except ImportError:
         print("💡 pywebview not found, falling back to standard web browser.")
@@ -3495,9 +3632,7 @@ def run_server():
         except KeyboardInterrupt:
             pass
     finally:
-        auto_reconnector.stop_watching()
-        httpd.shutdown()
-        stop_scrcpy_bg()
+        cleanup_resources()
 
 if __name__ == "__main__":
     run_server()

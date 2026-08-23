@@ -49,10 +49,15 @@ class AdbMdnsListener(ServiceListener):
                     continue
             if not ipv4 or not 1 <= int(info.port) <= 65535:
                 return
+            instance = name.split(".", 1)[0]
+            serial_hint = None
+            if instance.startswith("adb-") and "-" in instance[4:]:
+                serial_hint = instance[4:].rsplit("-", 1)[0] or None
             device = {
                 "ip": ipv4[0],
                 "port": int(info.port),
                 "name": name,
+                "device_serial_hint": serial_hint,
                 "type": "pairing" if "pairing" in type_ else "connect",
                 "seen_at": time.monotonic(),
             }

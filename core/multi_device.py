@@ -282,6 +282,128 @@ FLEET_CONTROL_ACTIONS = {
     "mute": ["shell", "input", "keyevent", "KEYCODE_VOLUME_MUTE"],
 }
 
+_ALARM_VOLUME_RE = re.compile(r"volume is (\d+) in range \[(\d+)\.\.(\d+)\]")
+_COMPONENT_RE = re.compile(r"(?m)^([A-Za-z0-9._]+)/(?:[A-Za-z0-9._$]+)$")
+_DISMISS_TIMER_ACTION_RE = re.compile(r'Action: "([A-Za-z0-9._-]*DISMISS_TIMER)"')
+_ALERT_LOCK = threading.RLock()
+_ALERT_ORIGINAL_VOLUMES = {}
+
+
+def _run_device_command(runner, serial, args, timeout=8):
+    return runner(
+        ["adb", "-s", serial, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def start_emergency_alerts(serials, runner=None):
+    """Start a one-second native timer that rings until dismissed."""
+    runner = runner or subprocess.run
+    targets = [validate_serial(item) for item in serials][:MAX_FLEET_DEVICES]
+
+    def start(serial):
+        try:
+            volume_result = _run_device_command(
+                runner, serial, ["shell", "cmd", "media_session", "volume", "--stream", "4", "--get"]
+            )
+            match = _ALARM_VOLUME_RE.search((volume_result.stdout or "") + (volume_result.stderr or ""))
+            original_volume = int(match.group(1)) if match else None
+            maximum_volume = int(match.group(3)) if match else 15
+
+            _run_device_command(runner, serial, ["shell", "input", "keyevent", "KEYCODE_WAKEUP"])
+            set_result = _run_device_command(
+                runner, serial,
+                ["shell", "cmd", "media_session", "volume", "--stream", "4", "--set", str(maximum_volume)],
+            )
+            if set_result.returncode != 0:
+                raise RuntimeError((set_result.stderr or set_result.stdout or "Could not raise alarm volume").strip())
+
+            alert_result = _run_device_command(
+                runner, serial,
+                [
+                    "shell", "am", "start",
+                    "-a", "android.intent.action.SET_TIMER",
+                    "--ei", "android.intent.extra.alarm.LENGTH", "1",
+                    "--es", "android.intent.extra.alarm.MESSAGE", "ConnectPhone Emergency Alert",
+                    "--ez", "android.intent.extra.alarm.SKIP_UI", "true",
+                ],
+            )
+            alert_output = (alert_result.stdout or "") + (alert_result.stderr or "")
+            if alert_result.returncode != 0 or "Error:" in alert_output:
+                if original_volume is not None:
+                    _run_device_command(
+                        runner, serial,
+                        ["shell", "cmd", "media_session", "volume", "--stream", "4", "--set", str(original_volume)],
+                    )
+                raise RuntimeError((alert_result.stderr or alert_result.stdout or "No alarm app accepted the alert").strip())
+
+            with _ALERT_LOCK:
+                if original_volume is not None and serial not in _ALERT_ORIGINAL_VOLUMES:
+                    _ALERT_ORIGINAL_VOLUMES[serial] = original_volume
+            return {"serial": serial, "success": True, "message": "Emergency alert started"}
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            return {"serial": serial, "success": False, "message": str(exc) or "Emergency alert failed"}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(targets))) as executor:
+        return list(executor.map(start, targets))
+
+
+def stop_emergency_alerts(serials, runner=None):
+    """Dismiss ringing timers and restore the previous alarm volume."""
+    runner = runner or subprocess.run
+    targets = [validate_serial(item) for item in serials][:MAX_FLEET_DEVICES]
+
+    def stop(serial):
+        try:
+            dismiss_result = _run_device_command(
+                runner, serial, ["shell", "am", "start", "-a", "android.intent.action.DISMISS_TIMER"]
+            )
+            dismiss_output = (dismiss_result.stdout or "") + (dismiss_result.stderr or "")
+            dismiss_ok = dismiss_result.returncode == 0 and "Error:" not in dismiss_output
+
+            # Some vendor Clock apps accept SET_TIMER but expose a namespaced
+            # dismissal action instead of Android's standard DISMISS_TIMER.
+            # Discover that action from the selected Clock package rather than
+            # force-stopping the package or hard-coding a vendor name.
+            if not dismiss_ok:
+                resolve_result = _run_device_command(
+                    runner, serial,
+                    ["shell", "cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.SET_TIMER"],
+                )
+                component = _COMPONENT_RE.search(resolve_result.stdout or "")
+                if component:
+                    package_name = component.group(1)
+                    package_result = _run_device_command(
+                        runner, serial, ["shell", "dumpsys", "package", package_name], timeout=12
+                    )
+                    actions = [
+                        item for item in _DISMISS_TIMER_ACTION_RE.findall(package_result.stdout or "")
+                        if item != "android.intent.action.DISMISS_TIMER"
+                    ]
+                    if actions:
+                        dismiss_result = _run_device_command(
+                            runner, serial, ["shell", "am", "start", "-a", actions[0]]
+                        )
+                        dismiss_output = (dismiss_result.stdout or "") + (dismiss_result.stderr or "")
+                        dismiss_ok = dismiss_result.returncode == 0 and "Error:" not in dismiss_output
+
+            with _ALERT_LOCK:
+                original_volume = _ALERT_ORIGINAL_VOLUMES.pop(serial, None)
+            if original_volume is not None:
+                _run_device_command(
+                    runner, serial,
+                    ["shell", "cmd", "media_session", "volume", "--stream", "4", "--set", str(original_volume)],
+                )
+            message = "Emergency alert stopped" if dismiss_ok else (dismiss_output.strip() or "Timer dismissal failed")
+            return {"serial": serial, "success": dismiss_ok, "message": message}
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {"serial": serial, "success": False, "message": str(exc) or "Emergency alert stop failed"}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(targets))) as executor:
+        return list(executor.map(stop, targets))
+
 
 def control_devices(serials, action, runner=None):
     runner = runner or subprocess.run

@@ -142,6 +142,8 @@ from core.multi_device import (
     MirrorSessionManager,
     build_fleet,
     control_devices,
+    start_emergency_alerts,
+    stop_emergency_alerts,
     validate_serial,
 )
 
@@ -2321,6 +2323,31 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     message=f"Command reached {succeeded} of {len(results)} phone(s).",
                     results=results,
                 )
+            elif self.path in {'/api/fleet/alert/start', '/api/fleet/alert/stop'}:
+                online = [
+                    item["serial"] for item in get_detailed_adb_devices()
+                    if item.get("status") == "device"
+                ][:MAX_FLEET_DEVICES]
+                requested = data.get("serials")
+                if requested == "all":
+                    targets = online
+                elif isinstance(requested, list):
+                    targets = [item for item in requested if item in online]
+                else:
+                    serial = str(data.get("serial", "")).strip()
+                    targets = [serial] if serial in online else []
+                if not targets:
+                    res_data["message"] = "No requested phones are currently online."
+                else:
+                    alert_action = start_emergency_alerts if self.path.endswith('/start') else stop_emergency_alerts
+                    results = alert_action(targets)
+                    succeeded = sum(1 for item in results if item["success"])
+                    verb = "started on" if self.path.endswith('/start') else "stopped on"
+                    res_data.update(
+                        success=succeeded == len(targets),
+                        message=f"Emergency alert {verb} {succeeded} of {len(targets)} phone(s).",
+                        results=results,
+                    )
             elif self.path == '/api/storage/delete':
                 remote_path = str(data.get("path", "")).strip()
                 if not _valid_remote_path(remote_path, destructive=True):

@@ -235,6 +235,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button class="btn btn-sm btn-accent fleet-start" data-mode="camera" ${online ? '' : 'disabled'}>Camera</button>
                         <button class="btn btn-sm btn-secondary fleet-start" data-mode="audio" ${online ? '' : 'disabled'}>Audio</button>
                         <button class="btn btn-sm btn-accent fleet-start" data-mode="call" ${online ? '' : 'disabled'}>Call</button>
+                        <button class="btn btn-sm btn-danger fleet-alert" ${online ? '' : 'disabled'} title="Play a loud emergency alarm">Alert</button>
+                        <button class="btn btn-sm btn-secondary fleet-alert-stop" ${online ? '' : 'disabled'} title="Stop emergency alarm">Stop</button>
                         ${device.trusted ? '<button class="fleet-rename" title="Rename"><i class="material-symbols-outlined">edit</i></button>' : ''}
                         ${device.trusted ? '<button class="fleet-forget" title="Forget phone"><i class="material-symbols-outlined">delete</i></button>' : ''}
                     </div>
@@ -267,6 +269,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, startButton);
             } else if (stopButton) {
                 await postAction('/api/fleet/mirror/stop', { session_id: stopButton.dataset.sessionId });
+            } else if (event.target.closest('.fleet-alert')) {
+                if (window.confirm('Play a loud emergency alarm on this phone?')) {
+                    await postAction('/api/fleet/alert/start', { serial }, event.target.closest('.fleet-alert'));
+                }
+            } else if (event.target.closest('.fleet-alert-stop')) {
+                await postAction('/api/fleet/alert/stop', { serial }, event.target.closest('.fleet-alert-stop'));
             } else if (event.target.closest('.fleet-rename')) {
                 const name = window.prompt('Name this phone:');
                 if (name && name.trim()) await postAction('/api/devices/rename', { identity, name: name.trim() });
@@ -300,6 +308,19 @@ document.addEventListener('DOMContentLoaded', () => {
             serials: 'all',
             action: button.dataset.action
         }, button));
+    });
+
+    const fleetAlertAll = document.getElementById('fleet-alert-all');
+    if (fleetAlertAll) fleetAlertAll.addEventListener('click', async () => {
+        if (!fleetOnlineSerials.length) return showToast('No phones are online.', 'error');
+        if (window.confirm(`Play a loud emergency alarm on ${fleetOnlineSerials.length} phone(s)?`)) {
+            await postAction('/api/fleet/alert/start', { serials: 'all' }, fleetAlertAll);
+        }
+    });
+
+    const fleetAlertStopAll = document.getElementById('fleet-alert-stop-all');
+    if (fleetAlertStopAll) fleetAlertStopAll.addEventListener('click', () => {
+        postAction('/api/fleet/alert/stop', { serials: 'all' }, fleetAlertStopAll);
     });
 
     function updateConnectionUI(data) {

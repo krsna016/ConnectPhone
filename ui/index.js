@@ -24,6 +24,14 @@ document.addEventListener('DOMContentLoaded', () => {
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
         }[ch]));
     }
+
+    function isWirelessAdbSerial(serial) {
+        const value = String(serial || '');
+        return value.includes(':') || (
+            value.startsWith('adb-')
+            && (value.includes('._adb-tls-connect._tcp') || value.includes('._adb-tls-pairing._tcp'))
+        );
+    }
     
     // State variables
     let currentTab = 'connection';
@@ -172,6 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`${API_BASE}/api/status`);
             if (!res.ok) throw new Error("HTTP connection error");
             const data = await res.json();
+            renderCompanionDevices(data.companion_devices || []);
             renderFleet(data);
             updateConnectionUI(data);
             updatePreferencesForm(data.config);
@@ -192,6 +201,43 @@ document.addEventListener('DOMContentLoaded', () => {
             return null;
         }
     }
+
+    function renderCompanionDevices(devices) {
+        const list = document.getElementById('companion-device-list');
+        if (!list) return;
+        if (!Array.isArray(devices) || !devices.length) {
+            list.innerHTML = '<p class="list-placeholder">No Companion phones online.</p>';
+            return;
+        }
+        list.innerHTML = devices.map(device => `
+            <div class="device-row" data-companion-id="${escapeHtml(device.device_id)}">
+                <div class="device-info-left"><span class="device-type-icon"><i class="material-symbols-outlined">verified_user</i></span>
+                    <div class="device-meta"><h4>${escapeHtml(device.model)}</h4><span>${escapeHtml(device.address)} • Secure Companion online</span></div>
+                </div>
+                <div class="device-info-right">
+                    <button class="btn btn-sm btn-danger companion-alert">Alert</button>
+                    <button class="btn btn-sm btn-secondary companion-stop">Stop</button>
+                    <button class="btn btn-sm btn-danger companion-revoke">Revoke</button>
+                </div>
+            </div>`).join('');
+    }
+
+    const companionList = document.getElementById('companion-device-list');
+    if (companionList) companionList.addEventListener('click', async event => {
+        const row = event.target.closest('[data-companion-id]');
+        if (!row) return;
+        const device_id = row.dataset.companionId;
+        if (event.target.closest('.companion-alert')) {
+            if (window.confirm('Play the loud siren on this Companion phone?'))
+                await postAction('/api/companion/alert', { device_id, enabled: true }, event.target);
+        } else if (event.target.closest('.companion-stop')) {
+            await postAction('/api/companion/alert', { device_id, enabled: false }, event.target);
+        } else if (event.target.closest('.companion-revoke')) {
+            if (window.confirm('Revoke this phone? It must scan a new QR before reconnecting.'))
+                await postAction('/api/companion/revoke', { device_id }, event.target);
+        }
+        await fetchStatus(true);
+    });
 
     function renderFleet(data) {
         if (!fleetGrid) return;
@@ -366,7 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
             connStatusText.textContent = `${onlineCount} Phone${onlineCount === 1 ? '' : 's'} Online`;
             
             // Header display
-            const isWireless = data.active_device && data.active_device.includes(':');
+            const isWireless = isWirelessAdbSerial(data.active_device);
             if (isWireless) {
                 headerDevice.innerHTML = `<span style="font-size:13px; color: var(--text-secondary);"><i class="material-symbols-outlined" style="font-size:13px">wifi</i> Selected: ${escapeHtml(data.active_device)} • ${onlineCount} online</span>`;
             } else {
@@ -400,7 +446,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (adbList) {
             adbList.innerHTML = '';
             
-            const devices = data.devices_detailed || [];
+            const devices = data.devices_display || data.devices_detailed || [];
             if (devices.length === 0) {
                 adbList.innerHTML = '<p class="list-placeholder">No attached ADB devices found. Plug in via USB or connect over Wi-Fi.</p>';
                 if (pulseIndicator) pulseIndicator.className = 'pulse-indicator disconnected';
@@ -428,7 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             const battery = match[2];
                             const storage = match[3];
                             
-                                    let displayActiveSerial = data.devices[0] || 'USB Connection';
+                                    let displayActiveSerial = (devices[0] && devices[0].serial) || data.devices[0] || 'USB Connection';
                                     if (displayActiveSerial.includes('._adb-tls-connect._tcp')) {
                                         displayActiveSerial = displayActiveSerial.replace('._adb-tls-connect._tcp', '');
                                         if (displayActiveSerial.startsWith('adb-')) displayActiveSerial = displayActiveSerial.substring(4);
@@ -466,7 +512,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Add rows to the devices list
                 devices.forEach(device => {
                     const row = document.createElement('div');
-                    const isActive = (device.serial === data.active_device);
+                    const isActive = device.serial === data.active_device
+                        || (Array.isArray(device.aliases) && device.aliases.includes(data.active_device));
                     row.className = `device-row ${isActive ? 'active-device' : ''}`;
                     
                     row.addEventListener('click', async () => {
@@ -812,6 +859,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const qrPairingImage = document.getElementById('qr-pairing-image');
     const qrPairingStatus = document.getElementById('qr-pairing-status');
     let qrPairingPoll = null;
+
+    const btnCompanionPair = document.getElementById('btn-companion-pair');
+    const btnCompanionInstall = document.getElementById('btn-companion-install');
+    const companionPanel = document.getElementById('companion-pairing-panel');
+    const companionImage = document.getElementById('companion-pairing-image');
+    const companionStatus = document.getElementById('companion-pairing-status');
+    let companionPoll = null;
+    if (btnCompanionInstall) btnCompanionInstall.addEventListener('click', async () => {
+        showToast('Installing Companion on the selected ADB phone…', 'info');
+        await postAction('/api/companion/install', {}, btnCompanionInstall);
+        await fetchStatus(true);
+    });
+    if (btnCompanionPair) btnCompanionPair.addEventListener('click', async () => {
+        if (companionPoll) clearInterval(companionPoll);
+        btnCompanionPair.disabled = true;
+        try {
+            const response = await fetch(`${API_BASE}/api/companion/pair/start`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || 'Could not start Companion pairing');
+            companionImage.src = data.qr_image;
+            companionPanel.classList.remove('hidden');
+            companionStatus.textContent = 'Waiting for the Companion app to scan…';
+            companionPoll = setInterval(async () => {
+                const response = await fetch(`${API_BASE}/api/companion/pair/status?id=${encodeURIComponent(data.session_id)}`);
+                const state = await response.json();
+                companionStatus.textContent = state.state === 'paired' ? `${state.model} paired securely.` :
+                    state.state === 'expired' ? 'Pairing QR expired. Generate another.' : 'Waiting for scan…';
+                if (state.state !== 'waiting') {
+                    clearInterval(companionPoll); companionPoll = null; btnCompanionPair.disabled = false;
+                    showToast(state.state === 'paired' ? 'Companion paired securely.' : 'Companion QR expired.', state.state === 'paired' ? 'success' : 'error');
+                    await fetchStatus(true);
+                }
+            }, 1000);
+        } catch (error) {
+            btnCompanionPair.disabled = false;
+            showToast(error.message, 'error');
+        }
+    });
     if (btnPairQr) btnPairQr.addEventListener('click', async () => {
         if (qrPairingPoll) clearInterval(qrPairingPoll);
         btnPairQr.disabled = true;

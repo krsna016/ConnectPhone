@@ -6,10 +6,28 @@ import copy
 import ipaddress
 import time
 import threading
+import re
 from typing import Dict, Any
 from core import keychain
 
 _CONFIG_LOCK = threading.RLock()
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
+
+
+def _transport_matches_identity(transport: object, identity: object) -> bool:
+    transport_value = str(transport or "").strip()
+    identity_value = str(identity or "").strip()
+    return bool(
+        transport_value
+        and identity_value
+        and (
+            transport_value == identity_value
+            or (
+                transport_value.startswith(f"adb-{identity_value}-")
+                and "._adb-tls-connect._tcp" in transport_value
+            )
+        )
+    )
 
 
 def persist_current_endpoint(config_path, endpoint, identity):
@@ -54,6 +72,39 @@ class ConfigurationManager:
         "saved_devices": []
     }
     SECRET_KEYS = ("android_pin", "applock_pin")
+
+    @classmethod
+    def _sanitize_devices(cls, value):
+        if not isinstance(value, list):
+            return []
+        devices = []
+        seen = set()
+        for raw in value:
+            if not isinstance(raw, dict):
+                continue
+            ip = str(raw.get("ip") or "").strip()
+            port = raw.get("port")
+            identity = raw.get("device_serial")
+            identity = str(identity).strip() if identity is not None else None
+            if not cls._is_valid_ip(ip) or not cls._is_valid_port(port):
+                continue
+            if identity and (":" in identity or not _DEVICE_ID_RE.fullmatch(identity)):
+                identity = None
+            key = identity or ip
+            if key in seen:
+                continue
+            seen.add(key)
+            item = {
+                "ip": ip,
+                "port": int(port),
+                "device_serial": identity,
+                "auto_reconnect": bool(raw.get("auto_reconnect", True) and identity),
+            }
+            name = raw.get("name")
+            if isinstance(name, str) and 0 < len(name.strip()) <= 60 and not any(ord(char) < 32 for char in name):
+                item["name"] = name.strip()
+            devices.append(item)
+        return devices[:10]
 
     def __init__(self, config_path: str):
         # Dependency Injection: The path is passed in, making this class testable without writing to ~/.
@@ -101,9 +152,70 @@ class ConfigurationManager:
             # value the user deliberately selected.
             if str(data.get("audio_buffer", "")) == "100":
                 data["audio_buffer"] = "20"
+
+            # Repair the historical bug where `adb get-serialno` returned an
+            # IP:port transport and that endpoint was persisted as identity.
+            # A previously selected physical serial is safe to reuse only when
+            # there is one unambiguous saved phone; otherwise fail closed.
+            repaired_identity = False
+            saved_devices = data.get("saved_devices", [])
+            selected = str(data.get("selected_device_serial") or "").strip()
+            selected_is_physical = bool(selected and ":" not in selected)
+            if isinstance(saved_devices, list):
+                # ADB may expose one wireless phone under a Bonjour alias.
+                # Keep selections pinned to the saved hardware serial so the
+                # alias never becomes a second logical phone.
+                for item in saved_devices:
+                    if not isinstance(item, dict):
+                        continue
+                    identity = str(item.get("device_serial") or "").strip()
+                    if identity and selected != identity and _transport_matches_identity(selected, identity):
+                        data["selected_device_serial"] = identity
+                        selected = identity
+                        selected_is_physical = True
+                        repaired_identity = True
+                        break
+                invalid = [
+                    item for item in saved_devices
+                    if isinstance(item, dict) and ":" in str(item.get("device_serial") or "")
+                ]
+                for item in invalid:
+                    replacement = selected if len(saved_devices) == 1 and len(invalid) == 1 and selected_is_physical else None
+                    item["device_serial"] = replacement
+                    item["auto_reconnect"] = bool(replacement)
+                    repaired_identity = True
+
+            # A syntactically valid but malformed config must not destabilize
+            # reconnect, selection, or UI threads. Sanitize after migrations
+            # so legacy endpoint-shaped identities still have a chance to be
+            # repaired using the pinned selected hardware serial above.
+            original_devices = data.get("saved_devices")
+            original_saved_ips = data.get("saved_ips")
+            original_last_ip = data.get("last_ip")
+            original_last_port = data.get("last_port")
+            original_selected = data.get("selected_device_serial")
+            data["saved_devices"] = self._sanitize_devices(original_devices)
+            data["saved_ips"] = [
+                item for item in data.get("saved_ips", [])
+                if self._is_valid_ip(item)
+            ][:10] if isinstance(data.get("saved_ips"), list) else []
+            if not self._is_valid_ip(data.get("last_ip", "")):
+                data["last_ip"] = ""
+            if not self._is_valid_port(data.get("last_port")):
+                data["last_port"] = None
+            selected = str(data.get("selected_device_serial") or "").strip()
+            if not _DEVICE_ID_RE.fullmatch(selected):
+                data["selected_device_serial"] = ""
+            sanitized_config = any((
+                original_devices != data["saved_devices"],
+                original_saved_ips != data["saved_ips"],
+                original_last_ip != data["last_ip"],
+                original_last_port != data["last_port"],
+                original_selected != data["selected_device_serial"],
+            ))
             
             self._config_data = data
-            if migrated_legacy_secret and keychain.available():
+            if repaired_identity or sanitized_config or (migrated_legacy_secret and keychain.available()):
                 self.save()
             return self._config_data
             
@@ -182,6 +294,10 @@ class ConfigurationManager:
         if not self._is_valid_ip(ip) or not self._is_valid_port(port):
             raise ValueError("Invalid wireless endpoint")
         port = int(port)
+        if device_serial:
+            identity = str(device_serial).strip()
+            if ":" in identity or identity == f"{ip}:{port}":
+                device_serial = None
         self.set("last_ip", ip)
         self.set("last_port", port)
 

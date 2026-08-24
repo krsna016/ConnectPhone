@@ -6,5 +6,7 @@ __pycache__/
 node_modules/
 *.app/
 .DS_Store
+.gradle/
+local.properties
 *.apk
 release/*.zip

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pip-audit
+      - name: Audit Python dependencies
+        run: python -m pip_audit -r requirements.txt
+      - name: Verify Python and web code
+        run: |
+          python -m pip check
+          python -m compileall -q ConnectPhone.py ConnectPhoneUI.py adb_client.py core tests
+          python -m unittest discover -s tests -v
+          node --check ui/index.js
+          bash -n build_mac.sh
+      - name: Verify Android Companion
+        working-directory: companion-android
+        run: ./gradlew --no-daemon test lint assembleDebug

@@ -1,6 +1,7 @@
 """Persistent, identity-pinned Wireless ADB connection supervisor."""
 
 import ipaddress
+import asyncio
 import logging
 import os
 import subprocess
@@ -13,6 +14,42 @@ from core.mdns_scanner import ZeroPingScanner
 from core.paths import migrate_legacy_config
 
 
+def discover_open_tcp_ports(ip, stop_event=None, start_port=30000, end_port=65535, timeout=0.12):
+    """Find candidate Android dynamic ports on one trusted LAN address.
+
+    The scan only identifies open TCP listeners. The caller must still use
+    ADB authentication and verify the pinned Android hardware identity before
+    accepting or persisting any endpoint.
+    """
+    async def probe(port):
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+            return port
+        except (OSError, asyncio.TimeoutError):
+            return None
+
+    async def scan():
+        found = []
+        batch_size = 512
+        for first in range(int(start_port), int(end_port) + 1, batch_size):
+            if stop_event is not None and stop_event.is_set():
+                break
+            last = min(first + batch_size, int(end_port) + 1)
+            results = await asyncio.gather(*(probe(port) for port in range(first, last)))
+            found.extend(port for port in results if port is not None)
+        return sorted(set(found))
+
+    try:
+        return asyncio.run(scan())
+    except (OSError, RuntimeError, ValueError):
+        return []
+
+
 class AutoReconnector:
     # ADB's host daemon occasionally stalls while scrcpy, file transfers, or
     # dashboard probes are opening transports.  Do not turn one such stall
@@ -23,13 +60,15 @@ class AutoReconnector:
     KEEPALIVE_FAILURE_LIMIT = 3
     LOOP_INTERVAL = 1.0
     CONNECT_TIMEOUT = 4.0
+    PORT_SCAN_COOLDOWN = 30.0
 
-    def __init__(self, config_path=None, scanner=None, command_runner=None, busy_check=None):
+    def __init__(self, config_path=None, scanner=None, command_runner=None, busy_check=None, port_discoverer=None):
         self.logger = logging.getLogger(__name__)
         self.config_path = config_path or migrate_legacy_config()
         self.scanner = scanner or ZeroPingScanner()
         self._run = command_runner or subprocess.run
         self._busy_check = busy_check or (lambda: False)
+        self._discover_ports = port_discoverer or discover_open_tcp_ports
         self._thread = None
         self._stop_event = threading.Event()
         self.connected_endpoints = set()
@@ -41,6 +80,7 @@ class AutoReconnector:
         self._last_reset = {}
         self._last_keepalive = {}
         self._keepalive_failures = {}
+        self._last_port_scan = {}
 
     def start_watching(self):
         if self._thread and self._thread.is_alive():
@@ -79,6 +119,8 @@ class AutoReconnector:
                             continue
                         if self._try_connect(endpoint, serial):
                             break
+                    else:
+                        self._recover_rotated_port(item)
             except Exception:
                 self.logger.exception("Wireless supervisor iteration failed")
             self._stop_event.wait(self.LOOP_INTERVAL)
@@ -192,6 +234,36 @@ class AutoReconnector:
         except (OSError, subprocess.TimeoutExpired):
             self._schedule_failure(endpoint)
             return False
+
+    def _recover_rotated_port(self, item):
+        """Recover an already-paired phone when Android rotates its TLS port."""
+        if self._busy_check():
+            return False
+        ip = str(item.get("ip") or "").strip()
+        expected_serial = str(item.get("serial") or "").strip()
+        old_port = int(item.get("port") or 0)
+        if not ip or not expected_serial:
+            return False
+        now = time.monotonic()
+        if now - self._last_port_scan.get(expected_serial, 0) < self.PORT_SCAN_COOLDOWN:
+            return False
+        self._last_port_scan[expected_serial] = now
+        try:
+            ports = self._discover_ports(ip, self._stop_event)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False
+        for port in ports:
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= port <= 65535 or port == old_port:
+                continue
+            endpoint = f"{ip}:{port}"
+            if self._try_connect(endpoint, expected_serial):
+                self.logger.info("Recovered rotated Wireless Debugging port: %s", endpoint)
+                return True
+        return False
 
     def _verify_connections(self, trusted_serials):
         states = wireless_transport_states(self._run, unavailable=None)

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import time
 
-from core.remote_paths import valid_remote_path
+from core.remote_paths import adb_shell_command, valid_remote_path
 
 
 _SAFE_NAME = re.compile(r"^[^/\\\x00-\x1f\x7f]+$")
@@ -135,10 +135,10 @@ def rename_remote_item(source, new_name, runner=subprocess.run):
     destination = posixpath.join(posixpath.dirname(source), new_name)
     if not valid_remote_path(destination, destructive=True):
         raise ValueError("Invalid remote destination")
-    exists = runner(["adb", "shell", "test", "-e", destination], capture_output=True, timeout=5)
+    exists = runner(adb_shell_command("test", "-e", destination), capture_output=True, timeout=5)
     if exists.returncode == 0:
         raise FileExistsError("An item with that name already exists")
-    result = runner(["adb", "shell", "mv", "--", source, destination], capture_output=True, text=True, timeout=15)
+    result = runner(adb_shell_command("mv", "--", source, destination), capture_output=True, text=True, timeout=15)
     if result.returncode != 0:
         raise RuntimeError((result.stderr or "Remote rename failed").strip())
     return destination

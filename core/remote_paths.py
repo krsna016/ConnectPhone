@@ -2,6 +2,7 @@
 
 import posixpath
 import re
+import shlex
 
 REMOTE_ROOTS = ("/sdcard", "/storage")
 PROTECTED_ROOTS = {"/sdcard", "/storage", "/storage/emulated", "/storage/emulated/0"}
@@ -21,3 +22,15 @@ def valid_remote_path(value, destructive=False):
 def safe_download_name(remote_path, fallback="download"):
     name = posixpath.basename(remote_path.rstrip("/")) or fallback
     return re.sub(r"[^\w.() -]", "_", name, flags=re.UNICODE)[:180] or fallback
+
+
+def adb_shell_command(*arguments):
+    """Build one safely quoted command string for Android's remote shell.
+
+    ADB joins arguments following ``adb shell`` before the device shell parses
+    them, so a local subprocess argument list alone does not protect filenames
+    containing shell metacharacters.
+    """
+    if not arguments or any(not isinstance(item, str) or "\x00" in item for item in arguments):
+        raise ValueError("Invalid Android shell command")
+    return ["adb", "shell", shlex.join(arguments)]

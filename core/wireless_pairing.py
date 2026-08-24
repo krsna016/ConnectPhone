@@ -1,5 +1,6 @@
 """Secure, bounded wrapper around ``adb pair``."""
 
+import ipaddress
 import re
 import subprocess
 
@@ -10,6 +11,12 @@ _SUCCESS = re.compile(r"successfully\s+paired", re.IGNORECASE)
 def pair_with_secret(endpoint, secret, runner=subprocess.run, timeout=15):
     """Pair once using a bounded printable secret supplied only over stdin."""
     if not isinstance(endpoint, str) or not re.fullmatch(r"[^\s\x00]+:\d{1,5}", endpoint):
+        return False, "Invalid pairing endpoint"
+    host, raw_port = endpoint.rsplit(":", 1)
+    try:
+        if not isinstance(ipaddress.ip_address(host), ipaddress.IPv4Address) or not 1 <= int(raw_port) <= 65535:
+            return False, "Invalid pairing endpoint"
+    except ValueError:
         return False, "Invalid pairing endpoint"
     if not isinstance(secret, str) or not re.fullmatch(r"[\x21-\x7e]{6,64}", secret):
         return False, "Invalid pairing secret"

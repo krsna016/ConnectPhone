@@ -29,6 +29,18 @@ class WirelessPairingTests(unittest.TestCase):
         self.assertFalse(success)
         self.assertEqual(called, [])
 
+    def test_invalid_pairing_endpoint_never_spawns_adb(self):
+        for endpoint in ("host.example:12345", "192.0.2.1:0", "192.0.2.1:99999", "[::1]:12345"):
+            with self.subTest(endpoint=endpoint):
+                called = []
+                success, _ = pair_with_secret(
+                    endpoint,
+                    "AbCd1234",
+                    runner=lambda *args, **kwargs: called.append(args),
+                )
+                self.assertFalse(success)
+                self.assertEqual(called, [])
+
     def test_qr_secret_is_sent_only_over_stdin(self):
         calls = []
 

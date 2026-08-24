@@ -1,0 +1,8 @@
+# Direct Python dependencies. Regenerate the resolved lock with:
+# pip-compile --allow-unsafe --strip-extras requirements.in
+qrcode==8.2
+zeroconf==0.150.0
+pywebview==6.2.1
+pyinstaller==6.21.0
+cryptography==50.0.0
+defusedxml==0.7.1

@@ -28,6 +28,47 @@ class ConfigurationSafetyTests(unittest.TestCase):
             self.assertIsNone(saved["saved_devices"][0]["device_serial"])
             self.assertFalse(saved["saved_devices"][0]["auto_reconnect"])
 
+    def test_endpoint_string_is_never_saved_as_physical_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = ConfigurationManager(os.path.join(directory, "config.json"))
+            manager.load()
+            manager.update_last_connection("192.0.2.10", 43210, "192.0.2.10:43210")
+            saved = manager.load()["saved_devices"][0]
+            self.assertIsNone(saved["device_serial"])
+            self.assertFalse(saved["auto_reconnect"])
+
+    def test_legacy_endpoint_identity_migrates_to_unambiguous_selected_serial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump({
+                    "selected_device_serial": "HARDWARE-123",
+                    "saved_devices": [{
+                        "ip": "192.0.2.10", "port": 43210,
+                        "device_serial": "192.0.2.10:43210", "auto_reconnect": True,
+                    }],
+                }, handle)
+            loaded = ConfigurationManager(path).load()
+            self.assertEqual(loaded["saved_devices"][0]["device_serial"], "HARDWARE-123")
+            self.assertTrue(loaded["saved_devices"][0]["auto_reconnect"])
+
+    def test_mdns_alias_selection_migrates_to_saved_hardware_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump({
+                    "selected_device_serial": "adb-8ff8852d-szXllo._adb-tls-connect._tcp",
+                    "saved_devices": [{
+                        "ip": "192.168.29.172", "port": 38787,
+                        "device_serial": "8ff8852d", "auto_reconnect": True,
+                    }],
+                }, handle)
+            loaded = ConfigurationManager(path).load()
+            self.assertEqual(loaded["selected_device_serial"], "8ff8852d")
+            with open(path, encoding="utf-8") as handle:
+                persisted = json.load(handle)
+            self.assertEqual(persisted["selected_device_serial"], "8ff8852d")
+
     def test_invalid_endpoint_is_rejected(self):
         manager = ConfigurationManager(os.path.join(tempfile.gettempdir(), "unused.json"))
         with self.assertRaises(ValueError):
@@ -69,6 +110,31 @@ class ConfigurationSafetyTests(unittest.TestCase):
             self.assertEqual(loaded["saved_devices"], [])
             self.assertTrue(os.path.exists(path))
             self.assertTrue(any(name.startswith("config.json.corrupt-") for name in os.listdir(directory)))
+
+    def test_valid_json_with_malformed_endpoints_is_sanitized(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump({
+                    "last_ip": {"not": "a string"},
+                    "last_port": "invalid",
+                    "saved_ips": ["192.0.2.10", "bad"],
+                    "selected_device_serial": "bad;serial",
+                    "saved_devices": [
+                        {"ip": "192.0.2.10", "port": 43210, "device_serial": "SERIAL-A", "name": "Phone"},
+                        {"ip": "bad", "port": -1, "device_serial": "SERIAL-B"},
+                        "not-an-object",
+                    ],
+                }, handle)
+            loaded = ConfigurationManager(path).load()
+            self.assertEqual(loaded["last_ip"], "")
+            self.assertIsNone(loaded["last_port"])
+            self.assertEqual(loaded["saved_ips"], ["192.0.2.10"])
+            self.assertEqual(loaded["selected_device_serial"], "")
+            self.assertEqual(loaded["saved_devices"], [{
+                "ip": "192.0.2.10", "port": 43210, "device_serial": "SERIAL-A",
+                "auto_reconnect": True, "name": "Phone",
+            }])
 
 
 if __name__ == "__main__":

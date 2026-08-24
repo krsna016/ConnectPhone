@@ -43,6 +43,33 @@ class WirelessReconnectTests(unittest.TestCase):
             self.assertEqual(saved["last_port"], 5555)
             self.assertEqual(saved["saved_devices"][0]["port"], 43210)
 
+    def test_rotated_port_is_recovered_without_mdns_or_new_pairing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._config(directory, port=38787, serial="SERIAL-A")
+            commands = []
+
+            def runner(command, **_kwargs):
+                commands.append(command)
+                if command[1:3] == ["connect", "192.0.2.10:43210"]:
+                    return subprocess.CompletedProcess(command, 0, "connected to 192.0.2.10:43210", "")
+                if "getprop" in command and "192.0.2.10:43210" in command:
+                    return subprocess.CompletedProcess(command, 0, "SERIAL-A\n", "")
+                return subprocess.CompletedProcess(command, 1, "", "connection refused")
+
+            reconnector = AutoReconnector(
+                path,
+                scanner=FakeScanner(),
+                command_runner=runner,
+                port_discoverer=lambda ip, stop_event: [43210],
+            )
+            self.assertTrue(reconnector._recover_rotated_port({
+                "ip": "192.0.2.10", "port": 38787, "serial": "SERIAL-A",
+            }))
+            self.assertIn(["adb", "connect", "192.0.2.10:43210"], commands)
+            with open(path, encoding="utf-8") as handle:
+                saved = json.load(handle)
+            self.assertEqual(saved["saved_devices"][0]["port"], 43210)
+
     def test_identity_mismatch_disconnects_and_does_not_persist(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self._config(directory)

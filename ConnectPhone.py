@@ -3,6 +3,7 @@ from ui_controller import print_header, run_mirroring_menu, run_files_menu, run_
 from core.config_manager import ConfigurationManager
 from core.scrcpy_session import ScrcpySession
 from core.paths import migrate_legacy_config
+from core.remote_paths import adb_shell_command, safe_download_name, valid_remote_path
 import subprocess
 import sys
 import os
@@ -11,7 +12,7 @@ import datetime
 import time
 import threading
 import re
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 # Inject common macOS binary paths (crucial when run as a Dock app shortcut without zsh profiles loaded)
 common_paths = [
@@ -1147,14 +1148,16 @@ def watch_send_to_mac_folder(interactive=True):
             if files and not any("no such file" in f.lower() for f in files):
                 for filename in files:
                     phone_path = f"/sdcard/SendToMac/{filename}"
-                    mac_path = os.path.join(mac_desktop, filename)
+                    if not valid_remote_path(phone_path, destructive=True):
+                        continue
+                    mac_path = os.path.join(mac_desktop, safe_download_name(phone_path, "phone-file"))
                     
                     if interactive:
                         print(f"📥 Found file: {filename}. Pulling to Mac Desktop...")
                     pull_res = subprocess.run(["adb", "pull", phone_path, mac_path], capture_output=True, text=True)
                     if pull_res.returncode == 0:
                         # Clean up phone directory
-                        subprocess.run(["adb", "shell", "rm", f"'/sdcard/SendToMac/{filename}'"], stderr=subprocess.DEVNULL)
+                        subprocess.run(adb_shell_command("rm", "--", phone_path), stderr=subprocess.DEVNULL)
                         if interactive:
                             print(f"{GREEN}✅ Transferred successfully to: {mac_path}{RESET}")
                     else:
@@ -1173,9 +1176,7 @@ def type_text():
     print_header("Remote Text Input")
     text = input("\nEnter text to type on phone: ").strip()
     if text:
-        # Wrap in single quotes and escape single quotes to prevent injection & variable expansion
-        escaped_text = text.replace("'", "'\\''")
-        subprocess.run(["adb", "shell", "input", "text", f"'{escaped_text}'"])
+        subprocess.run(adb_shell_command("input", "text", text.replace(" ", "%s")))
         print(f"{GREEN}✅ Text sent.{RESET}")
     else:
         print("Empty text. Cancelled.")

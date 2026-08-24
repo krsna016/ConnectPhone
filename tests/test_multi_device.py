@@ -4,9 +4,12 @@ import unittest
 from core.multi_device import (
     MirrorSessionManager,
     build_fleet,
+    collapse_adb_transports,
     control_devices,
+    is_wireless_transport,
     start_emergency_alerts,
     stop_emergency_alerts,
+    transport_matches_identity,
 )
 
 
@@ -48,6 +51,42 @@ class MultiDeviceTests(unittest.TestCase):
         ]
         fleet = build_fleet(adb, [])
         self.assertEqual({item["serial"] for item in fleet}, {"USB-A", "USB-B"})
+
+    def test_fleet_collapses_mdns_alias_and_ip_transport_for_same_phone(self):
+        alias = "adb-8ff8852d-szXllo._adb-tls-connect._tcp"
+        fleet = build_fleet(
+            [
+                {"serial": "192.168.29.172:38787", "status": "device", "type": "wireless", "model": "Redmi"},
+                {"serial": alias, "status": "device", "type": "wireless", "model": "Redmi"},
+            ],
+            [{"ip": "192.168.29.172", "port": 38787, "device_serial": "8ff8852d", "auto_reconnect": True}],
+            selected_identity=alias,
+        )
+        self.assertTrue(transport_matches_identity(alias, "8ff8852d"))
+        self.assertEqual(len(fleet), 1)
+        self.assertEqual(fleet[0]["identity"], "8ff8852d")
+        self.assertEqual(fleet[0]["serial"], "192.168.29.172:38787")
+        self.assertTrue(fleet[0]["selected"])
+
+    def test_mdns_adb_alias_is_wireless_not_usb(self):
+        alias = "adb-8ff8852d-szXllo._adb-tls-connect._tcp"
+        self.assertTrue(is_wireless_transport(alias))
+        self.assertTrue(is_wireless_transport("192.168.29.172:38787"))
+        self.assertFalse(is_wireless_transport("8ff8852d"))
+
+    def test_attached_device_rows_collapse_two_transports_for_one_phone(self):
+        alias = "adb-8ff8852d-szXllo._adb-tls-connect._tcp"
+        rows = collapse_adb_transports(
+            [
+                {"serial": "192.168.29.172:38787", "status": "device", "type": "wireless", "model": "Redmi"},
+                {"serial": alias, "status": "device", "type": "wireless", "model": "Redmi"},
+            ],
+            [{"ip": "192.168.29.172", "port": 38787, "device_serial": "8ff8852d"}],
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["serial"], "192.168.29.172:38787")
+        self.assertEqual(rows[0]["transport_count"], 2)
+        self.assertEqual(set(rows[0]["aliases"]), {"192.168.29.172:38787", alias})
 
     def test_mirror_sessions_are_independent_per_serial_and_mode(self):
         commands = []

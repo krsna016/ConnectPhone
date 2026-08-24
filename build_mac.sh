@@ -1,12 +1,13 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "🚀 Building ConnectPhone macOS App..."
 
-APP_VERSION="2.2.2"
-APP_BUILD="222"
+APP_VERSION="2.3.1"
+APP_BUILD="231"
 BUNDLE_ID="com.krsna016.ConnectPhone"
 SIGN_IDENTITY="${CONNECTPHONE_SIGN_IDENTITY:--}"
+RELEASE_BUILD="${CONNECTPHONE_RELEASE:-0}"
 
 # Build in an isolated environment so system Python policy cannot produce a
 # partially populated bundle.
@@ -15,6 +16,41 @@ if [ ! -x "$PYTHON_BIN" ]; then
     python3 -m venv .venv
 fi
 "$PYTHON_BIN" -m pip install --disable-pip-version-check -r requirements.txt
+"$PYTHON_BIN" -m pip check
+
+# Validate and package the bundled Companion from source on every build. This
+# prevents a stale or hand-copied APK from silently entering the macOS bundle.
+if [ -z "${JAVA_HOME:-}" ]; then
+    if [ -d "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home" ]; then
+        JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+    elif [ -d "/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home" ]; then
+        JAVA_HOME="/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+    else
+        echo "❌ OpenJDK 17 is required to build the Android Companion."
+        exit 1
+    fi
+fi
+export JAVA_HOME
+if [ "$RELEASE_BUILD" = "1" ]; then
+    if [ "$SIGN_IDENTITY" = "-" ] || [ -z "${CONNECTPHONE_ANDROID_KEYSTORE:-}" ] \
+        || [ -z "${CONNECTPHONE_ANDROID_STORE_PASSWORD:-}" ] \
+        || [ -z "${CONNECTPHONE_ANDROID_KEY_ALIAS:-}" ] \
+        || [ -z "${CONNECTPHONE_ANDROID_KEY_PASSWORD:-}" ]; then
+        echo "❌ Release builds require Developer ID and Android release-signing credentials."
+        exit 1
+    fi
+    (
+        cd companion-android
+        ./gradlew --no-daemon clean test lint assembleRelease
+    )
+    COMPANION_APK="companion-android/app/build/outputs/apk/release/app-release.apk"
+else
+    (
+        cd companion-android
+        ./gradlew --no-daemon test lint assembleDebug
+    )
+    COMPANION_APK="companion-android/app/build/outputs/apk/debug/app-debug.apk"
+fi
 
 # Convert logo.png to ConnectPhone.icns natively using macOS tools
 if [ -f "ui/logo.png" ]; then
@@ -37,6 +73,12 @@ else
 fi
 
 echo "📦 Packaging App with PyInstaller..."
+if [ ! -f "$COMPANION_APK" ]; then
+    echo "❌ Companion APK is missing after the verified Android build."
+    exit 1
+fi
+mkdir -p build_companion_payload
+cp "$COMPANION_APK" build_companion_payload/ConnectPhone-Companion.apk
 # We use --windowed (or --noconsole) to make it a standalone .app bundle
 # We use --add-data to include the ui folder
 "$PYTHON_BIN" -m PyInstaller --noconfirm \
@@ -47,6 +89,7 @@ echo "📦 Packaging App with PyInstaller..."
     --icon "ui/ConnectPhone.icns" \
     --add-data "ui:ui" \
     --add-data "core:core" \
+    --add-data "build_companion_payload:companion" \
     --hidden-import=zeroconf \
     --hidden-import=ifaddr \
     --hidden-import=qrcode \
@@ -78,6 +121,7 @@ PLIST="dist/ConnectPhone.app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSBonjourServices array" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:0 string _adb-tls-connect._tcp" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:1 string _adb-tls-pairing._tcp" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :NSBonjourServices:2 string _connectphone._tcp" "$PLIST"
 
 # CONNECTPHONE_SIGN_IDENTITY may name a Developer ID Application identity.
 # '-' deliberately produces an ad-hoc development build when no identity is
@@ -92,9 +136,17 @@ else
 fi
 codesign --verify --deep --strict "dist/ConnectPhone.app"
 
+if [ "$RELEASE_BUILD" = "1" ] && [ -n "${CONNECTPHONE_NOTARY_PROFILE:-}" ]; then
+    ditto -c -k --keepParent "dist/ConnectPhone.app" "dist/ConnectPhone-notarization.zip"
+    xcrun notarytool submit "dist/ConnectPhone-notarization.zip" \
+        --keychain-profile "$CONNECTPHONE_NOTARY_PROFILE" --wait
+    xcrun stapler staple "dist/ConnectPhone.app"
+    rm -f -- "dist/ConnectPhone-notarization.zip"
+fi
+
 echo "🧹 Cleaning up temporary build files..."
-rm -rf build
-rm ConnectPhone.spec
+rm -rf -- build build_companion_payload
+rm -f -- ConnectPhone.spec
 
 echo "✅ Build Complete! Your App is located at: dist/ConnectPhone.app"
 echo "You can move it to your Applications folder."

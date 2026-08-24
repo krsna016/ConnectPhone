@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ConnectPhone - Dashboard</title>
     <link rel="stylesheet" href="local-fonts.css">
-    <link rel="stylesheet" href="index.css?v=2.2.2">
+    <link rel="stylesheet" href="index.css?v=2.3.1">
 </head>
 <body>
     <div class="glass-bg"></div>
@@ -26,7 +26,7 @@
                 </div>
                 <div class="brand-text">
                     <h1>ConnectPhone</h1>
-                    <span class="version">VERSION 2.2.2</span>
+                    <span class="version">VERSION 2.3.1</span>
                 </div>
             </div>
             
@@ -239,6 +239,23 @@
                         
                         <!-- Right Side Panel: Connection controls and Diagnostics -->
                         <div class="connection-side">
+                            <div class="card pairing-controls-card">
+                                <h3><i class="material-symbols-outlined">shield_lock</i> Secure Companion Mode</h3>
+                                <p>Automatic encrypted connection with Developer options and ADB turned off.</p>
+                                <button class="btn btn-primary" id="btn-companion-install"><i class="material-symbols-outlined">install_mobile</i> Install Companion to ADB Phone</button>
+                                <button class="btn btn-accent" id="btn-companion-pair"><i class="material-symbols-outlined">qr_code_2</i> Pair Companion App</button>
+                                <div id="companion-pairing-panel" class="pairing-qr-panel hidden">
+                                    <div class="pairing-qr-frame">
+                                        <img id="companion-pairing-image" alt="Secure Companion pairing QR code">
+                                    </div>
+                                    <p>Open <strong>ConnectPhone Companion</strong> on the phone and tap <strong>Scan pairing QR from Mac</strong>.</p>
+                                    <p id="companion-pairing-status" class="list-placeholder">Waiting for scan…</p>
+                                </div>
+                                <div id="companion-device-list" class="devices-list-container" style="margin-top:16px">
+                                    <p class="list-placeholder">No Companion phones online.</p>
+                                </div>
+                            </div>
+
                             <!-- Quick Connect Card -->
                             <div class="card connection-controls-card">
                                 <h3><i class="material-symbols-outlined">bolt</i> Manual Wireless Connect</h3>
@@ -283,9 +300,11 @@
                                         <button class="btn btn-primary" id="btn-conn-pair">Pair With 6-Digit Code</button>
                                         <button class="btn btn-accent" id="btn-pair-qr"><i class="material-symbols-outlined">qr_code_2</i> Pair Using QR Code</button>
                                     </div>
-                                    <div id="qr-pairing-panel" class="hidden" style="margin-top:16px; text-align:center">
-                                        <img id="qr-pairing-image" alt="Android Wireless Debugging pairing QR code" style="width:260px; height:260px; background:white; padding:10px; border-radius:12px">
-                                        <p style="margin-top:10px">On Android, open <strong>Wireless debugging → Pair device with QR code</strong>, then scan this code.</p>
+                                    <div id="qr-pairing-panel" class="pairing-qr-panel hidden">
+                                        <div class="pairing-qr-frame">
+                                            <img id="qr-pairing-image" alt="Android Wireless Debugging pairing QR code">
+                                        </div>
+                                        <p>On Android, open <strong>Wireless debugging → Pair device with QR code</strong>, then scan this code.</p>
                                         <p id="qr-pairing-status" class="list-placeholder">Waiting for scan…</p>
                                     </div>
                                 </div>
@@ -1137,6 +1156,6 @@
         </div>
     </div>
 
-    <script src="index.js?v=2.2.2"></script>
+    <script src="index.js?v=2.3.1"></script>
 </body>
 </html>

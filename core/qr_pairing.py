@@ -21,8 +21,8 @@ def new_qr_credentials():
 
 
 def svg_data_url(payload):
-    if not isinstance(payload, str) or not payload.startswith("WIFI:T:ADB;"):
-        raise ValueError("Invalid ADB QR payload")
+    if not isinstance(payload, str) or not payload.startswith(("WIFI:T:ADB;", "CP1:")):
+        raise ValueError("Invalid ConnectPhone QR payload")
     qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=4)
     qr.add_data(payload)
     qr.make(fit=True)

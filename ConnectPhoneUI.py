@@ -8,7 +8,6 @@ import time
 import datetime
 import sys
 import webbrowser
-import urllib.request
 import ipaddress
 import shlex
 import secrets
@@ -126,7 +125,11 @@ from core import keychain
 from core.adb_lifecycle import AdbLifecycle
 from core.wireless_pairing import pair_with_code, pair_with_secret
 from core.qr_pairing import new_qr_credentials, svg_data_url
-from core.remote_paths import valid_remote_path as _valid_remote_path, safe_download_name as _safe_download_name
+from core.remote_paths import (
+    adb_shell_command,
+    safe_download_name as _safe_download_name,
+    valid_remote_path as _valid_remote_path,
+)
 from core.file_manager import (
     create_local_folder,
     list_local_files,
@@ -141,25 +144,29 @@ from core.multi_device import (
     MAX_FLEET_DEVICES,
     MirrorSessionManager,
     build_fleet,
+    collapse_adb_transports,
     control_devices,
     start_emergency_alerts,
     stop_emergency_alerts,
+    is_wireless_transport,
     validate_serial,
 )
+from core.companion_server import CompanionServer
+from core.secure_companion import CompanionSecurityError
+from core.companion_installer import install_companion
 
 ADB_LIFECYCLE = AdbLifecycle()
 TRANSFER_MANAGER = TransferManager()
 MIRROR_MANAGER = MirrorSessionManager()
+COMPANION_SERVER = CompanionServer()
 UNLOCK_OPERATION_LOCK = threading.Lock()
 
 PORT = 8282
 UI_HOST = "127.0.0.1"
 MAX_REQUEST_BODY = 1024 * 1024
-API_TOKEN = keychain.get("api_token") or secrets.token_urlsafe(32)
-try:
-    keychain.set("api_token", API_TOKEN)
-except RuntimeError:
-    pass
+# This is a per-process browser capability, not a durable credential. Rotating
+# it on every launch limits the impact of copied URLs, logs, or stale webviews.
+API_TOKEN = secrets.token_urlsafe(32)
 
 
 def run_adb_cmd_with_retry(cmd_args, timeout=10, max_retries=3, delay=0.25):
@@ -330,7 +337,13 @@ def _get_adb_device_serial(endpoint, timeout=4, fallback_attempts=3):
                 timeout=timeout,
             )
             serial = (result.stdout or "").strip()
-            if result.returncode == 0 and serial and serial.lower() not in {"unknown", "no permissions", ""}:
+            if (
+                result.returncode == 0
+                and serial
+                and serial.lower() not in {"unknown", "no permissions", ""}
+                and ":" not in serial
+                and serial != endpoint
+            ):
                 return serial
         except (OSError, subprocess.TimeoutExpired):
             pass
@@ -418,60 +431,9 @@ termux_install_state = {
 }
 
 def run_termux_install_background():
-    global termux_install_state
-    
-    termux_install_state["status"] = "downloading"
-    termux_install_state["message"] = "Downloading Termux (112 MB)..."
-    
-    downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "downloads")
-    os.makedirs(downloads_dir, exist_ok=True)
-    
-    termux_apk_path = os.path.join(downloads_dir, "termux.apk")
-    termux_api_apk_path = os.path.join(downloads_dir, "termux_api.apk")
-    
-    termux_url = "https://github.com/termux/termux-app/releases/download/v0.118.3/termux-app_v0.118.3+github-debug_universal.apk"
-    termux_api_url = "https://github.com/termux/termux-api/releases/download/v0.53.0/termux-api-app_v0.53.0+github.debug.apk"
-    
-    try:
-        if not os.path.exists(termux_apk_path) or os.path.getsize(termux_apk_path) < 10000000:
-            urllib.request.urlretrieve(termux_url, termux_apk_path)
-            
-        termux_install_state["message"] = "Downloading Termux:API (8.6 MB)..."
-        if not os.path.exists(termux_api_apk_path) or os.path.getsize(termux_api_apk_path) < 1000000:
-            urllib.request.urlretrieve(termux_api_url, termux_api_apk_path)
-            
-        termux_install_state["status"] = "installing"
-        termux_install_state["message"] = "Installing Termux on phone (Accept prompt on screen!)..."
-        
-        # Install Termux
-        res1 = subprocess.run(["adb", "install", termux_apk_path], capture_output=True, text=True)
-        if res1.returncode != 0:
-            raise Exception(f"Termux install failed: {res1.stderr or res1.stdout}")
-            
-        termux_install_state["message"] = "Installing Termux:API on phone..."
-        res2 = subprocess.run(["adb", "install", termux_api_apk_path], capture_output=True, text=True)
-        if res2.returncode != 0:
-            raise Exception(f"Termux:API install failed: {res2.stderr or res2.stdout}")
-            
-        # Post installation configurations
-        termux_install_state["message"] = "Configuring permissions and properties..."
-        subprocess.run(["adb", "shell", "pm", "grant", "com.termux", "com.termux.permission.RUN_COMMAND"])
-        subprocess.run(["adb", "shell", "pm", "grant", "com.termux.api", "android.permission.READ_PHONE_STATE"])
-        subprocess.run(["adb", "shell", "pm", "grant", "com.termux.api", "android.permission.ACCESS_FINE_LOCATION"])
-        subprocess.run(["adb", "shell", "pm", "grant", "com.termux.api", "android.permission.CAMERA"])
-        
-        subprocess.run(["adb", "shell", "run-as", "com.termux", "mkdir", "/data/data/com.termux/files/home/.termux"])
-        subprocess.run([
-            "adb", "shell", "run-as", "com.termux", "sh", "-c",
-            "printf '%s\\n' 'allow-external-apps = true' >> /data/user/0/com.termux/files/home/.termux/termux.properties"
-        ], check=False)
-        subprocess.run(["adb", "shell", "run-as", "com.termux", "/data/data/com.termux/files/usr/bin/termux-reload-settings"])
-        
-        termux_install_state["status"] = "success"
-        termux_install_state["message"] = "Termux + API successfully installed and configured!"
-    except Exception as e:
-        termux_install_state["status"] = "error"
-        termux_install_state["message"] = f"Installation failed: {str(e)}"
+    """Retained compatibility stub for the retired unsafe APK downloader."""
+    termux_install_state["status"] = "error"
+    termux_install_state["message"] = "Automatic Termux installation has been retired for security."
 
 
 # ─── Fast Status Cache ────────────────────────────────────────────────────────
@@ -514,6 +476,10 @@ def _build_status_payload():
     mirror_sessions = MIRROR_MANAGER.list()
     scrcpy_running = (scrcpy_proc is not None and scrcpy_proc.poll() is None) or bool(mirror_sessions)
     config = ConnectPhone.load_config()
+    devices_display = collapse_adb_transports(
+        devices_detailed,
+        [item for item in config.get("saved_devices", []) if isinstance(item, dict)],
+    )
     fleet = build_fleet(
         devices_detailed,
         [item for item in config.get("saved_devices", []) if isinstance(item, dict)],
@@ -530,6 +496,7 @@ def _build_status_payload():
         "connected": device_connected,
         "devices": [d["serial"] for d in devices_detailed],
         "devices_detailed": devices_detailed,
+        "devices_display": devices_display,
         "active_device": active_device,
         "device_info": device_info,
         "scrcpy_running": scrcpy_running,
@@ -539,6 +506,7 @@ def _build_status_payload():
         "mirror_sessions": mirror_sessions,
         "fleet": fleet,
         "fleet_limit": MAX_FLEET_DEVICES,
+        "companion_devices": COMPANION_SERVER.devices(),
         "input_injection_granted": input_injection_granted,
         "transfer_active": transfer_active,
         "config": public_config,
@@ -1088,7 +1056,7 @@ def get_detailed_adb_devices():
                 status = parts[1]
                 
                 # Check if wireless
-                conn_type = "wireless" if ":" in serial else "usb"
+                conn_type = "wireless" if is_wireless_transport(serial) else "usb"
                 
                 # Find model, product, device in properties
                 model = "Android Device"
@@ -1142,7 +1110,7 @@ def check_and_autoselect_device(devices_detailed):
     if active and active in online_serials:
         return active
     if online_serials:
-        wireless = next((serial for serial in online_serials if ":" in serial), "")
+        wireless = next((serial for serial in online_serials if is_wireless_transport(serial)), "")
         selected = wireless or online_serials[0]
         os.environ["ANDROID_SERIAL"] = selected
         return selected
@@ -1772,7 +1740,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             "/api/status", "/api/metrics", "/api/settings/audio_devices",
             "/api/mdns/discover", "/api/pair/qr/status", "/api/storage/list",
             "/api/storage/download", "/api/files/roots", "/api/files/local",
-            "/api/files/storages", "/api/transfers",
+            "/api/files/storages", "/api/transfers", "/api/companion/status",
+            "/api/companion/pair/status",
         }
         if parsed_path.path not in known_get_paths:
             self.send_error(404, "Unknown GET endpoint")
@@ -1817,6 +1786,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": False, "message": "QR pairing session not found."}).encode('utf-8'))
             else:
                 self.wfile.write(json.dumps({"success": True, **response}).encode('utf-8'))
+
+        elif parsed_path.path == '/api/companion/status':
+            self.wfile.write(json.dumps({"success": True, "devices": COMPANION_SERVER.devices()}).encode('utf-8'))
+
+        elif parsed_path.path == '/api/companion/pair/status':
+            session_id = str(parse_qs(parsed_path.query).get("id", [""])[0])
+            self.wfile.write(json.dumps({"success": True, **COMPANION_SERVER.pairing_status(session_id)}).encode('utf-8'))
 
         elif parsed_path.path == '/api/files/roots':
             self.wfile.write(json.dumps({"success": True, "roots": local_roots()}).encode('utf-8'))
@@ -1910,7 +1886,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 
             try:
                 # Check if it is a directory on the phone
-                check_dir = subprocess.run(["adb", "shell", "test", "-d", remote_path], capture_output=True, timeout=5)
+                check_dir = subprocess.run(adb_shell_command("test", "-d", remote_path), capture_output=True, timeout=5)
                 is_directory = (check_dir.returncode == 0)
                 
                 if is_directory:
@@ -1924,10 +1900,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             return
                         
                         import shutil
-                        zip_base = tempfile.mktemp()
-                        zip_file_path = shutil.make_archive(zip_base, 'zip', tmp_dir)
-                        
-                        try:
+                        with tempfile.TemporaryDirectory() as archive_dir:
+                            zip_file_path = shutil.make_archive(os.path.join(archive_dir, "phone-folder"), 'zip', tmp_dir)
                             file_size = os.path.getsize(zip_file_path)
                             self.send_response(200)
                             self.send_header('Content-Type', 'application/zip')
@@ -1940,12 +1914,6 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                                     if not chunk:
                                         break
                                     self.wfile.write(chunk)
-                        finally:
-                            if os.path.exists(zip_file_path):
-                                try:
-                                    os.remove(zip_file_path)
-                                except Exception:
-                                    pass
                 else:
                     filename = _safe_download_name(remote_path)
                     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
@@ -2042,12 +2010,19 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         raise ValueError("Invalid upload destination")
                     
                     # Create parent directories recursively on phone first!
-                    subprocess.run(["adb", "shell", "mkdir", "-p", remote_parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(adb_shell_command("mkdir", "-p", remote_parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     
                     res = subprocess.run(["adb", "push", tmp_path, remote_dest], capture_output=True, text=True, timeout=60)
                     if res.returncode == 0:
                         # 1. Trigger MediaScanner so the phone indices register the new file instantly!
-                        subprocess.run(["adb", "shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", f"file://{remote_dest}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.run(
+                            adb_shell_command(
+                                "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                                "-d", f"file://{remote_dest}",
+                            ),
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
                         
                         self.send_response(200)
                         self.send_header('Content-Type', 'application/json')
@@ -2206,7 +2181,34 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         res_data = {"success": False, "message": ""}
         
         try:
-            if self.path == '/api/transfers/start':
+            if self.path == '/api/companion/pair/start':
+                offer, payload = COMPANION_SERVER.new_pairing()
+                res_data.update(
+                    success=True,
+                    message="Scan this QR in the ConnectPhone Companion app.",
+                    session_id=offer.session_id,
+                    expires_at=offer.expires_at,
+                    qr_image=svg_data_url(payload),
+                )
+            elif self.path == '/api/companion/install':
+                detailed = get_detailed_adb_devices()
+                serial = str(data.get("serial") or check_and_autoselect_device(detailed) or "").strip()
+                online = {item.get("serial") for item in detailed if item.get("status") == "device"}
+                if serial not in online:
+                    raise ValueError("Select and connect one authorized ADB phone first.")
+                apk_path = os.path.join(PROJECT_DIR, "companion", "ConnectPhone-Companion.apk")
+                res_data.update(install_companion(serial, apk_path))
+            elif self.path == '/api/companion/alert':
+                device_id = str(data.get("device_id", "")).strip()
+                COMPANION_SERVER.alert(device_id, bool(data.get("enabled", True)))
+                res_data.update(success=True, message="Companion alert command authenticated and sent.")
+            elif self.path == '/api/companion/revoke':
+                device_id = str(data.get("device_id", "")).strip()
+                if not device_id:
+                    raise ValueError("Device identity is required")
+                COMPANION_SERVER.revoke(device_id)
+                res_data.update(success=True, message="Companion pairing revoked from this Mac.")
+            elif self.path == '/api/transfers/start':
                 try:
                     job = TRANSFER_MANAGER.start(
                         direction=str(data.get("direction", "")),
@@ -2354,7 +2356,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 if not _valid_remote_path(remote_path, destructive=True):
                     res_data["message"] = "Invalid remote path"
                 else:
-                    res = run_adb_cmd_with_retry(["adb", "shell", "rm", "-rf", "--", remote_path], timeout=10)
+                    res = run_adb_cmd_with_retry(adb_shell_command("rm", "-rf", "--", remote_path), timeout=10)
                     if res.returncode == 0:
                         res_data["success"] = True
                         res_data["message"] = f"Deleted {os.path.basename(remote_path)}"
@@ -2376,7 +2378,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         success_count = 0
                         errors = []
                         for p in paths:
-                            res = run_adb_cmd_with_retry(["adb", "shell", "rm", "-rf", "--", p], timeout=10)
+                            res = run_adb_cmd_with_retry(adb_shell_command("rm", "-rf", "--", p), timeout=10)
                             if res.returncode == 0:
                                 success_count += 1
                             else:
@@ -2469,8 +2471,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 elif not name or '/' in name or '\\' in name or any(c in name for c in ';&|$`'):
                     res_data["message"] = "Invalid folder name"
                 else:
-                    new_path = os.path.join(parent_dir, name)
-                    res = subprocess.run(["adb", "shell", "mkdir", "-p", new_path], capture_output=True, text=True, timeout=10)
+                    new_path = posixpath.join(parent_dir, name)
+                    res = subprocess.run(adb_shell_command("mkdir", "-p", new_path), capture_output=True, text=True, timeout=10)
                     if res.returncode == 0:
                         res_data["success"] = True
                         res_data["message"] = f"Created folder '{name}'"
@@ -2944,7 +2946,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     audio_args = ["--audio-source=mic", "--audio-codec=opus", "--audio-bit-rate=128000"]
                 
                 devices = ConnectPhone.check_adb_devices()
-                is_wireless = ":" in os.environ.get("ANDROID_SERIAL", "")
+                is_wireless = is_wireless_transport(os.environ.get("ANDROID_SERIAL", ""))
 
                 cmd = ["scrcpy", "--window-title", "ConnectPhone"]
                 a_buf = config.get("audio_buffer", "20")
@@ -3336,7 +3338,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         res_data["message"] = "Mac clipboard is empty!"
                     else:
                         safe_text = mac_clipboard.replace(' ', '%s')
-                        subprocess.run(["adb", "shell", "input", "text", safe_text], check=True)
+                        subprocess.run(adb_shell_command("input", "text", safe_text), check=True)
                         res_data["success"] = True
                         res_data["message"] = "Typed Mac clipboard onto phone!"
                 except Exception as e:
@@ -3515,6 +3517,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             else:
                 res_data["message"] = "Unknown POST endpoint."
                 
+        except (CompanionSecurityError, ValueError) as e:
+            res_data["message"] = str(e)
         except Exception as e:
             res_data["message"] = f"Exception: {e}"
             
@@ -3846,6 +3850,8 @@ def run_server():
         else:
             raise e
 
+    COMPANION_SERVER.start()
+
     # Start fast status-cache background refresher
     cache_thread = threading.Thread(target=_status_cache_worker, daemon=True)
     cache_thread.start()
@@ -3874,6 +3880,7 @@ def run_server():
         _shutdown_event.set()
         _status_cache_event.set()
         auto_reconnector.stop_watching()
+        COMPANION_SERVER.stop()
         if cache_thread.is_alive():
             cache_thread.join(timeout=15)
         if keepalive_thread.is_alive():

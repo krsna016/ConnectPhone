@@ -45,7 +45,7 @@ class TransferManagerTests(unittest.TestCase):
 
         def runner(args, **kwargs):
             calls.append(args)
-            return subprocess.CompletedProcess(args, 1 if args[1:4] == ["shell", "test", "-e"] else 0, "", "")
+            return subprocess.CompletedProcess(args, 1 if args[1:2] == ["shell"] and args[2].startswith("test -e ") else 0, "", "")
 
         def popen(args, **kwargs):
             calls.append(args)

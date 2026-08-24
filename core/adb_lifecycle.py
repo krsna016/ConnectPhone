@@ -35,6 +35,17 @@ def read_transport_identity(runner, transport, timeout=6):
     return None
 
 
+def valid_physical_identity(identity, transport=""):
+    """Reject ADB transport endpoints masquerading as hardware identities."""
+    value = str(identity or "").strip()
+    return bool(
+        value
+        and value != str(transport or "").strip()
+        and ":" not in value
+        and value.lower() not in {"unknown", "null", "no permissions"}
+    )
+
+
 def wireless_transport_states(runner, unavailable=_DEFAULT_UNAVAILABLE):
     """Return wireless ADB states, distinguishing failure from no devices.
 

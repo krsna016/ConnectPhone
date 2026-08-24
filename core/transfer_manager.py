@@ -13,7 +13,7 @@ import time
 import uuid
 
 from core.file_manager import resolve_local_path
-from core.remote_paths import safe_download_name, valid_remote_path
+from core.remote_paths import adb_shell_command, safe_download_name, valid_remote_path
 
 
 _PROGRESS_PATTERN = re.compile(r"\[\s*(\d{1,3})%\]")
@@ -244,7 +244,7 @@ class TransferManager:
                 self._processes.pop(job_id, None)
 
     def _remote_exists(self, path):
-        result = self._run(["adb", "shell", "test", "-e", path], capture_output=True, timeout=5)
+        result = self._run(adb_shell_command("test", "-e", path), capture_output=True, timeout=5)
         return result.returncode == 0
 
     def _resolve_remote_conflict(self, destination, policy):
@@ -255,7 +255,7 @@ class TransferManager:
         if policy == "skip":
             return None
         if policy == "overwrite":
-            result = self._run(["adb", "shell", "rm", "-rf", "--", destination], capture_output=True, text=True, timeout=30)
+            result = self._run(adb_shell_command("rm", "-rf", "--", destination), capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 raise RuntimeError((result.stderr or "Could not replace phone item").strip())
             return destination

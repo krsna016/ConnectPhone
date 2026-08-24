@@ -28,6 +28,79 @@ def validate_serial(serial: object) -> str:
     return value
 
 
+def transport_matches_identity(transport: object, identity: object) -> bool:
+    """Return whether an ADB transport is another name for one hardware ID.
+
+    Android Wireless Debugging may publish a phone simultaneously as an
+    IP:port transport and as ``adb-SERIAL-random._adb-tls-connect._tcp``.
+    The latter is a Bonjour transport alias, not a second physical phone.
+    """
+    transport_value = str(transport or "").strip()
+    identity_value = str(identity or "").strip()
+    if not transport_value or not identity_value:
+        return False
+    if transport_value == identity_value:
+        return True
+    return (
+        transport_value.startswith(f"adb-{identity_value}-")
+        and "._adb-tls-connect._tcp" in transport_value
+    )
+
+
+def is_wireless_transport(serial: object) -> bool:
+    """Recognize both TCP endpoints and Android's Bonjour ADB aliases."""
+    value = str(serial or "").strip()
+    return bool(
+        ":" in value
+        or (
+            value.startswith("adb-")
+            and (
+                "._adb-tls-connect._tcp" in value
+                or "._adb-tls-pairing._tcp" in value
+            )
+        )
+    )
+
+
+def collapse_adb_transports(adb_devices, saved_devices):
+    """Collapse multiple ADB transport names for each enrolled physical phone.
+
+    Raw transports remain available to the backend. This function is only for
+    presenting one row per phone in the dashboard.
+    """
+    devices = [dict(item) for item in adb_devices if isinstance(item, dict) and item.get("serial")]
+    consumed = set()
+    collapsed = []
+
+    for saved in saved_devices:
+        if not isinstance(saved, dict):
+            continue
+        identity = str(saved.get("device_serial") or "").strip()
+        ip = str(saved.get("ip") or "").strip()
+        port = saved.get("port")
+        endpoint = f"{ip}:{port}" if ip and port else ""
+        matches = [
+            item for item in devices
+            if item["serial"] == endpoint or transport_matches_identity(item["serial"], identity)
+        ]
+        if not matches:
+            continue
+        online = [item for item in matches if item.get("status") == "device"]
+        candidates = online or matches
+        chosen = next((item for item in candidates if item["serial"] == endpoint), candidates[0])
+        display = dict(chosen)
+        display["identity"] = identity
+        display["aliases"] = [item["serial"] for item in matches]
+        display["transport_count"] = len(matches)
+        if any(is_wireless_transport(item["serial"]) for item in matches):
+            display["type"] = "wireless"
+        collapsed.append(display)
+        consumed.update(item["serial"] for item in matches)
+
+    collapsed.extend(item for item in devices if item["serial"] not in consumed)
+    return collapsed
+
+
 def build_fleet(adb_devices, saved_devices, active_transport="", selected_identity="", sessions=()):
     """Merge current ADB transports with trusted identities for the dashboard."""
     online = {
@@ -48,9 +121,15 @@ def build_fleet(adb_devices, saved_devices, active_transport="", selected_identi
         ip = str(saved.get("ip") or "").strip()
         port = saved.get("port")
         endpoint = f"{ip}:{port}" if ip and port else ""
-        transport = endpoint if endpoint in online else (identity if identity in online else endpoint)
+        identity_aliases = [
+            serial for serial in online
+            if transport_matches_identity(serial, identity) and serial != identity
+        ]
+        transport = endpoint if endpoint in online else (
+            identity if identity in online else (identity_aliases[0] if identity_aliases else endpoint)
+        )
         current = online.get(transport, {})
-        consumed.update(item for item in (endpoint, identity) if item in online)
+        consumed.update(item for item in (endpoint, identity, *identity_aliases) if item in online)
         name = str(saved.get("name") or current.get("model") or "Android Device").strip()[:60]
         device_sessions = list(session_map.get(transport, []))
         if identity and identity != transport:
@@ -66,7 +145,10 @@ def build_fleet(adb_devices, saved_devices, active_transport="", selected_identi
             "trusted": bool(identity),
             "auto_reconnect": bool(saved.get("auto_reconnect", bool(identity))),
             "selected": bool(
-                (selected_identity and identity == selected_identity)
+                (selected_identity and (
+                    identity == selected_identity
+                    or transport_matches_identity(selected_identity, identity)
+                ))
                 or (not selected_identity and transport == active_transport)
             ),
             "sessions": device_sessions,
@@ -81,7 +163,7 @@ def build_fleet(adb_devices, saved_devices, active_transport="", selected_identi
             "endpoint": serial if ":" in serial else "",
             "name": current.get("model") or "Android Device",
             "model": current.get("model") or "Android Device",
-            "type": current.get("type") or ("wireless" if ":" in serial else "usb"),
+            "type": current.get("type") or ("wireless" if is_wireless_transport(serial) else "usb"),
             "status": "online",
             "trusted": False,
             "auto_reconnect": False,
@@ -181,7 +263,7 @@ class MirrorSessionManager:
             f"--window-x={x}", f"--window-y={y}",
             f"--audio-buffer={audio_buffer}", "--audio-output-buffer=10",
         ]
-        wireless = ":" in serial
+        wireless = is_wireless_transport(serial)
 
         if mode in {"screen", "record"}:
             command.append("--audio-source=output")

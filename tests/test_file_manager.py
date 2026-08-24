@@ -37,7 +37,7 @@ class FileManagerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_local_path("/etc/passwd")
 
-    def test_remote_rename_uses_argument_list(self):
+    def test_remote_rename_quotes_android_shell_arguments(self):
         runner = mock.Mock(side_effect=[
             subprocess.CompletedProcess([], 1, "", ""),
             subprocess.CompletedProcess([], 0, "", ""),
@@ -45,7 +45,7 @@ class FileManagerTests(unittest.TestCase):
         destination = rename_remote_item("/sdcard/Old name.txt", "New name.txt", runner=runner)
         self.assertEqual(destination, "/sdcard/New name.txt")
         self.assertEqual(runner.call_args_list[1].args[0], [
-            "adb", "shell", "mv", "--", "/sdcard/Old name.txt", "/sdcard/New name.txt"
+            "adb", "shell", "mv -- '/sdcard/Old name.txt' '/sdcard/New name.txt'"
         ])
 
     def test_phone_storage_discovery_deduplicates_internal_alias(self):

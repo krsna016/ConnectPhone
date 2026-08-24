@@ -126,7 +126,10 @@ class WirelessReconnectTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 1, "", "No route to host")
 
         reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
-        with mock.patch.object(reconnector, "_port_open", return_value=True):
+        # A newly booted host can have a low monotonic clock. Missing cooldown
+        # entries must not be confused with a reset at boot time.
+        with mock.patch("core.auto_reconnect.time.monotonic", return_value=10.0), \
+             mock.patch.object(reconnector, "_port_open", return_value=True):
             for _ in range(5):
                 reconnector._next_attempt.clear()
                 self.assertFalse(reconnector._try_connect("192.0.2.10:43210", "SERIAL-A"))

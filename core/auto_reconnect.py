@@ -189,7 +189,8 @@ class AutoReconnector:
         hard = failures >= 5
         reset_key = f"{endpoint}#daemon" if hard else endpoint
         cooldown = 600 if hard else 60
-        if self._busy_check() or failures < 4 or now - self._last_reset.get(reset_key, 0) < cooldown:
+        last_reset = self._last_reset.get(reset_key)
+        if self._busy_check() or failures < 4 or (last_reset is not None and now - last_reset < cooldown):
             return False
         if not self._port_open(endpoint):
             return False
@@ -199,7 +200,8 @@ class AutoReconnector:
                 hard = False
                 reset_key = endpoint
                 cooldown = 60
-                if now - self._last_reset.get(reset_key, 0) < cooldown:
+                last_reset = self._last_reset.get(reset_key)
+                if last_reset is not None and now - last_reset < cooldown:
                     return False
         if reset_wireless_transport(self._run, endpoint, restart_daemon=hard):
             self.logger.warning("Recovered stale wireless transport: %s", endpoint)

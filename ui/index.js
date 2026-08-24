@@ -50,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const toastContainer = document.getElementById('toast-container');
     const btnHeaderUnlock = document.getElementById('btn-header-unlock');
     const btnPhoneUnlock = document.getElementById('btn-phone-unlock');
+    const btnAppUnlock = document.getElementById('btn-app-unlock');
     
     // Camera Control Elements
     const cameraOverlay = document.getElementById('camera-overlay');
@@ -237,6 +238,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button class="btn btn-sm btn-accent fleet-start" data-mode="call" ${online ? '' : 'disabled'}>Call</button>
                         <button class="btn btn-sm btn-danger fleet-alert" ${online ? '' : 'disabled'} title="Play a loud emergency alarm">Alert</button>
                         <button class="btn btn-sm btn-secondary fleet-alert-stop" ${online ? '' : 'disabled'} title="Stop emergency alarm">Stop</button>
+                        <button class="btn btn-sm btn-primary fleet-unlock-phone" ${online ? '' : 'disabled'} title="Unlock phone after Mac Touch ID">Unlock Phone</button>
+                        <button class="btn btn-sm btn-secondary fleet-unlock-app" ${online ? '' : 'disabled'} title="Unlock the currently visible App Lock after Mac Touch ID">Unlock App</button>
                         ${device.trusted ? '<button class="fleet-rename" title="Rename"><i class="material-symbols-outlined">edit</i></button>' : ''}
                         ${device.trusted ? '<button class="fleet-forget" title="Forget phone"><i class="material-symbols-outlined">delete</i></button>' : ''}
                     </div>
@@ -275,6 +278,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } else if (event.target.closest('.fleet-alert-stop')) {
                 await postAction('/api/fleet/alert/stop', { serial }, event.target.closest('.fleet-alert-stop'));
+            } else if (event.target.closest('.fleet-unlock-phone')) {
+                showToast('Verify Mac Touch ID to unlock this phone.', 'info');
+                await postAction('/api/device/unlock', { serial, kind: 'phone' }, event.target.closest('.fleet-unlock-phone'));
+            } else if (event.target.closest('.fleet-unlock-app')) {
+                showToast('Open the locked app first, then verify Mac Touch ID.', 'info');
+                await postAction('/api/device/unlock', { serial, kind: 'app' }, event.target.closest('.fleet-unlock-app'));
             } else if (event.target.closest('.fleet-rename')) {
                 const name = window.prompt('Name this phone:');
                 if (name && name.trim()) await postAction('/api/devices/rename', { identity, name: name.trim() });
@@ -611,8 +620,26 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('pref-audio-preset').value = config.audio_preset || 'voice_communication';
             document.getElementById('pref-sync-delay').value = config.audio_sync_delay || '0.80';
             document.getElementById('pref-keyboard').value = config.keyboard_mode || 'uhid';
-            document.getElementById('pref-pin').value = config.android_pin || '';
-            document.getElementById('pref-applock').value = config.applock_pin || '';
+            const phonePinInput = document.getElementById('pref-pin');
+            const appPinInput = document.getElementById('pref-applock');
+            if (phonePinInput) {
+                phonePinInput.value = '';
+                phonePinInput.placeholder = config.android_pin_configured
+                    ? 'Saved in macOS Keychain — enter only to replace'
+                    : 'Required for Unlock Phone';
+            }
+            if (appPinInput) {
+                appPinInput.value = '';
+                appPinInput.placeholder = config.applock_pin_configured
+                    ? 'Saved in macOS Keychain — enter only to replace'
+                    : 'Required for Unlock App';
+            }
+            const pinStorageStatus = document.getElementById('pin-storage-status');
+            if (pinStorageStatus) {
+                const phoneStatus = config.android_pin_configured ? 'Phone PIN saved' : 'Phone PIN not saved';
+                const appStatus = config.applock_pin_configured ? 'App Lock PIN saved' : 'App Lock PIN not saved';
+                pinStorageStatus.textContent = `${phoneStatus} • ${appStatus}. PIN values stay in macOS Keychain.`;
+            }
         
             const micSelect = document.getElementById('pref-mac-mic-device');
             if (micSelect) {
@@ -1134,7 +1161,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnPhoneUnlock) {
         btnPhoneUnlock.addEventListener('click', () => {
             showToast("Prompting Touch ID on Mac to unlock phone...", "info");
-            postAction('/api/device/unlock');
+            postAction('/api/device/unlock', { kind: 'phone' }, btnPhoneUnlock);
+        });
+    }
+    if (btnAppUnlock) {
+        btnAppUnlock.addEventListener('click', () => {
+            showToast('Open the locked app first, then verify Mac Touch ID.', 'info');
+            postAction('/api/device/unlock', { kind: 'app' }, btnAppUnlock);
         });
     }
 

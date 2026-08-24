@@ -42,6 +42,20 @@ leave an audio file on the phone. When a vendor Clock app replaces Android's
 standard timer-dismiss action, ConnectPhone discovers the vendor action from
 that phone's installed package instead of force-stopping the Clock app.
 
+## Unlock phone and App Lock
+
+Save the numeric **Android Lockscreen PIN** and optional **App Lock PIN** in
+Preferences. ConnectPhone stores them in macOS Keychain, never in its JSON
+configuration or status API. Each Fleet card then provides **Unlock Phone** and
+**Unlock App**. Every attempt requires successful Mac Touch ID first and is
+routed to that card's explicit ADB serial. For App Lock, open the protected app
+so its PIN screen is visible before pressing **Unlock App**.
+
+This does not bypass Android security, recover unknown credentials, unlock a
+rebooted phone before its first manual unlock, or defeat apps that prohibit ADB
+input. Xiaomi/Redmi also requires **USB debugging (Security settings)** in
+Developer options for protected-screen input injection.
+
 Screen and camera sessions may run together when the Android model supports
 concurrent capture. Fleet camera previews default to video-only so they do not
 compete with screen-mirror audio capture.

@@ -1507,7 +1507,7 @@ def unlock_device_with_touch_id(config, interactive=True, wake_screen=True):
         
         # Verify lockscreen state and prompt if still locked
         time.sleep(1.2)  # Wait for screen transition animation to complete
-        if is_keyguard_locked():
+        if is_keyguard_locked() and interactive:
             print(f"{YELLOW}⚠️ Phone remains locked.{RESET}")
             prompt_pin = input("Please enter your phone's unlock PIN in this terminal to try manual unlock (or press Enter to skip): ").strip()
             if prompt_pin:

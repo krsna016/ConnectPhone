@@ -150,6 +150,7 @@ from core.multi_device import (
 ADB_LIFECYCLE = AdbLifecycle()
 TRANSFER_MANAGER = TransferManager()
 MIRROR_MANAGER = MirrorSessionManager()
+UNLOCK_OPERATION_LOCK = threading.Lock()
 
 PORT = 8282
 UI_HOST = "127.0.0.1"
@@ -3187,19 +3188,83 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = msg
                     
             elif self.path == '/api/device/unlock':
-                config = ConnectPhone.load_config()
-                android_pin = config.get("android_pin", "")
-                if not android_pin:
-                    res_data["success"] = False
-                    res_data["message"] = "Android Backup PIN is not configured. Please enter your PIN in Preferences."
+                requested_serial = str(data.get("serial", "")).strip()
+                serial = validate_serial(requested_serial or os.environ.get("ANDROID_SERIAL", ""))
+                kind = str(data.get("kind", "auto")).strip().lower()
+                if kind not in {"auto", "phone", "app"}:
+                    raise ValueError("Unsupported unlock type")
+                online = {
+                    item["serial"] for item in get_detailed_adb_devices()
+                    if item.get("status") == "device"
+                }
+                if serial not in online:
+                    res_data["message"] = "That phone is not currently online."
+                elif not UNLOCK_OPERATION_LOCK.acquire(blocking=False):
+                    res_data["message"] = "Another Touch ID unlock is already in progress."
                 else:
-                    def run_touch_id_auth():
-                        ConnectPhone.unlock_device_with_touch_id(config, interactive=False)
-                    t_auth = threading.Thread(target=run_touch_id_auth)
-                    t_auth.daemon = True
-                    t_auth.start()
-                    res_data["success"] = True
-                    res_data["message"] = "Touch ID verification triggered! Verify fingerprint on Mac."
+                    try:
+                        def lock_state():
+                            policy = subprocess.run(
+                                ["adb", "-s", serial, "shell", "dumpsys", "window", "policy"],
+                                capture_output=True, text=True, timeout=5,
+                            ).stdout.lower().replace(" ", "")
+                            window = subprocess.run(
+                                ["adb", "-s", serial, "shell", "dumpsys", "window"],
+                                capture_output=True, text=True, timeout=5,
+                            ).stdout
+                            focus_lines = "\n".join(
+                                line.lower() for line in window.splitlines()
+                                if "mCurrentFocus" in line or "mFocusedApp" in line
+                            )
+                            phone_locked = any(marker in policy for marker in (
+                                "showing=true", "misshowing=true", "iskeyguardshowing=true",
+                                "mshowinglockscreen=true", "inputrestricted=true",
+                            ))
+                            app_locked = any(marker in focus_lines for marker in (
+                                "securitycenter", "applock", "passcode", "credential",
+                            ))
+                            return phone_locked, app_locked
+
+                        phone_locked, app_locked = lock_state()
+                        effective_kind = kind
+                        if kind == "auto":
+                            effective_kind = "app" if app_locked else "phone"
+                        if effective_kind == "phone" and not phone_locked:
+                            res_data.update(success=True, message="Phone is already unlocked.")
+                        elif effective_kind == "app" and not app_locked:
+                            res_data["message"] = "Open the locked app on the phone first, then press Unlock App."
+                        else:
+                            config = ConnectPhone.load_config()
+                            android_pin = str(config.get("android_pin", ""))
+                            app_pin = str(config.get("applock_pin", ""))
+                            selected_pin = app_pin if effective_kind == "app" else android_pin
+                            preference_name = "App Lock PIN" if effective_kind == "app" else "Android Lockscreen PIN"
+                            if not selected_pin:
+                                res_data["message"] = f"{preference_name} is not configured. Save it in Preferences first."
+                            else:
+                                # The legacy unlock routine is intentionally scoped
+                                # to the explicitly requested transport. App unlock
+                                # receives only the App Lock PIN, avoiding a failed
+                                # attempt with the device PIN.
+                                scoped_config = dict(config)
+                                scoped_config["android_pin"] = selected_pin
+                                scoped_config["applock_pin"] = selected_pin
+                                os.environ["ANDROID_SERIAL"] = serial
+                                ConnectPhone.unlock_device_with_touch_id(
+                                    scoped_config, interactive=False, wake_screen=True
+                                )
+                                phone_locked_after, app_locked_after = lock_state()
+                                unlocked = not (phone_locked_after if effective_kind == "phone" else app_locked_after)
+                                label = "Phone" if effective_kind == "phone" else "App Lock"
+                                res_data.update(
+                                    success=unlocked,
+                                    message=f"{label} unlocked successfully." if unlocked else
+                                            f"{label} is still locked. Confirm Touch ID and enable Xiaomi USB debugging (Security settings).",
+                                )
+                    except (OSError, subprocess.TimeoutExpired) as exc:
+                        res_data["message"] = f"Unlock check failed: {exc}"
+                    finally:
+                        UNLOCK_OPERATION_LOCK.release()
                 
             elif self.path == '/api/settings/save':
                 config = ConnectPhone.load_config()

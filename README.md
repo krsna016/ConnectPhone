@@ -1,4 +1,10 @@
 # ConnectPhone
+
+> **Restorable checkpoint:** The source and exact signed app for the proven
+> working v2.0.0 build are preserved in the
+> [`v2.0.0-working`](https://github.com/krsna016/ConnectPhone/releases/tag/v2.0.0-working) release. See the
+> [checkpoint and rollback instructions](docs/checkpoints/v2.0.0-working.md).
+
 <p align="center">
   <img src="ui/logo.png" alt="ConnectPhone Logo" width="300" style="border-radius:24px;">
 </p>

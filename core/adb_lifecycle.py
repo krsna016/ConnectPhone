@@ -6,6 +6,9 @@ import subprocess
 import threading
 
 
+_DEFAULT_UNAVAILABLE = object()
+
+
 def load_saved_devices(config_path):
     try:
         with open(config_path, "r", encoding="utf-8") as handle:
@@ -32,16 +35,28 @@ def read_transport_identity(runner, transport, timeout=6):
     return None
 
 
-def wireless_transport_states(runner):
+def wireless_transport_states(runner, unavailable=_DEFAULT_UNAVAILABLE):
+    """Return wireless ADB states, distinguishing failure from no devices.
+
+    Historically a timed-out ``adb devices`` call and a successful empty list
+    both returned ``{}``.  A connection supervisor cannot safely interpret
+    those cases the same way: treating a busy/unavailable host daemon as an
+    empty device list causes healthy transports to be torn down.
+
+    Existing callers retain the old empty-dict fallback.  Supervisors that
+    need the distinction can pass an explicit sentinel (normally ``None``).
+    """
     try:
         result = runner(["adb", "devices"], capture_output=True, text=True, timeout=8)
+        if result.returncode != 0:
+            return {} if unavailable is _DEFAULT_UNAVAILABLE else unavailable
         return {
             parts[0]: parts[1]
             for line in (result.stdout or "").splitlines()[1:]
             if len(parts := line.split()) >= 2 and ":" in parts[0]
         }
     except (OSError, subprocess.TimeoutExpired):
-        return {}
+        return {} if unavailable is _DEFAULT_UNAVAILABLE else unavailable
 
 
 def endpoint_port_open(endpoint, timeout=4.0):

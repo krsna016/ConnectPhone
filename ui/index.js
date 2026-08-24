@@ -1415,15 +1415,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     async function initDashboard() {
-        await loadMacAudioDevices();
+        // Audio enumeration is unrelated to connectivity and can take several
+        // seconds on some Macs. Start it in parallel so it never blocks the
+        // saved-phone reconnect path.
+        void loadMacAudioDevices();
         const initialStatus = await fetchStatus();
         const hasTrustedPhone = (initialStatus?.config?.saved_devices || []).some(device =>
             device && device.auto_reconnect !== false && device.device_serial
         );
-        if (initialStatus && !initialStatus.connected && hasTrustedPhone && !sessionStorage.getItem('cp_startup_connect_attempted')) {
-            sessionStorage.setItem('cp_startup_connect_attempted', '1');
-            showToast('Connecting automatically to your saved phone…', 'info');
-            postAction('/api/connect/auto');
+        if (initialStatus && !initialStatus.connected && hasTrustedPhone) {
+            // Use the same aggressive, identity-pinned reconnect path as the
+            // Instant Reconnect button instead of waiting for the background
+            // supervisor's retry/backoff loop. This also discovers Android's
+            // current ephemeral Wireless Debugging port before trying a stale
+            // saved endpoint.
+            showToast('Saved phone detected. Connecting now…', 'info');
+            const reconnectResult = await postAction('/api/connect/auto');
+            if (reconnectResult?.success) {
+                await fetchStatus();
+            }
         }
         // Keep the dashboard responsive without competing with ADB actions.
         statusInterval = setInterval(fetchStatus, 2500);

@@ -14,9 +14,15 @@ from core.paths import migrate_legacy_config
 
 
 class AutoReconnector:
-    OFFLINE_GRACE = 15.0
-    KEEPALIVE_INTERVAL = 30.0
-    LOOP_INTERVAL = 3.0
+    # ADB's host daemon occasionally stalls while scrcpy, file transfers, or
+    # dashboard probes are opening transports.  Do not turn one such stall
+    # into a user-visible disconnect.
+    OFFLINE_GRACE = 8.0
+    EXPLICIT_OFFLINE_GRACE = 2.0
+    KEEPALIVE_INTERVAL = 10.0
+    KEEPALIVE_FAILURE_LIMIT = 3
+    LOOP_INTERVAL = 1.0
+    CONNECT_TIMEOUT = 4.0
 
     def __init__(self, config_path=None, scanner=None, command_runner=None, busy_check=None):
         self.logger = logging.getLogger(__name__)
@@ -34,6 +40,7 @@ class AutoReconnector:
         self._failures = {}
         self._last_reset = {}
         self._last_keepalive = {}
+        self._keepalive_failures = {}
 
     def start_watching(self):
         if self._thread and self._thread.is_alive():
@@ -48,6 +55,11 @@ class AutoReconnector:
                 trusted = self._trusted_devices()
                 trusted_serials = {item["serial"] for item in trusted}
                 states = self._verify_connections(trusted_serials)
+                # An unavailable ADB daemon is not evidence that every phone
+                # disconnected. Preserve state and try again next iteration.
+                if states is None:
+                    self._stop_event.wait(self.LOOP_INTERVAL)
+                    continue
                 self._keepalive(states)
                 discovered = self.scanner.find_devices_instantly(search_time=0.5)
                 for item in trusted:
@@ -93,15 +105,26 @@ class AutoReconnector:
     def _schedule_failure(self, endpoint):
         failures = min(self._failures.get(endpoint, 0) + 1, 8)
         self._failures[endpoint] = failures
-        self._next_attempt[endpoint] = time.monotonic() + min(60.0, 2 ** failures)
+        self._next_attempt[endpoint] = time.monotonic() + min(4.0, 0.5 * (2 ** (failures - 1)))
+
+    def _record_healthy(self, endpoint):
+        """Forget old failures after an authoritative command succeeds.
+
+        The previous implementation accumulated isolated failures for the
+        lifetime of the process. Four unrelated timeouts hours apart could
+        therefore trigger ``adb disconnect`` against a currently healthy
+        phone. Recovery decisions must be based on consecutive failures.
+        """
+        self._failures.pop(endpoint, None)
+        self._next_attempt.pop(endpoint, None)
+        self._offline_since.pop(endpoint, None)
+        self._keepalive_failures.pop(endpoint, None)
 
     def _mark_connected(self, endpoint, serial):
         self.connected_endpoints.add(endpoint)
         self._endpoint_serial[endpoint] = serial
         self._pending_identity.pop(endpoint, None)
-        self._offline_since.pop(endpoint, None)
-        self._next_attempt.pop(endpoint, None)
-        self._failures.pop(endpoint, None)
+        self._record_healthy(endpoint)
         os.environ["ANDROID_SERIAL"] = endpoint
         if not persist_current_endpoint(self.config_path, endpoint, serial):
             self.logger.warning("Could not persist wireless endpoint %s", endpoint)
@@ -113,13 +136,25 @@ class AutoReconnector:
     def _maybe_reset_stale_endpoint(self, endpoint):
         now = time.monotonic()
         failures = self._failures.get(endpoint, 0)
+        # If the phone's TCP endpoint is reachable but ADB is still stuck, the
+        # daemon has retained a stale transport. Recover it promptly instead of
+        # leaving the UI offline for minutes. Never restart a shared daemon
+        # while another wireless target is attached.
         hard = failures >= 5
         reset_key = f"{endpoint}#daemon" if hard else endpoint
-        cooldown = 300 if hard else 90
-        if self._busy_check() or failures < 3 or now - self._last_reset.get(reset_key, 0) < cooldown:
+        cooldown = 600 if hard else 60
+        if self._busy_check() or failures < 4 or now - self._last_reset.get(reset_key, 0) < cooldown:
             return False
         if not self._port_open(endpoint):
             return False
+        if hard:
+            states = wireless_transport_states(self._run)
+            if any(candidate != endpoint for candidate in states):
+                hard = False
+                reset_key = endpoint
+                cooldown = 60
+                if now - self._last_reset.get(reset_key, 0) < cooldown:
+                    return False
         if reset_wireless_transport(self._run, endpoint, restart_daemon=hard):
             self.logger.warning("Recovered stale wireless transport: %s", endpoint)
             self._last_reset[reset_key] = now
@@ -131,7 +166,7 @@ class AutoReconnector:
         if not expected_serial or time.monotonic() < self._next_attempt.get(endpoint, 0):
             return False
         try:
-            result = self._run_adb(["connect", endpoint], 12)
+            result = self._run_adb(["connect", endpoint], self.CONNECT_TIMEOUT)
             output = f"{result.stdout or ''} {result.stderr or ''}".lower()
             if "connected to" not in output and "already connected" not in output:
                 self._schedule_failure(endpoint)
@@ -139,10 +174,10 @@ class AutoReconnector:
                 return False
             identity = read_transport_identity(self._run, endpoint)
             if identity is None:
-                self.connected_endpoints.add(endpoint)
                 self._pending_identity[endpoint] = expected_serial
                 self._schedule_failure(endpoint)
-                return True
+                self._maybe_reset_stale_endpoint(endpoint)
+                return False
             if identity != expected_serial:
                 self.logger.error("Rejected wireless identity at %s", endpoint)
                 self._run_adb(["disconnect", endpoint], 6)
@@ -155,10 +190,14 @@ class AutoReconnector:
             return False
 
     def _verify_connections(self, trusted_serials):
-        states = wireless_transport_states(self._run)
+        states = wireless_transport_states(self._run, unavailable=None)
+        if states is None:
+            self.logger.warning("ADB device-state query unavailable; retaining wireless connections")
+            return None
         now = time.monotonic()
         for endpoint in list(self.connected_endpoints):
-            if states.get(endpoint) == "device":
+            state = states.get(endpoint)
+            if state == "device":
                 self._offline_since.pop(endpoint, None)
                 if endpoint in self._pending_identity and now >= self._next_attempt.get(endpoint, 0):
                     identity = read_transport_identity(self._run, endpoint)
@@ -175,20 +214,37 @@ class AutoReconnector:
                         self._schedule_failure(endpoint)
                 continue
             since = self._offline_since.setdefault(endpoint, now)
-            if now - since < self.OFFLINE_GRACE:
+            grace = self.EXPLICIT_OFFLINE_GRACE if state == "offline" else self.OFFLINE_GRACE
+            if now - since < grace:
                 continue
             self.connected_endpoints.discard(endpoint)
             self._endpoint_serial.pop(endpoint, None)
             self._pending_identity.pop(endpoint, None)
             self._offline_since.pop(endpoint, None)
-            self._schedule_failure(endpoint)
-            self._maybe_reset_stale_endpoint(endpoint)
+            self._last_keepalive.pop(endpoint, None)
+            self._keepalive_failures.pop(endpoint, None)
+            if state == "offline" and reset_wireless_transport(self._run, endpoint, restart_daemon=False):
+                # `adb devices` explicitly confirmed a dead retained TLS
+                # transport. Clearing it is required before `adb connect` can
+                # create a fresh transport to the same advertised endpoint.
+                self.logger.warning("Cleared confirmed offline wireless transport: %s", endpoint)
+                self._last_reset[endpoint] = now
+                self._next_attempt[endpoint] = now + 0.5
+            else:
+                self._schedule_failure(endpoint)
+                self._maybe_reset_stale_endpoint(endpoint)
         for endpoint, state in states.items():
             if state != "device" or endpoint in self.connected_endpoints or now < self._next_attempt.get(endpoint, 0):
                 continue
             identity = read_transport_identity(self._run, endpoint)
             if identity in trusted_serials:
                 self._mark_connected(endpoint, identity)
+            elif identity is None:
+                # `adb devices` can retain a dead TLS transport as "device".
+                # A real shell identity probe is authoritative; keep advancing
+                # recovery instead of accepting the stale list entry forever.
+                self._schedule_failure(endpoint)
+                self._maybe_reset_stale_endpoint(endpoint)
         return states
 
     def _keepalive(self, states):
@@ -202,8 +258,32 @@ class AutoReconnector:
                 result = self._run_adb(["-s", endpoint, "shell", "true"], 8)
                 if result.returncode == 0:
                     self._last_keepalive[endpoint] = now
+                    self._record_healthy(endpoint)
+                    continue
             except (OSError, subprocess.TimeoutExpired):
-                self._offline_since.setdefault(endpoint, now)
+                pass
+
+            failures = self._keepalive_failures.get(endpoint, 0) + 1
+            self._keepalive_failures[endpoint] = failures
+            if failures < self.KEEPALIVE_FAILURE_LIMIT:
+                self.logger.warning(
+                    "Wireless health probe missed for %s (%d/%d); connection retained",
+                    endpoint,
+                    failures,
+                    self.KEEPALIVE_FAILURE_LIMIT,
+                )
+                continue
+
+            # Several consecutive real-command failures are authoritative.
+            # Only now expose the outage and enter bounded recovery.
+            self.connected_endpoints.discard(endpoint)
+            self._endpoint_serial.pop(endpoint, None)
+            self._pending_identity.pop(endpoint, None)
+            self._offline_since.pop(endpoint, None)
+            self._last_keepalive.pop(endpoint, None)
+            self._keepalive_failures.pop(endpoint, None)
+            self._schedule_failure(endpoint)
+            self._maybe_reset_stale_endpoint(endpoint)
 
     def stop_watching(self):
         self._stop_event.set()

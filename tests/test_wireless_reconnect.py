@@ -67,7 +67,7 @@ class WirelessReconnectTests(unittest.TestCase):
         self.assertFalse(reconnector._try_connect("192.0.2.10:43210", None))
         self.assertEqual(commands, [])
 
-    def test_temporarily_unavailable_identity_does_not_disconnect_or_reconnect(self):
+    def test_temporarily_unavailable_identity_is_not_marked_connected(self):
         commands = []
 
         def runner(command, **_kwargs):
@@ -80,15 +80,14 @@ class WirelessReconnectTests(unittest.TestCase):
 
         reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
         endpoint = "192.0.2.10:43210"
-        self.assertTrue(reconnector._try_connect(endpoint, "SERIAL-A"))
-        self.assertIn(endpoint, reconnector.connected_endpoints)
+        self.assertFalse(reconnector._try_connect(endpoint, "SERIAL-A"))
+        self.assertNotIn(endpoint, reconnector.connected_endpoints)
         self.assertEqual(reconnector._pending_identity[endpoint], "SERIAL-A")
         self.assertNotIn(["adb", "disconnect", endpoint], commands)
         connect_count = commands.count(["adb", "connect", endpoint])
         reconnector._next_attempt.clear()
-        if endpoint not in reconnector.connected_endpoints:
-            reconnector._try_connect(endpoint, "SERIAL-A")
-        self.assertEqual(commands.count(["adb", "connect", endpoint]), connect_count)
+        self.assertFalse(reconnector._try_connect(endpoint, "SERIAL-A"))
+        self.assertEqual(commands.count(["adb", "connect", endpoint]), connect_count + 1)
 
     def test_stale_adb_daemon_is_restarted_only_after_repeated_reachable_failures(self):
         commands = []

@@ -2,7 +2,9 @@ build/
 dist/
 *.spec
 __pycache__/
+.venv*/
 node_modules/
 *.app/
 .DS_Store
 *.apk
+release/*.zip

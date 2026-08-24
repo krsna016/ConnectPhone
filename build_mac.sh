@@ -3,8 +3,8 @@ set -e
 
 echo "🚀 Building ConnectPhone macOS App..."
 
-APP_VERSION="2.2.1"
-APP_BUILD="221"
+APP_VERSION="2.2.2"
+APP_BUILD="222"
 BUNDLE_ID="com.krsna016.ConnectPhone"
 SIGN_IDENTITY="${CONNECTPHONE_SIGN_IDENTITY:--}"
 

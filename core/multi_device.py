@@ -296,7 +296,8 @@ _ALERT_REMOTE_PATH = "/sdcard/Download/ConnectPhoneEmergency.wav"
 def _ensure_emergency_sound():
     """Create one bounded offline siren in ConnectPhone's app-data folder."""
     directory = Path.home() / "Library" / "Application Support" / "ConnectPhone"
-    path = directory / "emergency-siren.wav"
+    # Version the generated asset so an existing quieter siren is replaced.
+    path = directory / "emergency-siren-v2.wav"
     if path.exists() and path.stat().st_size > 100_000:
         return path
     with _ALERT_SOUND_LOCK:
@@ -313,11 +314,14 @@ def _ensure_emergency_sound():
             frames = bytearray()
             for index in range(sample_rate * duration_seconds):
                 t = index / sample_rate
-                # Integrate a 600–1200 Hz sweep to produce an unmistakable
-                # warbling siren without shipping or downloading an asset.
-                phase = 2 * math.pi * (900 * t - 39.7887358 * math.cos(2 * math.pi * 1.2 * t))
-                envelope = min(1.0, t / 0.04)
-                frames.extend(struct.pack("<h", int(10_500 * envelope * math.sin(phase))))
+                # A dense 700–1500 Hz warble with a high harmonic remains
+                # conspicuous on small phone speakers. Soft clipping raises
+                # average loudness while keeping samples inside PCM limits.
+                phase = 2 * math.pi * (1100 * t - 53.0516477 * math.cos(2 * math.pi * 1.2 * t))
+                tone = 0.78 * math.sin(phase) + 0.34 * math.sin(phase * 2.07)
+                envelope = min(1.0, t / 0.06)
+                sample = int(30_500 * envelope * math.tanh(1.85 * tone))
+                frames.extend(struct.pack("<h", sample))
                 if len(frames) >= 64 * 1024:
                     output.writeframesraw(frames)
                     frames.clear()

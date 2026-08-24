@@ -273,7 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (stopButton) {
                 await postAction('/api/fleet/mirror/stop', { session_id: stopButton.dataset.sessionId });
             } else if (event.target.closest('.fleet-alert')) {
-                if (window.confirm('Play a loud emergency alarm on this phone?')) {
+                if (window.confirm('EXTREMELY LOUD SIREN. Move the phone away from your ears. Play it now?')) {
                     await postAction('/api/fleet/alert/start', { serial }, event.target.closest('.fleet-alert'));
                 }
             } else if (event.target.closest('.fleet-alert-stop')) {
@@ -322,7 +322,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fleetAlertAll = document.getElementById('fleet-alert-all');
     if (fleetAlertAll) fleetAlertAll.addEventListener('click', async () => {
         if (!fleetOnlineSerials.length) return showToast('No phones are online.', 'error');
-        if (window.confirm(`Play a loud emergency alarm on ${fleetOnlineSerials.length} phone(s)?`)) {
+        if (window.confirm(`EXTREMELY LOUD SIREN on ${fleetOnlineSerials.length} phone(s). Move them away from people and pets. Play now?`)) {
             await postAction('/api/fleet/alert/start', { serials: 'all' }, fleetAlertAll);
         }
     });

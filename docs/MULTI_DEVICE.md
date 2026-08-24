@@ -36,7 +36,8 @@ tries every trusted phone; there is no single auto-connect winner.
   phone. **Stop** or **Stop Alerts** dismisses the alarm and restores the
   previous alarm volume.
 
-The alert has a confirmation prompt because it is intentionally loud. The siren
+The alert has an explicit hearing-safety confirmation because its near-full-scale,
+high-average-level siren is intentionally extremely loud. The siren
 is generated locally, works offline, and is removed from the phone by **Stop**.
 It does not use the vendor Clock database, so broken or customized timer apps
 cannot prevent the alert from playing.

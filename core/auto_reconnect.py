@@ -125,7 +125,11 @@ class AutoReconnector:
         self._endpoint_serial[endpoint] = serial
         self._pending_identity.pop(endpoint, None)
         self._record_healthy(endpoint)
-        os.environ["ANDROID_SERIAL"] = endpoint
+        # Reconnecting another trusted phone must not steal the dashboard's
+        # explicitly selected target. The status selector will choose a device
+        # only when the current target is unavailable.
+        if not os.environ.get("ANDROID_SERIAL"):
+            os.environ["ANDROID_SERIAL"] = endpoint
         if not persist_current_endpoint(self.config_path, endpoint, serial):
             self.logger.warning("Could not persist wireless endpoint %s", endpoint)
 

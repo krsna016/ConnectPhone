@@ -38,7 +38,9 @@ class WirelessReconnectTests(unittest.TestCase):
             self.assertTrue(reconnector._try_connect("192.0.2.10:43210", "SERIAL-A"))
             with open(path, encoding="utf-8") as handle:
                 saved = json.load(handle)
-            self.assertEqual(saved["last_port"], 43210)
+            # A background reconnect refreshes this phone's rotating endpoint
+            # without stealing the user's selected/last-active target.
+            self.assertEqual(saved["last_port"], 5555)
             self.assertEqual(saved["saved_devices"][0]["port"], 43210)
 
     def test_identity_mismatch_disconnects_and_does_not_persist(self):

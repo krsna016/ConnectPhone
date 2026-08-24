@@ -58,6 +58,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const overlayCapture = document.getElementById('overlay-capture');
     const overlayRecord = document.getElementById('overlay-record');
     const overlayStop = document.getElementById('overlay-stop');
+    const fleetGrid = document.getElementById('fleet-grid');
+    const fleetCount = document.getElementById('fleet-count');
+    let fleetOnlineSerials = [];
 
     // Dropdown change listeners
     const savedIpsDropdown = document.getElementById('saved-ips-dropdown');
@@ -168,6 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`${API_BASE}/api/status`);
             if (!res.ok) throw new Error("HTTP connection error");
             const data = await res.json();
+            renderFleet(data);
             updateConnectionUI(data);
             updatePreferencesForm(data.config);
             updateCameraOverlayUI(data);
@@ -187,6 +191,115 @@ document.addEventListener('DOMContentLoaded', () => {
             return null;
         }
     }
+
+    function renderFleet(data) {
+        if (!fleetGrid) return;
+        const fleet = Array.isArray(data.fleet) ? data.fleet : [];
+        fleetOnlineSerials = fleet.filter(device => device.status === 'online').map(device => device.serial);
+        if (fleetCount) fleetCount.textContent = `${fleetOnlineSerials.length} / ${data.fleet_limit || 10} online`;
+        if (!fleet.length) {
+            fleetGrid.innerHTML = `
+                <div class="card fleet-empty">
+                    <i class="material-symbols-outlined">phonelink_erase</i>
+                    <h3>No phones enrolled yet</h3>
+                    <p>Pair a new phone once in Connection Center. It will then appear here and auto-connect on future launches.</p>
+                </div>`;
+            return;
+        }
+
+        fleetGrid.innerHTML = fleet.map(device => {
+            const online = device.status === 'online';
+            const sessions = Array.isArray(device.sessions) ? device.sessions : [];
+            const serial = escapeHtml(device.serial || device.endpoint || 'Unavailable');
+            const identity = escapeHtml(device.identity || '');
+            return `
+                <article class="card fleet-device-card ${online ? 'online' : 'offline'} ${device.selected ? 'selected' : ''}"
+                         data-serial="${serial}" data-identity="${identity}">
+                    <div class="fleet-device-head">
+                        <div class="fleet-device-title">
+                            <i class="material-symbols-outlined">${device.type === 'wireless' ? 'phone_iphone' : 'usb'}</i>
+                            <div>
+                                <h3>${escapeHtml(device.name)}</h3>
+                                <p>${serial}</p>
+                            </div>
+                        </div>
+                        <span class="fleet-status ${online ? 'online' : 'offline'}">${online ? 'Online' : 'Offline'}</span>
+                    </div>
+                    <div class="fleet-device-meta">
+                        <span>${device.trusted ? 'Trusted • Auto-reconnect ' + (device.auto_reconnect ? 'on' : 'off') : 'Connected but not enrolled'}</span>
+                        ${device.selected ? '<strong>Selected</strong>' : ''}
+                    </div>
+                    <div class="fleet-device-actions">
+                        <button class="btn btn-sm btn-secondary fleet-select" ${online ? '' : 'disabled'}>Select</button>
+                        <button class="btn btn-sm btn-primary fleet-start" data-mode="screen" ${online ? '' : 'disabled'}>Screen</button>
+                        <button class="btn btn-sm btn-accent fleet-start" data-mode="camera" ${online ? '' : 'disabled'}>Camera</button>
+                        <button class="btn btn-sm btn-secondary fleet-start" data-mode="audio" ${online ? '' : 'disabled'}>Audio</button>
+                        ${device.trusted ? '<button class="fleet-rename" title="Rename"><i class="material-symbols-outlined">edit</i></button>' : ''}
+                        ${device.trusted ? '<button class="fleet-forget" title="Forget phone"><i class="material-symbols-outlined">delete</i></button>' : ''}
+                    </div>
+                    ${sessions.length ? `<div class="fleet-sessions">${sessions.map(session => `
+                        <div class="fleet-session-row">
+                            <span><i class="material-symbols-outlined">sensors</i> ${escapeHtml(session.mode)} running</span>
+                            <button class="fleet-session-stop" data-session-id="${escapeHtml(session.id)}" title="Stop"><i class="material-symbols-outlined">stop_circle</i></button>
+                        </div>`).join('')}</div>` : ''}
+                </article>`;
+        }).join('');
+    }
+
+    if (fleetGrid) {
+        fleetGrid.addEventListener('click', async event => {
+            const card = event.target.closest('.fleet-device-card');
+            if (!card) return;
+            const serial = card.dataset.serial || '';
+            const identity = card.dataset.identity || '';
+            const startButton = event.target.closest('.fleet-start');
+            const stopButton = event.target.closest('.fleet-session-stop');
+            if (event.target.closest('.fleet-select')) {
+                await postAction('/api/devices/select', { serial, identity });
+            } else if (startButton) {
+                await postAction('/api/fleet/mirror/start', {
+                    serial,
+                    mode: startButton.dataset.mode,
+                    camera_facing: 'back',
+                    resolution: '1080p',
+                    no_audio: startButton.dataset.mode === 'camera'
+                }, startButton);
+            } else if (stopButton) {
+                await postAction('/api/fleet/mirror/stop', { session_id: stopButton.dataset.sessionId });
+            } else if (event.target.closest('.fleet-rename')) {
+                const name = window.prompt('Name this phone:');
+                if (name && name.trim()) await postAction('/api/devices/rename', { identity, name: name.trim() });
+            } else if (event.target.closest('.fleet-forget')) {
+                if (window.confirm('Forget this phone? It will not auto-connect again until you pair it.')) {
+                    await postAction('/api/devices/forget', { identity });
+                }
+            }
+            await fetchStatus(true);
+        });
+    }
+
+    const fleetReconnectAll = document.getElementById('fleet-reconnect-all');
+    if (fleetReconnectAll) fleetReconnectAll.addEventListener('click', () => postAction('/api/devices/reconnect-all', {}, fleetReconnectAll));
+
+    const fleetMirrorAll = document.getElementById('fleet-mirror-all');
+    if (fleetMirrorAll) fleetMirrorAll.addEventListener('click', async () => {
+        if (!fleetOnlineSerials.length) return showToast('No phones are online.', 'error');
+        await postAction('/api/fleet/mirror/start', { serials: fleetOnlineSerials, mode: 'screen' }, fleetMirrorAll);
+        await fetchStatus(true);
+    });
+
+    const fleetStopAll = document.getElementById('fleet-stop-all');
+    if (fleetStopAll) fleetStopAll.addEventListener('click', async () => {
+        await postAction('/api/fleet/mirror/stop', {}, fleetStopAll);
+        await fetchStatus(true);
+    });
+
+    document.querySelectorAll('.fleet-control-all').forEach(button => {
+        button.addEventListener('click', () => postAction('/api/fleet/control', {
+            serials: 'all',
+            action: button.dataset.action
+        }, button));
+    });
 
     function updateConnectionUI(data) {
         const missingDependencies = Object.entries(data.dependencies || {}).filter(([, available]) => !available).map(([name]) => name);
@@ -218,14 +331,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (data.connected) {
             connStatus.className = 'connection-badge connected';
-            connStatusText.textContent = 'Connected';
+            const onlineCount = (data.fleet || []).filter(device => device.status === 'online').length;
+            connStatusText.textContent = `${onlineCount} Phone${onlineCount === 1 ? '' : 's'} Online`;
             
             // Header display
             const isWireless = data.active_device && data.active_device.includes(':');
             if (isWireless) {
-                headerDevice.innerHTML = `<span style="font-size:13px; color: var(--text-secondary);"><i class="material-symbols-outlined" style="font-size:13px">wifi</i> Connected over Wi-Fi</span>`;
+                headerDevice.innerHTML = `<span style="font-size:13px; color: var(--text-secondary);"><i class="material-symbols-outlined" style="font-size:13px">wifi</i> Selected: ${escapeHtml(data.active_device)} • ${onlineCount} online</span>`;
             } else {
-                headerDevice.innerHTML = `<span style="font-size:13px; color: var(--text-secondary);"><i class="material-symbols-outlined" style="font-size:13px">cable</i> Connected via USB</span>`;
+                headerDevice.innerHTML = `<span style="font-size:13px; color: var(--text-secondary);"><i class="material-symbols-outlined" style="font-size:13px">cable</i> Selected: ${escapeHtml(data.active_device)} • ${onlineCount} online</span>`;
             }
             if (btnHeaderUnlock) btnHeaderUnlock.style.display = 'inline-flex';
             if (btnPhoneUnlock) btnPhoneUnlock.disabled = false;
@@ -1423,13 +1537,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const hasTrustedPhone = (initialStatus?.config?.saved_devices || []).some(device =>
             device && device.auto_reconnect !== false && device.device_serial
         );
-        if (initialStatus && !initialStatus.connected && hasTrustedPhone) {
+        const hasOfflineTrustedPhone = (initialStatus?.fleet || []).some(device =>
+            device && device.trusted && device.auto_reconnect && device.status !== 'online'
+        );
+        if (initialStatus && hasTrustedPhone && (!initialStatus.connected || hasOfflineTrustedPhone)) {
             // Use the same aggressive, identity-pinned reconnect path as the
             // Instant Reconnect button instead of waiting for the background
             // supervisor's retry/backoff loop. This also discovers Android's
             // current ephemeral Wireless Debugging port before trying a stale
             // saved endpoint.
-            showToast('Saved phone detected. Connecting now…', 'info');
+            showToast('Connecting all trusted phones…', 'info');
             const reconnectResult = await postAction('/api/connect/auto');
             if (reconnectResult?.success) {
                 await fetchStatus();

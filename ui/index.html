@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ConnectPhone - Dashboard</title>
     <link rel="stylesheet" href="local-fonts.css">
-    <link rel="stylesheet" href="index.css?v=1.0.5">
+    <link rel="stylesheet" href="index.css?v=2.1.0">
 </head>
 <body>
     <div class="glass-bg"></div>
@@ -26,11 +26,14 @@
                 </div>
                 <div class="brand-text">
                     <h1>ConnectPhone</h1>
-                    <span class="version">VERSION 2.0.0</span>
+                    <span class="version">VERSION 2.1.0</span>
                 </div>
             </div>
             
             <nav class="sidebar-nav">
+                <button class="nav-btn" data-tab="fleet">
+                    <span class="btn-icon"><i class="material-symbols-outlined">devices</i></span> Device Fleet
+                </button>
                 <button class="nav-btn active" data-tab="connection">
                     <span class="btn-icon"><i class="material-symbols-outlined">link</i></span> Connection Center
                 </button>
@@ -104,6 +107,40 @@
             
             <!-- Tab Pages Container -->
             <div class="tab-content-container">
+
+                <!-- Tab: Multi-device Fleet -->
+                <section class="tab-pane" id="pane-fleet">
+                    <div class="pane-header fleet-pane-header">
+                        <div>
+                            <h2><i class="material-symbols-outlined">devices</i> Multi-Phone Control Center</h2>
+                            <p>Reconnect and control up to 10 trusted phones. Every mirror opens in its own independent window.</p>
+                        </div>
+                        <span class="fleet-count" id="fleet-count">0 / 10 online</span>
+                    </div>
+
+                    <div class="card fleet-toolbar">
+                        <button class="btn btn-primary" id="fleet-reconnect-all"><i class="material-symbols-outlined">wifi_find</i> Reconnect All</button>
+                        <button class="btn btn-accent" id="fleet-mirror-all"><i class="material-symbols-outlined">grid_view</i> Mirror All Screens</button>
+                        <button class="btn btn-danger" id="fleet-stop-all"><i class="material-symbols-outlined">stop_circle</i> Stop All Windows</button>
+                        <span class="fleet-toolbar-divider"></span>
+                        <button class="btn btn-secondary fleet-control-all" data-action="wake"><i class="material-symbols-outlined">light_mode</i> Wake All</button>
+                        <button class="btn btn-secondary fleet-control-all" data-action="home"><i class="material-symbols-outlined">home</i> Home All</button>
+                        <button class="btn btn-secondary fleet-control-all" data-action="sleep"><i class="material-symbols-outlined">bedtime</i> Sleep All</button>
+                    </div>
+
+                    <div class="fleet-grid" id="fleet-grid">
+                        <div class="card fleet-empty">
+                            <i class="material-symbols-outlined">phonelink_erase</i>
+                            <h3>No phones enrolled yet</h3>
+                            <p>Pair a new phone once in Connection Center. It will then appear here and auto-connect on future launches.</p>
+                        </div>
+                    </div>
+
+                    <div class="card fleet-help">
+                        <i class="material-symbols-outlined">info</i>
+                        <p><strong>New phone:</strong> enable Wireless Debugging, pair once with its current six-digit code, then connect. ConnectPhone pins its physical Android identity—not only its changing Wi-Fi port—before enabling automatic reconnect.</p>
+                    </div>
+                </section>
                 
                 <!-- Tab: Connection Center -->
                 <section class="tab-pane active" id="pane-connection">
@@ -1086,6 +1123,6 @@
         </div>
     </div>
 
-    <script src="index.js?v=1.0.7"></script>
+    <script src="index.js?v=2.1.0"></script>
 </body>
 </html>

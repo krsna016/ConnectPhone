@@ -137,9 +137,17 @@ from core.file_manager import (
     rename_remote_item,
 )
 from core.transfer_manager import TransferManager
+from core.multi_device import (
+    MAX_FLEET_DEVICES,
+    MirrorSessionManager,
+    build_fleet,
+    control_devices,
+    validate_serial,
+)
 
 ADB_LIFECYCLE = AdbLifecycle()
 TRANSFER_MANAGER = TransferManager()
+MIRROR_MANAGER = MirrorSessionManager()
 
 PORT = 8282
 UI_HOST = "127.0.0.1"
@@ -186,7 +194,7 @@ def _origin_allowed(origin):
     if not origin or origin == "null":
         return True
     parsed = urlsplit(origin)
-    return parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"} and parsed.port == 8282
+    return parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"} and parsed.port == PORT
 
 
 def _valid_ipv4(value):
@@ -500,8 +508,16 @@ def _build_status_payload():
             input_injection_granted = ConnectPhone.check_input_injection_permission()
             _input_permission_cache[active_device] = (time.monotonic(), input_injection_granted)
 
-    scrcpy_running = scrcpy_proc is not None and scrcpy_proc.poll() is None
+    mirror_sessions = MIRROR_MANAGER.list()
+    scrcpy_running = (scrcpy_proc is not None and scrcpy_proc.poll() is None) or bool(mirror_sessions)
     config = ConnectPhone.load_config()
+    fleet = build_fleet(
+        devices_detailed,
+        [item for item in config.get("saved_devices", []) if isinstance(item, dict)],
+        active_transport=active_device,
+        selected_identity=str(config.get("selected_device_serial", "")),
+        sessions=mirror_sessions,
+    )
     public_config = dict(config)
     public_config.pop("android_pin", None)
     public_config.pop("applock_pin", None)
@@ -517,6 +533,9 @@ def _build_status_payload():
         "recording_active": scrcpy_state["recording_active"],
         "sync_watcher_active": sync_watcher_active,
         "mirror_type": scrcpy_state["mirror_type"],
+        "mirror_sessions": mirror_sessions,
+        "fleet": fleet,
+        "fleet_limit": MAX_FLEET_DEVICES,
         "input_injection_granted": input_injection_granted,
         "transfer_active": transfer_active,
         "config": public_config,
@@ -1092,11 +1111,22 @@ def get_detailed_adb_devices():
 
 def check_and_autoselect_device(devices_detailed):
     online_serials = [d["serial"] for d in devices_detailed if d["status"] == "device"]
-    # When USB is plugged in for recovery, adb often lists USB first. Prefer
-    # the last trusted wireless endpoint so the dashboard does not silently
-    # switch transport and make wireless reliability look intermittent.
+    # Selection is identity-based, so reconnecting several trusted phones does
+    # not make the last successful background connection steal the dashboard.
     try:
         config = ConnectPhone.load_config()
+        selected_identity = str(config.get("selected_device_serial", "")).strip()
+        if selected_identity:
+            selected_candidates = [selected_identity]
+            selected_candidates.extend(
+                f"{item.get('ip')}:{item.get('port')}"
+                for item in config.get("saved_devices", [])
+                if isinstance(item, dict) and item.get("device_serial") == selected_identity
+            )
+            selected = next((item for item in selected_candidates if item in online_serials), "")
+            if selected:
+                os.environ["ANDROID_SERIAL"] = selected
+                return selected
         last_ip = str(config.get("last_ip", "")).strip()
         last_port = config.get("last_port")
         preferred_wireless = f"{last_ip}:{int(last_port)}" if last_ip and _valid_port(last_port) else ""
@@ -1365,6 +1395,71 @@ def connect_previously_authorized_devices():
     }
 
 
+def connect_all_trusted_devices():
+    """Reconnect every enrolled phone while preserving the selected target."""
+    config = ConnectPhone.load_config()
+    saved = [
+        dict(item) for item in config.get("saved_devices", [])
+        if isinstance(item, dict) and item.get("auto_reconnect", True)
+        and item.get("device_serial") and _valid_ipv4(str(item.get("ip", "")))
+        and _valid_port(item.get("port"))
+    ][:MAX_FLEET_DEVICES]
+    try:
+        adb_result = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=3)
+        online = {
+            parts[0] for line in (adb_result.stdout or "").splitlines()[1:]
+            if len(parts := line.split()) >= 2 and parts[1] == "device"
+        }
+    except (OSError, subprocess.TimeoutExpired):
+        online = set()
+
+    connected = []
+    unresolved = []
+    for item in saved:
+        ip, port = str(item["ip"]), int(item["port"])
+        identity = str(item["device_serial"])
+        endpoint = f"{ip}:{port}"
+        if endpoint in online or identity in online:
+            connected.append({"endpoint": endpoint if endpoint in online else identity, "serial": identity})
+            continue
+        accepted, _ = _adb_connect(ip, port, attempts=1, timeout=4)
+        actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1) if accepted else None
+        if actual == identity:
+            ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, identity)
+            connected.append({"endpoint": endpoint, "serial": identity})
+        else:
+            if accepted:
+                subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
+            unresolved.append(item)
+
+    if unresolved:
+        services = discover_all_mdns_services(timeout=1.0)
+        by_ip = {}
+        for service in services:
+            if service.get("type") == "connect" and _valid_port(service.get("port")):
+                by_ip.setdefault(str(service.get("ip")), []).append(int(service["port"]))
+        for item in unresolved:
+            ip, identity = str(item["ip"]), str(item["device_serial"])
+            for port in by_ip.get(ip, []):
+                endpoint = f"{ip}:{port}"
+                accepted, _ = _adb_connect(ip, port, attempts=1, timeout=3)
+                actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1) if accepted else None
+                if actual == identity:
+                    ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, identity)
+                    connected.append({"endpoint": endpoint, "serial": identity})
+                    break
+                if accepted:
+                    subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
+
+    _invalidate_status_cache()
+    return {
+        "success": bool(connected),
+        "message": f"Connected {len(connected)} of {len(saved)} trusted phone(s).",
+        "devices": connected,
+        "total": len(saved),
+    }
+
+
 def _publish_connected_endpoint(endpoint, physical_serial):
     """Make a successful foreground connection visible without a cache wait."""
     global _status_cache
@@ -1418,18 +1513,14 @@ def _saved_online_endpoint():
 
 def _foreground_connect_worker():
     global _foreground_connect_result
-    result = connect_previously_authorized_devices()
+    result = connect_all_trusted_devices()
     with _foreground_connect_lock:
         _foreground_connect_result = result
 
 
 def start_foreground_connect():
-    """Acknowledge the tap immediately and run the cold-phone wake in background."""
+    """Acknowledge immediately and reconnect all trusted phones in background."""
     global _foreground_connect_thread, _foreground_connect_result
-    online = _saved_online_endpoint()
-    if online:
-        _publish_connected_endpoint(*online)
-        return {"success": True, "pending": False, "message": f"Already connected to {online[0]}."}
     with _foreground_connect_lock:
         if _foreground_connect_thread and _foreground_connect_thread.is_alive():
             return {"success": True, "pending": True, "message": "Connection is already in progress…"}
@@ -1443,7 +1534,7 @@ def start_foreground_connect():
     return {
         "success": True,
         "pending": True,
-        "message": "Connecting to the saved phone now…",
+        "message": "Connecting all trusted phones now…",
     }
 
 
@@ -2128,13 +2219,108 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 cancelled = TRANSFER_MANAGER.cancel(job_id)
                 res_data.update(success=cancelled, message="Cancellation requested" if cancelled else "Transfer not found or already finished")
             elif self.path == '/api/devices/select':
-                serial = str(data.get("serial", "")).strip()
-                if not serial:
-                    res_data["message"] = "Serial is required."
+                serial = validate_serial(data.get("serial", ""))
+                online = {
+                    item["serial"] for item in get_detailed_adb_devices()
+                    if item.get("status") == "device"
+                }
+                if serial not in online:
+                    res_data["message"] = "That phone is not currently online."
                 else:
+                    identity = str(data.get("identity", "")).strip()
+                    if not identity:
+                        for item in ConnectPhone.load_config().get("saved_devices", []):
+                            if not isinstance(item, dict):
+                                continue
+                            endpoint = f"{item.get('ip')}:{item.get('port')}"
+                            if serial in {endpoint, item.get("device_serial")}:
+                                identity = str(item.get("device_serial") or serial)
+                                break
+                    identity = identity or serial
+                    ConnectPhone.global_config_mgr.select_device(identity)
                     os.environ["ANDROID_SERIAL"] = serial
-                    res_data["success"] = True
-                    res_data["message"] = f"Target device serial set to {serial}."
+                    _invalidate_status_cache()
+                    res_data.update(success=True, message=f"Selected {serial} for Storage, Metrics, and legacy controls.")
+            elif self.path == '/api/devices/rename':
+                identity = validate_serial(data.get("identity", ""))
+                ConnectPhone.global_config_mgr.rename_device(identity, data.get("name", ""))
+                _invalidate_status_cache()
+                res_data.update(success=True, message="Phone name updated.")
+            elif self.path == '/api/devices/forget':
+                identity = validate_serial(data.get("identity", ""))
+                removed = ConnectPhone.global_config_mgr.forget_device(identity)
+                if not removed:
+                    res_data["message"] = "Trusted phone was not found."
+                else:
+                    endpoint = f"{removed.get('ip')}:{removed.get('port')}"
+                    MIRROR_MANAGER.stop(serial=endpoint)
+                    if _valid_ipv4(str(removed.get("ip", ""))) and _valid_port(removed.get("port")):
+                        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
+                    _invalidate_status_cache()
+                    res_data.update(success=True, message="Phone forgotten. Pair it again before future automatic reconnects.")
+            elif self.path == '/api/devices/reconnect-all':
+                res_data.update(start_foreground_connect())
+            elif self.path == '/api/fleet/mirror/start':
+                mode = str(data.get("mode", "screen")).strip().lower()
+                requested = data.get("serials") if isinstance(data.get("serials"), list) else [data.get("serial")]
+                requested = [validate_serial(item) for item in requested if item]
+                online_details = {
+                    item["serial"]: item for item in get_detailed_adb_devices()
+                    if item.get("status") == "device"
+                }
+                targets = [item for item in requested if item in online_details][:MAX_FLEET_DEVICES]
+                if not targets:
+                    res_data["message"] = "No requested phones are currently online."
+                elif not shutil.which("scrcpy"):
+                    res_data["message"] = "scrcpy is not installed."
+                else:
+                    config = ConnectPhone.load_config()
+                    started = []
+                    existing = []
+                    failures = []
+                    for index, serial in enumerate(targets):
+                        try:
+                            detail = online_details[serial]
+                            session, created = MIRROR_MANAGER.start(
+                                serial,
+                                mode,
+                                config=config,
+                                options=data,
+                                title=detail.get("model") or serial,
+                                tile_index=index,
+                            )
+                            (started if created else existing).append(session)
+                        except (OSError, RuntimeError, ValueError) as exc:
+                            failures.append({"serial": serial, "message": str(exc)})
+                    _invalidate_status_cache()
+                    res_data.update(
+                        success=bool(started or existing),
+                        message=f"Started {len(started)} {mode} session(s); {len(existing)} already running.",
+                        sessions=started + existing,
+                        failures=failures,
+                    )
+            elif self.path == '/api/fleet/mirror/stop':
+                stopped = MIRROR_MANAGER.stop(
+                    session_id=str(data.get("session_id", "")).strip(),
+                    serial=str(data.get("serial", "")).strip(),
+                    mode=str(data.get("mode", "")).strip(),
+                )
+                _invalidate_status_cache()
+                res_data.update(success=True, message=f"Stopped {stopped} mirror session(s).")
+            elif self.path == '/api/fleet/control':
+                online = [
+                    item["serial"] for item in get_detailed_adb_devices()
+                    if item.get("status") == "device"
+                ][:MAX_FLEET_DEVICES]
+                requested = data.get("serials")
+                targets = online if requested == "all" else [item for item in (requested or []) if item in online]
+                results = control_devices(targets, str(data.get("action", "")))
+                succeeded = sum(1 for item in results if item["success"])
+                res_data.update(
+                    success=bool(results) and succeeded == len(results),
+                    message=f"Command reached {succeeded} of {len(results)} phone(s).",
+                    results=results,
+                )
             elif self.path == '/api/storage/delete':
                 remote_path = str(data.get("path", "")).strip()
                 if not _valid_remote_path(remote_path, destructive=True):
@@ -3590,6 +3776,7 @@ def run_server():
         if keepalive_thread.is_alive():
             keepalive_thread.join(timeout=2)
         stop_scrcpy_bg()
+        MIRROR_MANAGER.stop_all()
         TRANSFER_MANAGER.shutdown()
         try:
             saved = ConnectPhone.load_config().get("saved_devices", [])

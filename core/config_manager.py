@@ -17,7 +17,7 @@ def persist_current_endpoint(config_path, endpoint, identity):
         ip, port = endpoint.rsplit(":", 1)
         manager = ConfigurationManager(config_path)
         manager.load()
-        manager.update_last_connection(ip, int(port), identity)
+        manager.update_device_endpoint(ip, int(port), identity)
         return True
     except (OSError, ValueError, TypeError, RuntimeError):
         return False
@@ -49,6 +49,7 @@ class ConfigurationManager:
         # feel noticeably delayed.
         "audio_buffer": "20",
         "device_profile": "generic",
+        "selected_device_serial": "",
         "saved_ips": [],
         "saved_devices": []
     }
@@ -188,6 +189,7 @@ class ConfigurationManager:
         self.set("saved_ips", [ip, *saved_ips][:10])
 
         existing_serial = None
+        existing_metadata = {}
         devices = []
         for item in self.get("saved_devices", []):
             if isinstance(item, dict):
@@ -197,17 +199,27 @@ class ConfigurationManager:
                     is_same = False
                 if is_same:
                     existing_serial = item.get("device_serial") or None
+                    existing_metadata = {
+                        key: item[key] for key in ("name",) if item.get(key)
+                    }
                 # Wireless-debugging ports are ephemeral. Keeping historical
                 # ports for the same IP makes the background reconnector
                 # hammer dead endpoints forever and can make ADB appear
                 # intermittently broken. Retain one current endpoint per IP.
                 same_identity = bool(device_serial and item.get("device_serial") == device_serial)
+                if same_identity:
+                    existing_metadata = {
+                        key: item[key] for key in ("name",) if item.get(key)
+                    }
                 if item.get("ip") != ip and not is_same and not same_identity:
                     devices.append(item)
         # Auto-discovery often knows the endpoint before it has re-read the
         # device serial. Never erase an enrolled identity during that path.
         device_serial = device_serial or existing_serial
+        if device_serial and not self.get("selected_device_serial"):
+            self.set("selected_device_serial", device_serial)
         devices.insert(0, {
+            **existing_metadata,
             "ip": ip,
             "port": port,
             "device_serial": device_serial,
@@ -215,6 +227,68 @@ class ConfigurationManager:
         })
         self.set("saved_devices", devices[:10])
         self.save()
+
+    def update_device_endpoint(self, ip: str, port: int, device_serial: str) -> None:
+        """Refresh one trusted phone without changing the user's selection."""
+        selected = self.get("selected_device_serial", "")
+        last_ip = self.get("last_ip", "")
+        last_port = self.get("last_port")
+        self.update_last_connection(ip, port, device_serial)
+        self.set("selected_device_serial", selected)
+        self.set("last_ip", last_ip)
+        self.set("last_port", last_port)
+        self.save()
+
+    def select_device(self, device_serial: str) -> None:
+        identity = str(device_serial or "").strip()
+        if not identity or len(identity) > 200:
+            raise ValueError("Invalid device identity")
+        self.set("selected_device_serial", identity)
+        for item in self.get("saved_devices", []):
+            if isinstance(item, dict) and item.get("device_serial") == identity:
+                self.set("last_ip", item.get("ip", ""))
+                self.set("last_port", item.get("port"))
+                break
+        self.save()
+
+    def rename_device(self, device_serial: str, name: str) -> None:
+        identity = str(device_serial or "").strip()
+        label = str(name or "").strip()
+        if not identity or not label or len(label) > 60 or any(ord(char) < 32 for char in label):
+            raise ValueError("Device name must be between 1 and 60 characters")
+        found = False
+        devices = []
+        for item in self.get("saved_devices", []):
+            if not isinstance(item, dict):
+                continue
+            item = dict(item)
+            if item.get("device_serial") == identity:
+                item["name"] = label
+                found = True
+            devices.append(item)
+        if not found:
+            raise ValueError("Trusted device was not found")
+        self.set("saved_devices", devices[:10])
+        self.save()
+
+    def forget_device(self, device_serial: str) -> dict | None:
+        identity = str(device_serial or "").strip()
+        removed = None
+        devices = []
+        for item in self.get("saved_devices", []):
+            if not isinstance(item, dict):
+                continue
+            if item.get("device_serial") == identity:
+                removed = dict(item)
+            else:
+                devices.append(item)
+        if removed is None:
+            return None
+        self.set("saved_devices", devices)
+        if self.get("selected_device_serial") == identity:
+            self.set("selected_device_serial", "")
+        self.save()
+        return removed
 
     def disable_auto_reconnect(self, ip: str = "", port: int | None = None) -> None:
         """Stop reconnect attempts but keep endpoints available in the dropdown."""

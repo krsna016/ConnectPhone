@@ -30,6 +30,7 @@ The project merges high-performance backend pipelines (`scrcpy` and `adb` cores)
 * **Mirroring and Recording**: Mirror the phone, stream its camera or audio, and save recording sessions to your Mac Desktop.
 * **Live System Telemetry**: View real-time device stats, battery wear, memory allocation, and connection status inside the sleek visual dashboard.
 * **Trusted Wireless Reconnect**: Manually enrolled wireless devices are checked by identity before automatic reconnect. Unknown devices are never enrolled silently.
+* **10-Phone Fleet Control**: Reconnect every trusted phone, choose the target for legacy tools, open independently routed screen/camera/audio windows, or mirror and control all online phones together. See the [multi-device guide](docs/MULTI_DEVICE.md).
 * **Local API Protection**: The dashboard and local control API bind to loopback and require a Keychain-backed session token.
 * **Premium Dev-Aesthetic**: A stunning dark-mode UI with Space Grotesk typography, micro-animations, glowing metallic gradients, and Neumorphic design elements.
 

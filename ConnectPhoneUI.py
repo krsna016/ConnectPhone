@@ -2897,8 +2897,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         res_data["message"] = f"Ping failed to target IP: {ip}"
                 
             elif self.path == '/api/mirror':
-                mirror_type = data.get("type", "screen") # screen, camera, audio, record
-                if mirror_type not in {"screen", "camera", "audio", "record"}:
+                mirror_type = data.get("type", "screen") # screen, camera, audio, call, record
+                if mirror_type not in {"screen", "camera", "audio", "call", "record"}:
                     raise ValueError("Unsupported mirroring mode")
                 config = ConnectPhone.load_config()
                 
@@ -3018,6 +3018,17 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     
                 elif mirror_type == "audio":
                     cmd += ["--no-video"] + audio_args
+
+                elif mirror_type == "call":
+                    # VOICE_CALL requests the telephony uplink and downlink.
+                    # Requiring audio prevents a misleading successful session
+                    # when Android reserves capture for system components.
+                    cmd += [
+                        "--no-video", "--no-control", "--require-audio",
+                        "--audio-source=voice-call", "--audio-codec=opus",
+                        "--audio-bit-rate=128000",
+                    ]
+                    res_data["message"] = "Call audio is playing on this Mac. Start or answer the call on the phone."
                     
                 elif mirror_type == "record":
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -3065,7 +3076,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         pass
                 
                 scrcpy_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                time.sleep(0.35)
+                time.sleep(1.0 if mirror_type == "call" else 0.35)
                 if scrcpy_proc.poll() is not None:
                     output = (scrcpy_proc.communicate(timeout=1)[0] or b"").decode("utf-8", errors="replace").strip()
                     scrcpy_proc = None

@@ -77,6 +77,14 @@ class MultiDeviceTests(unittest.TestCase):
             ("adb", "-s", "USB-B"),
         })
 
+    def test_call_audio_requests_both_call_directions_and_fails_closed(self):
+        manager = MirrorSessionManager()
+        command = manager.build_command("USB-A", "call", {}, {}, "Call Audio")
+        self.assertIn("--audio-source=voice-call", command)
+        self.assertIn("--require-audio", command)
+        self.assertIn("--no-video", command)
+        self.assertIn("--no-control", command)
+
 
 if __name__ == "__main__":
     unittest.main()

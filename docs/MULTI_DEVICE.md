@@ -26,7 +26,7 @@ tries every trusted phone; there is no single auto-connect winner.
 - One phone is marked **Selected**. Storage, Metrics, and older single-phone
   controls operate on that selected phone.
 - Selecting another phone never disconnects the others.
-- **Screen**, **Camera**, and **Audio** create independently tracked scrcpy
+- **Screen**, **Camera**, **Audio**, and **Call** create independently tracked scrcpy
   sessions with an explicit device serial and a separately titled window.
 - **Mirror All Screens** opens one controllable screen window per online phone.
 - **Wake All**, **Home All**, and **Sleep All** send explicitly routed commands
@@ -35,6 +35,15 @@ tries every trusted phone; there is no single auto-connect winner.
 Screen and camera sessions may run together when the Android model supports
 concurrent capture. Fleet camera previews default to video-only so they do not
 compete with screen-mirror audio capture.
+
+## Call audio
+
+**Call** requests the phone's combined telephony uplink and downlink, so both
+sides of an active cellular call can play on the Mac. It does not place, answer,
+or route the Mac microphone into a call. Android reserves this capture source
+for privileged system components, so availability depends on the phone vendor
+and ROM. ConnectPhone requires the audio source to open and reports the real
+scrcpy/Android error if the phone refuses it.
 
 ## Practical capacity
 

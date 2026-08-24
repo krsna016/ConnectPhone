@@ -234,6 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button class="btn btn-sm btn-primary fleet-start" data-mode="screen" ${online ? '' : 'disabled'}>Screen</button>
                         <button class="btn btn-sm btn-accent fleet-start" data-mode="camera" ${online ? '' : 'disabled'}>Camera</button>
                         <button class="btn btn-sm btn-secondary fleet-start" data-mode="audio" ${online ? '' : 'disabled'}>Audio</button>
+                        <button class="btn btn-sm btn-accent fleet-start" data-mode="call" ${online ? '' : 'disabled'}>Call</button>
                         ${device.trusted ? '<button class="fleet-rename" title="Rename"><i class="material-symbols-outlined">edit</i></button>' : ''}
                         ${device.trusted ? '<button class="fleet-forget" title="Forget phone"><i class="material-symbols-outlined">delete</i></button>' : ''}
                     </div>
@@ -542,6 +543,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (type === 'audio') {
                     if (cameraOverlayTitle) cameraOverlayTitle.textContent = 'Active Microphone Stream';
                     cameraOverlayDesc.textContent = 'Streaming device audio feed natively.';
+                } else if (type === 'call') {
+                    if (cameraOverlayTitle) cameraOverlayTitle.textContent = 'Active Call Audio';
+                    cameraOverlayDesc.textContent = 'Playing call uplink and downlink audio from the phone.';
                 } else if (type === 'record') {
                     if (cameraOverlayTitle) cameraOverlayTitle.textContent = 'Recording Screen Session';
                     cameraOverlayDesc.textContent = 'Session is being mirrored and recorded to Desktop.';
@@ -691,7 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body.no_audio = document.getElementById('cam-no-audio').checked;
             }
             
-            showToast('Launching scrcpy mirroring stream...', 'info');
+            showToast(type === 'call' ? 'Starting protected call-audio capture...' : 'Launching scrcpy mirroring stream...', 'info');
             postAction('/api/mirror', body);
         });
     });

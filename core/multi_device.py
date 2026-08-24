@@ -91,7 +91,7 @@ def build_fleet(adb_devices, saved_devices, active_transport="", selected_identi
 class MirrorSessionManager:
     """Own multiple scrcpy processes without relying on ANDROID_SERIAL."""
 
-    MODES = {"screen", "camera", "audio", "record"}
+    MODES = {"screen", "camera", "audio", "call", "record"}
 
     def __init__(self, runner=None, popen=None, desktop=None):
         self._run = runner or subprocess.run
@@ -146,7 +146,9 @@ class MirrorSessionManager:
                 raise RuntimeError("No fleet mirror tunnel port is available")
             command = self.build_command(serial, mode, config, options, window_title, tile_index, port=port)
             process = self._popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            time.sleep(0.3)
+            # Voice-call capture may take a little longer to either initialize
+            # or return Android's privileged-audio permission error.
+            time.sleep(1.0 if mode == "call" else 0.3)
             if process.poll() is not None:
                 output = (process.communicate(timeout=1)[0] or b"").decode("utf-8", errors="replace")
                 raise RuntimeError(output[-1200:].strip() or "scrcpy exited before opening its window")
@@ -220,6 +222,11 @@ class MirrorSessionManager:
                 command += ["--audio-source=mic-camcorder", "--audio-codec=opus", "--audio-bit-rate=128000"]
         elif mode == "audio":
             command += ["--no-video", "--audio-source=output", "--audio-codec=opus", "--audio-bit-rate=128000"]
+        elif mode == "call":
+            command += [
+                "--no-video", "--no-control", "--require-audio",
+                "--audio-source=voice-call", "--audio-codec=opus", "--audio-bit-rate=128000",
+            ]
         return command
 
     def _drain_output(self, key, process):

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ConnectPhone - Dashboard</title>
     <link rel="stylesheet" href="local-fonts.css">
-    <link rel="stylesheet" href="index.css?v=2.1.0">
+    <link rel="stylesheet" href="index.css?v=2.1.1">
 </head>
 <body>
     <div class="glass-bg"></div>
@@ -26,7 +26,7 @@
                 </div>
                 <div class="brand-text">
                     <h1>ConnectPhone</h1>
-                    <span class="version">VERSION 2.1.0</span>
+                    <span class="version">VERSION 2.1.1</span>
                 </div>
             </div>
             
@@ -358,8 +358,17 @@
                             <p>Listen directly to the Android microphone or system audio stream without rendering video.</p>
                             <button class="btn btn-primary start-mirror-btn" data-type="audio">Listen to Mic</button>
                         </div>
+
+                        <!-- Mode 4: Phone Call Audio -->
+                        <div class="card mirror-card highlight" data-mode="call">
+                            <div class="card-badge">CALL</div>
+                            <div class="card-icon"><i class="material-symbols-outlined">phone_in_talk</i></div>
+                            <h3>Call Audio</h3>
+                            <p>Hear both sides of an active cellular call on your Mac when the phone permits protected call capture.</p>
+                            <button class="btn btn-accent start-mirror-btn" data-type="call">Start Call Audio</button>
+                        </div>
                         
-                        <!-- Mode 4: Record Session -->
+                        <!-- Mode 5: Record Session -->
                         <div class="card mirror-card" data-mode="record">
                             <div class="card-icon"><i class="material-symbols-outlined">videocam</i></div>
                             <h3>Mirror & Record Session</h3>
@@ -367,7 +376,7 @@
                             <button class="btn btn-primary start-mirror-btn" data-type="record">Mirror & Record Session</button>
                         </div>
                         
-                        <!-- Mode 5: Ghost Driver AI -->
+                        <!-- Mode 6: Ghost Driver AI -->
                         <div id="ghost-driver-card" class="card mirror-card highlight" hidden style="border: 1px solid #00ffcc; box-shadow: 0 0 15px rgba(0,255,204,0.15);">
                             <div class="card-badge" style="background:#00ffcc; color:#000;">AI</div>
                             <div class="card-icon"><i class="material-symbols-outlined" style="color:#00ffcc;">smart_toy</i></div>
@@ -1123,6 +1132,6 @@
         </div>
     </div>
 
-    <script src="index.js?v=2.1.0"></script>
+    <script src="index.js?v=2.1.1"></script>
 </body>
 </html>

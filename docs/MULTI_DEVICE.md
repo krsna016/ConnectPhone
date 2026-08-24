@@ -31,16 +31,15 @@ tries every trusted phone; there is no single auto-connect winner.
 - **Mirror All Screens** opens one controllable screen window per online phone.
 - **Wake All**, **Home All**, and **Sleep All** send explicitly routed commands
   to every online phone.
-- **Alert** wakes one phone, temporarily raises its alarm stream, and starts a
-  native Android timer alarm. **Alert All** does the same for every online
+- **Alert** wakes one phone, temporarily raises its media stream, and plays a
+  bounded offline siren through the phone's resolved audio player. **Alert All** does the same for every online
   phone. **Stop** or **Stop Alerts** dismisses the alarm and restores the
   previous alarm volume.
 
-The alert has a confirmation prompt because it is intentionally loud. It uses
-the phone's installed alarm-clock app, works offline, and does not upload or
-leave an audio file on the phone. When a vendor Clock app replaces Android's
-standard timer-dismiss action, ConnectPhone discovers the vendor action from
-that phone's installed package instead of force-stopping the Clock app.
+The alert has a confirmation prompt because it is intentionally loud. The siren
+is generated locally, works offline, and is removed from the phone by **Stop**.
+It does not use the vendor Clock database, so broken or customized timer apps
+cannot prevent the alert from playing.
 
 ## Unlock phone and App Lock
 

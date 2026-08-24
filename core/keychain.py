@@ -31,6 +31,12 @@ def set(name, value):
     if not available():
         raise RuntimeError("macOS Keychain is unavailable")
     value = "" if value is None else str(value)
+    # Configuration saves happen during endpoint refreshes as well as explicit
+    # preference changes. Avoid asking Security.framework to rewrite an
+    # identical item; some macOS versions report duplicate-item errors for
+    # that otherwise harmless update.
+    if get(name) == value:
+        return
     result = subprocess.run(
         ["security", "add-generic-password", "-a", _account(), "-s", f"{SERVICE}.{name}", "-w", value, "-U"],
         capture_output=True,

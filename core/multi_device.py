@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import datetime
 import concurrent.futures
+import math
 import os
 import re
 import secrets
+import struct
 import subprocess
 import threading
 import time
+import wave
 from pathlib import Path
 
 
@@ -284,9 +287,45 @@ FLEET_CONTROL_ACTIONS = {
 
 _ALARM_VOLUME_RE = re.compile(r"volume is (\d+) in range \[(\d+)\.\.(\d+)\]")
 _COMPONENT_RE = re.compile(r"(?m)^([A-Za-z0-9._]+)/(?:[A-Za-z0-9._$]+)$")
-_DISMISS_TIMER_ACTION_RE = re.compile(r'Action: "([A-Za-z0-9._-]*DISMISS_TIMER)"')
 _ALERT_LOCK = threading.RLock()
 _ALERT_ORIGINAL_VOLUMES = {}
+_ALERT_SOUND_LOCK = threading.Lock()
+_ALERT_REMOTE_PATH = "/sdcard/Download/ConnectPhoneEmergency.wav"
+
+
+def _ensure_emergency_sound():
+    """Create one bounded offline siren in ConnectPhone's app-data folder."""
+    directory = Path.home() / "Library" / "Application Support" / "ConnectPhone"
+    path = directory / "emergency-siren.wav"
+    if path.exists() and path.stat().st_size > 100_000:
+        return path
+    with _ALERT_SOUND_LOCK:
+        if path.exists() and path.stat().st_size > 100_000:
+            return path
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temporary = path.with_suffix(".tmp.wav")
+        sample_rate = 16_000
+        duration_seconds = 30
+        with wave.open(str(temporary), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(sample_rate)
+            frames = bytearray()
+            for index in range(sample_rate * duration_seconds):
+                t = index / sample_rate
+                # Integrate a 600–1200 Hz sweep to produce an unmistakable
+                # warbling siren without shipping or downloading an asset.
+                phase = 2 * math.pi * (900 * t - 39.7887358 * math.cos(2 * math.pi * 1.2 * t))
+                envelope = min(1.0, t / 0.04)
+                frames.extend(struct.pack("<h", int(10_500 * envelope * math.sin(phase))))
+                if len(frames) >= 64 * 1024:
+                    output.writeframesraw(frames)
+                    frames.clear()
+            if frames:
+                output.writeframesraw(frames)
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        return path
 
 
 def _run_device_command(runner, serial, args, timeout=8):
@@ -298,15 +337,17 @@ def _run_device_command(runner, serial, args, timeout=8):
     )
 
 
-def start_emergency_alerts(serials, runner=None):
-    """Start a one-second native timer that rings until dismissed."""
+def start_emergency_alerts(serials, runner=None, sound_path=None):
+    """Play a bounded siren through the phone's resolved audio preview app."""
     runner = runner or subprocess.run
     targets = [validate_serial(item) for item in serials][:MAX_FLEET_DEVICES]
+    local_sound = str(sound_path or _ensure_emergency_sound())
 
     def start(serial):
+        original_volume = None
         try:
             volume_result = _run_device_command(
-                runner, serial, ["shell", "cmd", "media_session", "volume", "--stream", "4", "--get"]
+                runner, serial, ["shell", "cmd", "media_session", "volume", "--stream", "3", "--get"]
             )
             match = _ALARM_VOLUME_RE.search((volume_result.stdout or "") + (volume_result.stderr or ""))
             original_volume = int(match.group(1)) if match else None
@@ -315,38 +356,60 @@ def start_emergency_alerts(serials, runner=None):
             _run_device_command(runner, serial, ["shell", "input", "keyevent", "KEYCODE_WAKEUP"])
             set_result = _run_device_command(
                 runner, serial,
-                ["shell", "cmd", "media_session", "volume", "--stream", "4", "--set", str(maximum_volume)],
+                ["shell", "cmd", "media_session", "volume", "--stream", "3", "--set", str(maximum_volume)],
             )
             if set_result.returncode != 0:
                 raise RuntimeError((set_result.stderr or set_result.stdout or "Could not raise alarm volume").strip())
 
+            push_result = _run_device_command(runner, serial, ["push", local_sound, _ALERT_REMOTE_PATH], timeout=15)
+            if push_result.returncode != 0:
+                raise RuntimeError((push_result.stderr or "Could not copy emergency sound to phone").strip())
+
+            resolve_result = _run_device_command(
+                runner, serial,
+                [
+                    "shell", "cmd", "package", "resolve-activity", "--brief",
+                    "-a", "android.intent.action.VIEW", "-d", f"file://{_ALERT_REMOTE_PATH}", "-t", "audio/wav",
+                ],
+            )
+            component = _COMPONENT_RE.search(resolve_result.stdout or "")
+            if not component:
+                raise RuntimeError("No phone audio player can open the emergency sound")
+            player_component = component.group(0)
+            player_package = component.group(1)
+            # Android 13+ may require the player's normal audio-library runtime
+            # permission before its preview activity can read Downloads.
+            _run_device_command(
+                runner, serial, ["shell", "pm", "grant", player_package, "android.permission.READ_MEDIA_AUDIO"]
+            )
             alert_result = _run_device_command(
                 runner, serial,
                 [
-                    "shell", "am", "start",
-                    "-a", "android.intent.action.SET_TIMER",
-                    "--ei", "android.intent.extra.alarm.LENGTH", "1",
-                    # ADB serializes shell arguments again on the device. Keep
-                    # this value whitespace-free so vendor `am` parsers do not
-                    # reinterpret a word as the target package.
-                    "--es", "android.intent.extra.alarm.MESSAGE", "ConnectPhone-Emergency-Alert",
-                    "--ez", "android.intent.extra.alarm.SKIP_UI", "true",
-                ],
+                    "shell", "am", "start", "-W", "-n", player_component,
+                    "-a", "android.intent.action.VIEW", "-d", f"file://{_ALERT_REMOTE_PATH}", "-t", "audio/wav",
+                ], timeout=15,
             )
             alert_output = (alert_result.stdout or "") + (alert_result.stderr or "")
             if alert_result.returncode != 0 or "Error:" in alert_output:
-                if original_volume is not None:
-                    _run_device_command(
-                        runner, serial,
-                        ["shell", "cmd", "media_session", "volume", "--stream", "4", "--set", str(original_volume)],
-                    )
-                raise RuntimeError((alert_result.stderr or alert_result.stdout or "No alarm app accepted the alert").strip())
+                raise RuntimeError((alert_result.stderr or alert_result.stdout or "The audio player refused the alert").strip())
 
             with _ALERT_LOCK:
                 if original_volume is not None and serial not in _ALERT_ORIGINAL_VOLUMES:
                     _ALERT_ORIGINAL_VOLUMES[serial] = original_volume
             return {"serial": serial, "success": True, "message": "Emergency alert started"}
         except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            if original_volume is not None:
+                try:
+                    _run_device_command(
+                        runner, serial,
+                        ["shell", "cmd", "media_session", "volume", "--stream", "3", "--set", str(original_volume)],
+                    )
+                except Exception:
+                    pass
+            try:
+                _run_device_command(runner, serial, ["shell", "rm", "-f", _ALERT_REMOTE_PATH])
+            except Exception:
+                pass
             return {"serial": serial, "success": False, "message": str(exc) or "Emergency alert failed"}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(targets))) as executor:
@@ -354,53 +417,28 @@ def start_emergency_alerts(serials, runner=None):
 
 
 def stop_emergency_alerts(serials, runner=None):
-    """Dismiss ringing timers and restore the previous alarm volume."""
+    """Stop alert media, remove its phone file, and restore media volume."""
     runner = runner or subprocess.run
     targets = [validate_serial(item) for item in serials][:MAX_FLEET_DEVICES]
 
     def stop(serial):
         try:
-            dismiss_result = _run_device_command(
-                runner, serial, ["shell", "am", "start", "-a", "android.intent.action.DISMISS_TIMER"]
+            stop_result = _run_device_command(
+                runner, serial, ["shell", "cmd", "media_session", "dispatch", "stop"]
             )
-            dismiss_output = (dismiss_result.stdout or "") + (dismiss_result.stderr or "")
-            dismiss_ok = dismiss_result.returncode == 0 and "Error:" not in dismiss_output
-
-            # Some vendor Clock apps accept SET_TIMER but expose a namespaced
-            # dismissal action instead of Android's standard DISMISS_TIMER.
-            # Discover that action from the selected Clock package rather than
-            # force-stopping the package or hard-coding a vendor name.
-            if not dismiss_ok:
-                resolve_result = _run_device_command(
-                    runner, serial,
-                    ["shell", "cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.SET_TIMER"],
-                )
-                component = _COMPONENT_RE.search(resolve_result.stdout or "")
-                if component:
-                    package_name = component.group(1)
-                    package_result = _run_device_command(
-                        runner, serial, ["shell", "dumpsys", "package", package_name], timeout=12
-                    )
-                    actions = [
-                        item for item in _DISMISS_TIMER_ACTION_RE.findall(package_result.stdout or "")
-                        if item != "android.intent.action.DISMISS_TIMER"
-                    ]
-                    if actions:
-                        dismiss_result = _run_device_command(
-                            runner, serial, ["shell", "am", "start", "-a", actions[0]]
-                        )
-                        dismiss_output = (dismiss_result.stdout or "") + (dismiss_result.stderr or "")
-                        dismiss_ok = dismiss_result.returncode == 0 and "Error:" not in dismiss_output
+            stop_output = (stop_result.stdout or "") + (stop_result.stderr or "")
+            stop_ok = stop_result.returncode == 0 and "Error:" not in stop_output
+            _run_device_command(runner, serial, ["shell", "rm", "-f", _ALERT_REMOTE_PATH])
 
             with _ALERT_LOCK:
                 original_volume = _ALERT_ORIGINAL_VOLUMES.pop(serial, None)
             if original_volume is not None:
                 _run_device_command(
                     runner, serial,
-                    ["shell", "cmd", "media_session", "volume", "--stream", "4", "--set", str(original_volume)],
+                    ["shell", "cmd", "media_session", "volume", "--stream", "3", "--set", str(original_volume)],
                 )
-            message = "Emergency alert stopped" if dismiss_ok else (dismiss_output.strip() or "Timer dismissal failed")
-            return {"serial": serial, "success": dismiss_ok, "message": message}
+            message = "Emergency alert stopped" if stop_ok else (stop_output.strip() or "Media stop failed")
+            return {"serial": serial, "success": stop_ok, "message": message}
         except (OSError, subprocess.TimeoutExpired) as exc:
             return {"serial": serial, "success": False, "message": str(exc) or "Emergency alert stop failed"}
 

@@ -103,6 +103,10 @@ class MultiDeviceTests(unittest.TestCase):
         self.assertTrue(stop_emergency_alerts(["USB-A"], runner=runner)[0]["success"])
         flattened = [" ".join(command) for command in commands]
         self.assertTrue(any("android.intent.action.SET_TIMER" in command for command in flattened))
+        set_timer_command = next(command for command in commands if "android.intent.action.SET_TIMER" in command)
+        message_index = set_timer_command.index("android.intent.extra.alarm.MESSAGE") + 1
+        self.assertEqual(set_timer_command[message_index], "ConnectPhone-Emergency-Alert")
+        self.assertNotIn(" ", set_timer_command[message_index])
         self.assertTrue(any("android.intent.action.DISMISS_TIMER" in command for command in flattened))
         self.assertTrue(any("--set 15" in command for command in flattened))
         self.assertTrue(any("--set 6" in command for command in flattened))

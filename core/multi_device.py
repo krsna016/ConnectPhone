@@ -326,7 +326,10 @@ def start_emergency_alerts(serials, runner=None):
                     "shell", "am", "start",
                     "-a", "android.intent.action.SET_TIMER",
                     "--ei", "android.intent.extra.alarm.LENGTH", "1",
-                    "--es", "android.intent.extra.alarm.MESSAGE", "ConnectPhone Emergency Alert",
+                    # ADB serializes shell arguments again on the device. Keep
+                    # this value whitespace-free so vendor `am` parsers do not
+                    # reinterpret a word as the target package.
+                    "--es", "android.intent.extra.alarm.MESSAGE", "ConnectPhone-Emergency-Alert",
                     "--ez", "android.intent.extra.alarm.SKIP_UI", "true",
                 ],
             )

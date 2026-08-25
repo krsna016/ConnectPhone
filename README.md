@@ -10,6 +10,8 @@
 [![Backend: Python 3](https://img.shields.io/badge/Language-Python%203-blue.svg)]()
 [![Bridges: Swift](https://img.shields.io/badge/Bridges-Swift-orange.svg)]()
 
+Project documentation: [security policy](SECURITY.md) · [contributing guide](CONTRIBUTING.md) · [support guide](SUPPORT.md)
+
 ## About The Project
 
 `ConnectPhone` is a macOS desktop dashboard for authorized Android devices. It brings ADB connection management, screen streaming, file transfer, and system telemetry into one application.
@@ -126,6 +128,32 @@ Run the legacy interactive CLI command deck:
 ```bash
 python3 ConnectPhone.py
 ```
+
+## Development
+
+Create a virtual environment, install the locked dependencies, and run the
+same checks used by GitHub Actions:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+node --check ui/index.js
+bash -n build_mac.sh
+```
+
+The Android Companion has its own Gradle project and can be verified with:
+
+```bash
+cd companion-android
+./gradlew --no-daemon test lint assembleDebug
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Changes
+that affect pairing, device control, local API access, Keychain storage, or
+release signing should also update the relevant security documentation and
+tests.
 
 ---
 

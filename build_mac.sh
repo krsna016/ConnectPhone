@@ -3,8 +3,8 @@ set -euo pipefail
 
 echo "🚀 Building ConnectPhone macOS App..."
 
-APP_VERSION="2.3.1"
-APP_BUILD="231"
+APP_VERSION="2.3.2"
+APP_BUILD="232"
 BUNDLE_ID="com.krsna016.ConnectPhone"
 SIGN_IDENTITY="${CONNECTPHONE_SIGN_IDENTITY:--}"
 RELEASE_BUILD="${CONNECTPHONE_RELEASE:-0}"

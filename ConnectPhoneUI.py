@@ -153,7 +153,7 @@ from core.multi_device import (
 )
 from core.companion_server import CompanionServer
 from core.secure_companion import CompanionSecurityError
-from core.companion_installer import install_companion
+from core.companion_installer import find_companion_apk, install_companion
 
 ADB_LIFECYCLE = AdbLifecycle()
 TRANSFER_MANAGER = TransferManager()
@@ -2196,7 +2196,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 online = {item.get("serial") for item in detailed if item.get("status") == "device"}
                 if serial not in online:
                     raise ValueError("Select and connect one authorized ADB phone first.")
-                apk_path = os.path.join(PROJECT_DIR, "companion", "ConnectPhone-Companion.apk")
+                apk_path = find_companion_apk(PROJECT_DIR)
                 res_data.update(install_companion(serial, apk_path))
             elif self.path == '/api/companion/alert':
                 device_id = str(data.get("device_id", "")).strip()

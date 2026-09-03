@@ -406,6 +406,24 @@ class ConfigurationManager:
         self.save()
         return removed
 
+    def enable_auto_reconnect(self, ip: str = "", port: int | None = None) -> None:
+        """Enable reconnect attempts for the specified device(s)."""
+        devices = []
+        for item in self.get("saved_devices", []):
+            if not isinstance(item, dict):
+                continue
+            same_ip = not ip or item.get("ip") == ip
+            try:
+                same_port = port is None or int(item.get("port", -1)) == int(port)
+            except (TypeError, ValueError):
+                same_port = False
+            if same_ip and same_port:
+                item = dict(item)
+                item["auto_reconnect"] = True
+            devices.append(item)
+        self.set("saved_devices", devices)
+        self.save()
+
     def disable_auto_reconnect(self, ip: str = "", port: int | None = None) -> None:
         """Stop reconnect attempts but keep endpoints available in the dropdown."""
         devices = []

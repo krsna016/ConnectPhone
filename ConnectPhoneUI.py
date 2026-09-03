@@ -1124,79 +1124,62 @@ def check_and_autoselect_device(devices_detailed):
     os.environ.pop("ANDROID_SERIAL", None)
     return ""
 
-def discover_all_mdns_services(timeout=2.0, target_ip=None):
+def discover_all_mdns_services(timeout=1.5, target_ip=None):
+    discovered = []
+    seen = set()
+
+    # 1. Native ADB daemon mDNS discovery (Immediate and 100% reliable on macOS)
+    try:
+        proc = subprocess.run(["adb", "mdns", "services"], capture_output=True, text=True, timeout=1.5)
+        for line in (proc.stdout or "").splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 3 and ":" in parts[2]:
+                name, stype, endpoint = parts[0], parts[1], parts[2]
+                ip, port = endpoint.rsplit(":", 1)
+                try:
+                    port_int = int(port)
+                except ValueError:
+                    continue
+                if target_ip and ip != target_ip:
+                    continue
+                stype_norm = "pairing" if "pairing" in stype else "connect"
+                key = (ip, port_int, stype_norm)
+                if key not in seen:
+                    seen.add(key)
+                    discovered.append({
+                        "name": name,
+                        "ip": ip,
+                        "port": port_int,
+                        "type": stype_norm,
+                    })
+    except Exception as exc:
+        print(f"[mDNS] Native adb mdns check: {exc}")
+
+    # 2. ZeroPingScanner Python Bonjour discovery
     try:
         from core.mdns_scanner import ZeroPingScanner
         scanner = ZeroPingScanner(include_pairing=True)
         try:
             services = scanner.find_devices_instantly(search_time=timeout)
-        finally:
-            scanner.stop()
-        services = [item for item in services if not target_ip or item.get("ip") == target_ip]
-        if services:
-            return services
-    except Exception as exc:
-        print(f"[mDNS] Primary Bonjour discovery failed: {exc}")
-    try:
-        from zeroconf import Zeroconf, ServiceBrowser
-    except Exception:
-        Zeroconf = None
-        ServiceBrowser = None
-    
-    discovered = []
-    seen = set()
-    
-    class MultiListener:
-        def _add(self, zc, type, name):
-            try:
-                info = zc.get_service_info(type, name)
-                if info:
-                    addresses = info.parsed_addresses()
-                    ipv4_addrs = [addr for addr in addresses if '.' in addr]
-                    ip = ipv4_addrs[0] if ipv4_addrs else (addresses[0] if addresses else "unknown")
-                    if target_ip and ip != target_ip:
-                        return
-                    clean_name = name.split(".")[0]
-                    item = {
-                        "name": clean_name,
-                        "ip": ip,
-                        "port": info.port,
-                        "type": "connect" if "connect" in type else "pairing"
-                    }
-                    key = (item["ip"], int(item["port"]), item["type"])
+            for item in services:
+                ip = item.get("ip")
+                port = item.get("port")
+                stype_norm = item.get("type", "connect")
+                if target_ip and ip != target_ip:
+                    continue
+                try:
+                    key = (str(ip), int(port), stype_norm)
                     if key not in seen:
                         seen.add(key)
                         discovered.append(item)
-            except Exception:
-                pass
-
-        def add_service(self, zc, type, name):
-            self._add(zc, type, name)
-        def remove_service(self, zc, type, name):
-            pass
-        def update_service(self, zc, type, name):
-            self._add(zc, type, name)
-
-    # Start Zeroconf browser for both connect and pairing service types
-    zc = None
-    if Zeroconf and ServiceBrowser:
-        try:
-            zc = Zeroconf()
-            listener = MultiListener()
-            b1 = ServiceBrowser(zc, "_adb-tls-connect._tcp.local.", listener)
-            b2 = ServiceBrowser(zc, "_adb-tls-pairing._tcp.local.", listener)
-            # Bonjour callbacks normally arrive within a few hundred ms.
-            # Keep a short settling window for phones that wake the service
-            # lazily, without making every scan wait several seconds.
-            time.sleep(min(max(0.8, float(timeout)), 1.5))
-        except Exception:
-            pass
+                except (ValueError, TypeError):
+                    pass
         finally:
-            if zc:
-                zc.close()
+            scanner.stop()
+    except Exception as exc:
+        print(f"[mDNS] Primary Bonjour discovery: {exc}")
 
-    # Native macOS fallback: use dns-sd hybrid resolver if Zeroconf path
-    # is unavailable or did not discover targets in the time window.
+    # 3. macOS native dns-sd fallback
     if not discovered:
         for service_type, service_name, kind in (
             ("_adb-tls-connect._tcp.local.", "adb-connect", "connect"),
@@ -1209,12 +1192,15 @@ def discover_all_mdns_services(timeout=2.0, target_ip=None):
                 timeout=max(1.0, float(timeout)),
             )
             if ip and port:
-                item = {"name": service_name, "ip": ip, "port": int(port), "type": kind}
-                key = (item["ip"], item["port"], item["type"])
-                if key not in seen:
-                    seen.add(key)
-                    discovered.append(item)
-            
+                try:
+                    item = {"name": service_name, "ip": ip, "port": int(port), "type": kind}
+                    key = (item["ip"], item["port"], item["type"])
+                    if key not in seen:
+                        seen.add(key)
+                        discovered.append(item)
+                except (ValueError, TypeError):
+                    pass
+
     return discovered
 
 
@@ -1367,15 +1353,27 @@ def connect_previously_authorized_devices():
     }
 
 
-def connect_all_trusted_devices():
+def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
     """Reconnect every enrolled phone while preserving the selected target."""
     config = ConnectPhone.load_config()
     saved = [
         dict(item) for item in config.get("saved_devices", [])
-        if isinstance(item, dict) and item.get("auto_reconnect", True)
-        and item.get("device_serial") and _valid_ipv4(str(item.get("ip", "")))
+        if isinstance(item, dict)
+        and (ignore_auto_reconnect_flag or item.get("auto_reconnect", True))
+        and _valid_ipv4(str(item.get("ip", "")))
         and _valid_port(item.get("port"))
     ][:MAX_FLEET_DEVICES]
+
+    if not saved and config.get("last_ip") and _valid_ipv4(str(config.get("last_ip"))):
+        last_port = config.get("last_port") or 5555
+        if _valid_port(last_port):
+            saved = [{
+                "ip": str(config.get("last_ip")),
+                "port": int(last_port),
+                "device_serial": config.get("last_device_serial") or "",
+                "auto_reconnect": True,
+            }]
+
     try:
         adb_result = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=3)
         online = {
@@ -1389,46 +1387,73 @@ def connect_all_trusted_devices():
     unresolved = []
     for item in saved:
         ip, port = str(item["ip"]), int(item["port"])
-        identity = str(item["device_serial"])
+        identity = str(item.get("device_serial", ""))
         endpoint = f"{ip}:{port}"
-        if endpoint in online or identity in online:
+        if endpoint in online or (identity and identity in online):
             connected.append({"endpoint": endpoint if endpoint in online else identity, "serial": identity})
             continue
-        accepted, _ = _adb_connect(ip, port, attempts=1, timeout=4)
+        accepted, _ = _adb_connect(ip, port, attempts=1, timeout=3)
         actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1) if accepted else None
-        if actual == identity:
-            ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, identity)
-            connected.append({"endpoint": endpoint, "serial": identity})
+        if actual and (not identity or actual == identity):
+            ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, actual)
+            ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
+            connected.append({"endpoint": endpoint, "serial": actual})
+            os.environ["ANDROID_SERIAL"] = endpoint
         else:
             if accepted:
                 subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
             unresolved.append(item)
 
+    services = discover_all_mdns_services(timeout=1.0)
+    by_ip = {}
+    for service in services:
+        if service.get("type") == "connect" and _valid_port(service.get("port")):
+            by_ip.setdefault(str(service.get("ip")), []).append(int(service["port"]))
+
     if unresolved:
-        services = discover_all_mdns_services(timeout=1.0)
-        by_ip = {}
-        for service in services:
-            if service.get("type") == "connect" and _valid_port(service.get("port")):
-                by_ip.setdefault(str(service.get("ip")), []).append(int(service["port"]))
         for item in unresolved:
-            ip, identity = str(item["ip"]), str(item["device_serial"])
+            ip = str(item["ip"])
+            identity = str(item.get("device_serial", ""))
             for port in by_ip.get(ip, []):
                 endpoint = f"{ip}:{port}"
                 accepted, _ = _adb_connect(ip, port, attempts=1, timeout=3)
                 actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1) if accepted else None
-                if actual == identity:
-                    ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, identity)
-                    connected.append({"endpoint": endpoint, "serial": identity})
+                if actual and (not identity or actual == identity):
+                    ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, actual)
+                    ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
+                    connected.append({"endpoint": endpoint, "serial": actual})
+                    os.environ["ANDROID_SERIAL"] = endpoint
                     break
                 if accepted:
                     subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
 
+    # Fallback: connect to ANY discovered connect target on mDNS if authorized
+    if not connected:
+        for service in services:
+            if service.get("type") == "connect" and _valid_port(service.get("port")):
+                ip, port = str(service.get("ip")), int(service["port"])
+                endpoint = f"{ip}:{port}"
+                accepted, _ = _adb_connect(ip, port, attempts=1, timeout=3)
+                if accepted:
+                    actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1)
+                    if actual:
+                        ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, actual)
+                        ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
+                        connected.append({"endpoint": endpoint, "serial": actual})
+                        os.environ["ANDROID_SERIAL"] = endpoint
+                        break
+                    else:
+                        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
+
+    if connected:
+        _publish_connected_endpoint(connected[0]["endpoint"], connected[0].get("serial", ""))
+
     _invalidate_status_cache()
     return {
         "success": bool(connected),
-        "message": f"Connected {len(connected)} of {len(saved)} trusted phone(s).",
+        "message": f"Connected {len(connected)} phone(s)." if connected else "No authorized wireless debug phones responded.",
         "devices": connected,
-        "total": len(saved),
+        "total": len(saved) or len(connected),
     }
 
 

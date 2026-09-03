@@ -255,6 +255,22 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Compact Bottom Diagnostics & Quick Actions Bar -->
+                        <div class="card connection-quick-toolbar" style="grid-column: 1 / -1; margin-top: 2px; padding: 10px 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; background: rgba(14, 18, 25, 0.65); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px;">
+                            <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary);">
+                                <i class="material-symbols-outlined" style="font-size: 18px; color: var(--color-primary);">build</i>
+                                <span>Diagnostics & Tools:</span>
+                            </div>
+                            <div class="diagnostic-actions" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                                <button class="btn btn-warning btn-sm" id="btn-restart-adb"><i class="material-symbols-outlined" style="font-size: 15px;">restart_alt</i> Restart ADB</button>
+                                <button class="btn btn-danger btn-sm" id="btn-disconnect-all"><i class="material-symbols-outlined" style="font-size: 15px;">link_off</i> Disconnect All</button>
+                                <button class="btn btn-primary btn-sm" id="btn-ping-test"><i class="material-symbols-outlined" style="font-size: 15px;">bolt</i> Ping Test</button>
+                                <button class="btn btn-accent btn-sm" id="btn-phone-unlock"><i class="material-symbols-outlined" style="font-size: 15px;">fingerprint</i> Touch ID</button>
+                                <button class="btn btn-secondary btn-sm" id="btn-app-unlock"><i class="material-symbols-outlined" style="font-size: 15px;">lock_open</i> Unlock App</button>
+                            </div>
+                            <div id="ping-test-result" class="ping-result hidden" style="width: 100%; margin-top: 4px;"></div>
+                        </div>
                     </div>
                 </section>
                 
@@ -610,18 +626,10 @@
                                 <div class="stat-row"><span>System Uptime:</span> <strong id="metric-sys-uptime">--</strong></div>
                                 <div class="stat-row"><span>System Load:</span> <strong id="metric-sys-load">--</strong></div>
                             </div>
-                        <!-- Diagnostics Card -->
-                        <div class="card metrics-card diagnostics-card">
-                            <h3><i class="material-symbols-outlined">build</i> Diagnostics & Quick Tools</h3>
-                            <p style="font-size: 0.85em; color: var(--text-secondary); margin-bottom: 12px;">Fast recovery tools and biometric phone authentication.</p>
-                            <div class="diagnostic-actions" style="display: flex; flex-wrap: wrap; gap: 8px;">
-                                <button class="btn btn-warning btn-sm" id="btn-restart-adb">Restart ADB Server</button>
-                                <button class="btn btn-danger btn-sm" id="btn-disconnect-all">Disconnect All</button>
-                                <button class="btn btn-primary btn-sm" id="btn-ping-test"><i class="material-symbols-outlined">bolt</i> Ping Test</button>
-                                <button class="btn btn-accent btn-sm" id="btn-phone-unlock"><i class="material-symbols-outlined">key</i> Touch ID Unlock</button>
-                                <button class="btn btn-secondary btn-sm" id="btn-app-unlock"><i class="material-symbols-outlined">lock_open</i> Unlock App</button>
+                            <div class="ping-section">
+                                <button class="btn btn-accent" id="btn-ping-test-metrics"><i class="material-symbols-outlined">bolt</i> Run Ping Test</button>
+                                <div class="ping-result" id="ping-test-result-metrics">Click test to calculate round-trip latency.</div>
                             </div>
-                            <div id="ping-test-result" class="ping-result hidden" style="margin-top: 10px;"></div>
                         </div>
                     </div>
                 </section>

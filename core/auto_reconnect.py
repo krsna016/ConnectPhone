@@ -82,6 +82,27 @@ class AutoReconnector:
         self._last_keepalive = {}
         self._keepalive_failures = {}
         self._last_port_scan = {}
+        self._manually_disconnected = set()
+        self._manually_disconnected_all = False
+        self._seen_mdns_ports = {}
+
+    def pause_auto_reconnect(self, target=None):
+        """Pause auto-reconnecting after an explicit user disconnect."""
+        if target:
+            self._manually_disconnected.add(str(target))
+            self.connected_endpoints.discard(str(target))
+        else:
+            self._manually_disconnected_all = True
+            self.connected_endpoints.clear()
+        self._offline_since.clear()
+
+    def unpause_auto_reconnect(self, target=None):
+        """Resume auto-reconnecting when user requests connection."""
+        if target:
+            self._manually_disconnected.discard(str(target))
+        else:
+            self._manually_disconnected.clear()
+            self._manually_disconnected_all = False
 
     def _notify_change(self):
         if callable(self._on_change):
@@ -115,8 +136,26 @@ class AutoReconnector:
                     continue
                 self._keepalive(states)
                 discovered = self.scanner.find_devices_instantly(search_time=0.5)
+
+                # If phone wireless debugging was toggled on the phone (fresh/changed port),
+                # automatically lift manual disconnect pause!
+                for device in discovered:
+                    if device.get("type", "connect") == "connect" and "ip" in device and "port" in device:
+                        ip, port = str(device["ip"]), int(device["port"])
+                        prev_port = self._seen_mdns_ports.get(ip)
+                        if prev_port is not None and prev_port != port:
+                            # Port changed -> user toggled Wireless Debugging!
+                            self.unpause_auto_reconnect(ip)
+                            self._manually_disconnected_all = False
+                        self._seen_mdns_ports[ip] = port
+
                 for item in trusted:
                     serial = item["serial"]
+                    ip = item["ip"]
+                    if self._manually_disconnected_all:
+                        continue
+                    if serial in self._manually_disconnected or ip in self._manually_disconnected:
+                        continue
                     if any(states.get(ep) == "device" and value == serial for ep, value in self._endpoint_serial.items()):
                         continue
                     matches = []

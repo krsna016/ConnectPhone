@@ -1518,6 +1518,8 @@ def _foreground_connect_worker():
 def start_foreground_connect():
     """Acknowledge immediately and reconnect all trusted phones in background."""
     global _foreground_connect_thread, _foreground_connect_result
+    if AUTO_RECONNECTOR:
+        AUTO_RECONNECTOR.unpause_auto_reconnect()
     with _foreground_connect_lock:
         if _foreground_connect_thread and _foreground_connect_thread.is_alive():
             return {"success": True, "pending": True, "message": "Connection is already in progress…"}
@@ -2537,6 +2539,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["message"] = "A valid TCP port is required."
                 else:
                     ip_port = f"{ip}:{port}"
+                    if AUTO_RECONNECTOR:
+                        AUTO_RECONNECTOR.unpause_auto_reconnect(ip)
                     connected, output = _adb_connect(ip, int(port), attempts=1, timeout=4)
                     if connected:
                         res_data["success"] = True
@@ -2544,6 +2548,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         device_serial = _get_adb_device_serial(ip_port)
                         if device_serial:
                             ConnectPhone.save_wireless_endpoint(ip, int(port), device_serial)
+                            ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, int(port))
                             res_data["message"] = f"Connected to {ip_port}; identity pinned for persistent reconnect."
                             _publish_connected_endpoint(ip_port, device_serial)
                         else:
@@ -2700,13 +2705,12 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     stop_scrcpy_bg()
 
                 if AUTO_RECONNECTOR:
-                    if target_ip and target_port:
-                        AUTO_RECONNECTOR.connected_endpoints.discard(f"{target_ip}:{target_port}")
+                    if target_ip:
+                        AUTO_RECONNECTOR.pause_auto_reconnect(target_ip)
                     elif target_serial:
-                        AUTO_RECONNECTOR.connected_endpoints.discard(target_serial)
+                        AUTO_RECONNECTOR.pause_auto_reconnect(target_serial)
                     else:
-                        AUTO_RECONNECTOR.connected_endpoints.clear()
-                    AUTO_RECONNECTOR._offline_since.clear()
+                        AUTO_RECONNECTOR.pause_auto_reconnect()
 
                 os.environ.pop("ANDROID_SERIAL", None)
                 res_data["success"] = True

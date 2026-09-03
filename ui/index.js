@@ -141,10 +141,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     }
     // Refresh devices list manually
-    btnRefresh.addEventListener('click', () => {
-        showToast('Scanning for connected devices...', 'info');
-        fetchStatus(true);
-    });
+    if (btnRefresh) {
+        btnRefresh.addEventListener('click', () => {
+            showToast('Scanning for connected devices...', 'info');
+            fetchStatus(true);
+        });
+    }
+
+    const btnHeaderAutoConnect = document.getElementById('btn-header-autoconnect');
+    if (btnHeaderAutoConnect) {
+        btnHeaderAutoConnect.addEventListener('click', () => {
+            showToast('Attempting instant wireless auto-reconnect...', 'info');
+            postAction('/api/connect/auto', {}, btnHeaderAutoConnect);
+        });
+    }
+
+    const btnHeaderMirror = document.getElementById('btn-header-mirror');
+    if (btnHeaderMirror) {
+        btnHeaderMirror.addEventListener('click', () => {
+            showToast('Launching standard screen mirror...', 'info');
+            postAction('/api/mirror', { type: 'screen' }, btnHeaderMirror);
+        });
+    }
+
+    const btnHeaderDisconnect = document.getElementById('btn-header-disconnect');
+    if (btnHeaderDisconnect) {
+        btnHeaderDisconnect.addEventListener('click', () => {
+            showToast('Disconnecting all active transports...', 'info');
+            postAction('/api/disconnect', {}, btnHeaderDisconnect);
+        });
+    }
 
     // Toast Notifications
     function showToast(message, type = 'success') {

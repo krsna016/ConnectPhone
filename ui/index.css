@@ -359,6 +359,42 @@ body {
     transform: translateY(0);
 }
 
+.header-btn.btn-header-accent {
+    background: rgba(19, 191, 199, 0.15);
+    border-color: rgba(19, 191, 199, 0.35);
+    color: var(--color-accent);
+}
+
+.header-btn.btn-header-accent:hover {
+    background: rgba(19, 191, 199, 0.25);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 12px var(--color-accent-glow);
+}
+
+.header-btn.btn-header-primary {
+    background: rgba(24, 217, 222, 0.15);
+    border-color: rgba(24, 217, 222, 0.4);
+    color: var(--color-primary);
+}
+
+.header-btn.btn-header-primary:hover {
+    background: rgba(24, 217, 222, 0.28);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 14px var(--color-primary-glow);
+}
+
+.header-btn.btn-header-danger {
+    background: rgba(240, 107, 120, 0.12);
+    border-color: rgba(240, 107, 120, 0.3);
+    color: var(--color-danger);
+}
+
+.header-btn.btn-header-danger:hover {
+    background: rgba(240, 107, 120, 0.22);
+    border-color: var(--color-danger);
+    box-shadow: 0 0 12px rgba(240, 107, 120, 0.25);
+}
+
 /* Camera Overlay */
 .camera-control-overlay {
     background-color: var(--bg-card);

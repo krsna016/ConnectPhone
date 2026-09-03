@@ -1295,22 +1295,34 @@ body {
 }
 
 /* Redesigned Connection Center Layout */
-.connection-layout {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-    align-items: start;
-    margin-top: 10px;
-}
-
-.connection-main, .connection-side {
+.connection-layout-streamlined {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 18px;
+    margin-top: 0;
+}
+
+.connection-grid-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    align-items: stretch;
+}
+
+.connection-grid-pair > .card {
+    margin-bottom: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.connection-grid-pair > .card .devices-list-container,
+.connection-grid-pair > .card .mdns-devices-list {
+    flex: 1;
 }
 
 @media (max-width: 1024px) {
-    .connection-layout {
+    .connection-grid-pair {
         grid-template-columns: 1fr;
     }
 }
@@ -3607,14 +3619,10 @@ textarea:focus {
     box-shadow: 0 0 0 3px rgba(42, 207, 202, 0.08) !important;
 }
 
-.connection-layout {
-    grid-template-columns: minmax(0, 1.12fr) minmax(340px, .88fr);
+.connection-layout-streamlined {
     gap: 18px;
     margin-top: 0;
 }
-
-.connection-main,
-.connection-side { gap: 18px; }
 
 .active-device-card {
     background: linear-gradient(135deg, rgba(66, 214, 155, 0.055), rgba(22, 30, 42, 0.96));

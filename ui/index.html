@@ -161,29 +161,29 @@
                         <p>Manage USB and wireless connections, pair debugging ports, and inspect online status</p>
                     </div>
                     
-                    <div class="connection-layout">
-                        <!-- Left Main Panel: Devices list and discovery -->
-                        <div class="connection-main">
-                            <!-- Active Connection Summary -->
-                            <div class="card active-device-card">
-                                <div class="device-status-header">
-                                    <div class="pulse-indicator disconnected" id="device-pulse-indicator"></div>
-                                    <h3>Active Device Status</h3>
-                                </div>
-                                <div class="device-status-body" id="active-device-details-box">
-                                    <p class="status-placeholder">No Android device is currently selected or active. Connect a device below or scan for local wireless debug targets.</p>
-                                </div>
-                                <div id="security-settings-warning" class="security-warning-box hidden">
-                                    <i class="material-symbols-outlined">warning</i> <strong>Input Injection Blocked:</strong> Your phone is rejecting keyboard and touch input simulations.
-                                    For Touch ID unlocking and remote controls to work:
-                                    <ol>
-                                        <li>Go to <strong>Settings > Additional Settings > Developer Options</strong>.</li>
-                                        <li>Toggle ON <strong>"USB debugging (Security settings)"</strong> (requires SIM card / Mi login).</li>
-                                        <li><strong>Reboot your phone</strong> to apply changes, then retry mirroring.</li>
-                                    </ol>
-                                </div>
+                    <div class="connection-layout-streamlined">
+                        <!-- Top Row: Active Device Status -->
+                        <div class="card active-device-card">
+                            <div class="device-status-header">
+                                <div class="pulse-indicator disconnected" id="device-pulse-indicator"></div>
+                                <h3>Active Device Status</h3>
                             </div>
-                            
+                            <div class="device-status-body" id="active-device-details-box">
+                                <p class="status-placeholder">No Android device is currently selected or active. Connect a device below or scan for local wireless debug targets.</p>
+                            </div>
+                            <div id="security-settings-warning" class="security-warning-box hidden">
+                                <i class="material-symbols-outlined">warning</i> <strong>Input Injection Blocked:</strong> Your phone is rejecting keyboard and touch input simulations.
+                                For Touch ID unlocking and remote controls to work:
+                                <ol>
+                                    <li>Go to <strong>Settings > Additional Settings > Developer Options</strong>.</li>
+                                    <li>Toggle ON <strong>"USB debugging (Security settings)"</strong> (requires SIM card / Mi login).</li>
+                                    <li><strong>Reboot your phone</strong> to apply changes, then retry mirroring.</li>
+                                </ol>
+                            </div>
+                        </div>
+
+                        <!-- Row 1: Attached Devices (Left) & mDNS Discovery (Right) -->
+                        <div class="connection-grid-pair">
                             <!-- Connected Devices List -->
                             <div class="card connected-devices-card">
                                 <div class="card-header-row">
@@ -210,9 +210,9 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Right Side Panel: Connection controls and Diagnostics -->
-                        <div class="connection-side">
+
+                        <!-- Row 2 (Side-by-Side): Fast Connect & Wireless Pairing -->
+                        <div class="connection-grid-pair">
                             <!-- Quick Connect Card -->
                             <div class="card connection-controls-card">
                                 <h3><i class="material-symbols-outlined">bolt</i> Fast Wireless Connect</h3>
@@ -268,7 +268,10 @@
                                     </div>
                                 </div>
                             </div>
-                            
+                        </div>
+
+                        <!-- Row 3 (Side-by-Side): Secure Companion & Diagnostics Toolkit -->
+                        <div class="connection-grid-pair">
                             <!-- Secure Companion Mode -->
                             <div class="card pairing-controls-card">
                                 <h3><i class="material-symbols-outlined">shield_lock</i> Secure Companion Mode</h3>

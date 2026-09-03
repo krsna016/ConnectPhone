@@ -62,13 +62,14 @@ class AutoReconnector:
     CONNECT_TIMEOUT = 4.0
     PORT_SCAN_COOLDOWN = 30.0
 
-    def __init__(self, config_path=None, scanner=None, command_runner=None, busy_check=None, port_discoverer=None):
+    def __init__(self, config_path=None, scanner=None, command_runner=None, busy_check=None, port_discoverer=None, on_change=None):
         self.logger = logging.getLogger(__name__)
         self.config_path = config_path or migrate_legacy_config()
         self.scanner = scanner or ZeroPingScanner()
         self._run = command_runner or subprocess.run
         self._busy_check = busy_check or (lambda: False)
         self._discover_ports = port_discoverer or discover_open_tcp_ports
+        self._on_change = on_change
         self._thread = None
         self._stop_event = threading.Event()
         self.connected_endpoints = set()
@@ -82,10 +83,22 @@ class AutoReconnector:
         self._keepalive_failures = {}
         self._last_port_scan = {}
 
+    def _notify_change(self):
+        if callable(self._on_change):
+            try:
+                self._on_change()
+            except Exception:
+                pass
+
     def start_watching(self):
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
+        if hasattr(self.scanner, "start"):
+            try:
+                self.scanner.start()
+            except Exception:
+                pass
         self._thread = threading.Thread(target=self._watch_loop, name="ConnectPhone-Reconnect", daemon=True)
         self._thread.start()
 
@@ -174,6 +187,7 @@ class AutoReconnector:
             os.environ["ANDROID_SERIAL"] = endpoint
         if not persist_current_endpoint(self.config_path, endpoint, serial):
             self.logger.warning("Could not persist wireless endpoint %s", endpoint)
+        self._notify_change()
 
     @staticmethod
     def _port_open(endpoint):

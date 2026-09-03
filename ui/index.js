@@ -1698,7 +1698,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         // Keep the dashboard responsive without competing with ADB actions.
-        statusInterval = setInterval(fetchStatus, 2500);
+        statusInterval = setInterval(fetchStatus, 1000);
     }
 
     initDashboard();

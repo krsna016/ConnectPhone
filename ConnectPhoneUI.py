@@ -528,7 +528,7 @@ def _status_cache_worker():
             print(f"[StatusCache] Error: {e}")
         # ADB device metadata is not volatile enough to justify a 1.2-second
         # command storm. Actions still invalidate the cache immediately.
-        _status_cache_event.wait(timeout=3.0)
+        _status_cache_event.wait(timeout=1.0)
         _status_cache_event.clear()
 
 def _invalidate_status_cache():
@@ -3864,7 +3864,7 @@ def run_server():
     print(f"\n🚀 ConnectPhone UI Dashboard Running on http://localhost:{PORT}")
     
     from core.auto_reconnect import AutoReconnector
-    auto_reconnector = AutoReconnector(busy_check=TRANSFER_MANAGER.has_active)
+    auto_reconnector = AutoReconnector(busy_check=TRANSFER_MANAGER.has_active, on_change=_invalidate_status_cache)
     auto_reconnector.start_watching()
 
     cleanup_lock = threading.Lock()

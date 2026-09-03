@@ -64,7 +64,7 @@ def wireless_transport_states(runner, unavailable=_DEFAULT_UNAVAILABLE):
         return {
             parts[0]: parts[1]
             for line in (result.stdout or "").splitlines()[1:]
-            if len(parts := line.split()) >= 2 and ":" in parts[0]
+            if len(parts := line.split()) >= 2 and (":" in parts[0] or "._adb-tls-connect._tcp" in parts[0])
         }
     except (OSError, subprocess.TimeoutExpired):
         return {} if unavailable is _DEFAULT_UNAVAILABLE else unavailable

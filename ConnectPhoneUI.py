@@ -445,6 +445,7 @@ _shutdown_event = threading.Event()
 _input_permission_cache: dict[object, tuple] = {}
 _device_info_cache: dict[object, tuple] = {}
 _adb_action_lock = threading.RLock()
+AUTO_RECONNECTOR = None
 
 def _build_status_payload():
     """Build the full /api/status payload. Called from background thread."""
@@ -2646,30 +2647,43 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                             )
                         
             elif self.path == '/api/disconnect':
+                target_serial = str(data.get("serial", "")).strip() if data and data.get("serial") is not None else ""
                 target_ip = str(data.get("ip", "")).strip() if data and data.get("ip") is not None else ""
                 target_port = str(data.get("port", "")).strip() if data and data.get("port") is not None else ""
-                if target_ip and not _valid_ipv4(target_ip):
-                    res_data["message"] = "A valid IPv4 address is required."
-                    self.wfile.write(json.dumps(res_data).encode('utf-8'))
-                    return
-                if target_port and not _valid_port(target_port):
-                    res_data["message"] = "A valid TCP port is required."
-                    self.wfile.write(json.dumps(res_data).encode('utf-8'))
-                    return
-                if target_ip and target_port:
+                
+                if target_serial and ":" in target_serial and not target_serial.startswith("adb-"):
+                    ip_part, port_part = target_serial.rsplit(":", 1)
+                    if _valid_ipv4(ip_part) and _valid_port(port_part):
+                        target_ip, target_port = ip_part, port_part
+
+                if target_ip and target_port and _valid_ipv4(target_ip) and _valid_port(target_port):
                     ip_port = f"{target_ip}:{target_port}"
                     res = subprocess.run(["adb", "disconnect", ip_port], capture_output=True, text=True)
-                    res_data["message"] = f"Disconnected from {ip_port}."
                     ConnectPhone.global_config_mgr.disable_auto_reconnect(target_ip, int(target_port))
-                elif target_ip:
+                    res_data["message"] = f"Disconnected from {ip_port}."
+                elif target_serial:
+                    res = subprocess.run(["adb", "disconnect", target_serial], capture_output=True, text=True)
+                    res_data["message"] = f"Disconnected from {target_serial}."
+                elif target_ip and _valid_ipv4(target_ip):
                     res = subprocess.run(["adb", "disconnect", target_ip], capture_output=True, text=True)
-                    res_data["message"] = f"Disconnected from {target_ip}."
                     ConnectPhone.global_config_mgr.disable_auto_reconnect(target_ip)
+                    res_data["message"] = f"Disconnected from {target_ip}."
                 else:
                     res = subprocess.run(["adb", "disconnect"], capture_output=True, text=True)
                     res_data["message"] = "Disconnected from all devices."
                     ConnectPhone.global_config_mgr.disable_auto_reconnect()
                     stop_scrcpy_bg()
+
+                if AUTO_RECONNECTOR:
+                    if target_ip and target_port:
+                        AUTO_RECONNECTOR.connected_endpoints.discard(f"{target_ip}:{target_port}")
+                    elif target_serial:
+                        AUTO_RECONNECTOR.connected_endpoints.discard(target_serial)
+                    else:
+                        AUTO_RECONNECTOR.connected_endpoints.clear()
+                    AUTO_RECONNECTOR._offline_since.clear()
+
+                os.environ.pop("ANDROID_SERIAL", None)
                 res_data["success"] = True
                 _invalidate_status_cache()
 
@@ -3864,8 +3878,10 @@ def run_server():
     print(f"\n🚀 ConnectPhone UI Dashboard Running on http://localhost:{PORT}")
     
     from core.auto_reconnect import AutoReconnector
-    auto_reconnector = AutoReconnector(busy_check=TRANSFER_MANAGER.has_active, on_change=_invalidate_status_cache)
-    auto_reconnector.start_watching()
+    global AUTO_RECONNECTOR
+    AUTO_RECONNECTOR = AutoReconnector(busy_check=TRANSFER_MANAGER.has_active, on_change=_invalidate_status_cache)
+    AUTO_RECONNECTOR.start_watching()
+    auto_reconnector = AUTO_RECONNECTOR
 
     cleanup_lock = threading.Lock()
     cleanup_complete = False

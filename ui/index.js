@@ -588,11 +588,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             e.stopPropagation();
                             showToast(`Disconnecting ${device.serial}...`, 'info');
                             try {
-                                const parts = device.serial.split(':');
+                                const parts = (device.serial || '').split(':');
+                                const body = parts.length === 2
+                                    ? { serial: device.serial, ip: parts[0], port: parts[1] }
+                                    : { serial: device.serial };
                                 const res = await fetch(`${API_BASE}/api/disconnect`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ ip: parts[0], port: parts[1] })
+                                    body: JSON.stringify(body)
                                 });
                                 const resData = await res.json();
                                 showToast(resData.message || 'Disconnected.', resData.success ? 'success' : 'error');

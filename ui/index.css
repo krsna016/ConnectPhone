@@ -198,48 +198,72 @@ body {
     50% { opacity: 0; }
 }
 
-/* Sidebar Nav Buttons */
+/* Sidebar Nav Buttons - macOS Dock Style */
 .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     flex-grow: 1;
+    background: rgba(15, 20, 28, 0.45);
+    padding: 10px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
 }
 
 .nav-btn {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
+    padding: 9px 14px;
     background-color: transparent;
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: 10px;
     color: var(--text-secondary);
     font-family: var(--font-heading);
     font-size: 13.5px;
     font-weight: 500;
     cursor: pointer;
     text-align: left;
-    transition: var(--transition-smooth);
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     box-shadow: none;
     white-space: nowrap;
+    position: relative;
 }
 
 .nav-btn:hover {
-    color: var(--text-primary);
-    background-color: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.03);
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.08);
+    transform: translateX(3px) scale(1.01);
 }
 
 .nav-btn.active {
-    color: var(--color-primary);
-    background-color: rgba(0, 230, 230, 0.08);
-    border-color: rgba(0, 230, 230, 0.15);
+    color: #ffffff;
+    background: linear-gradient(135deg, rgba(24, 217, 222, 0.22), rgba(19, 191, 199, 0.12));
+    border-color: rgba(24, 217, 222, 0.35);
     font-weight: 600;
+    box-shadow: 0 4px 14px rgba(24, 217, 222, 0.15);
+}
+
+.nav-btn.active::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 16px;
+    background-color: var(--color-primary);
+    border-radius: 4px;
+    box-shadow: 0 0 8px var(--color-primary-glow);
 }
 
 .nav-btn .btn-icon {
     font-size: 17px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .sidebar-footer {
@@ -1294,35 +1318,50 @@ body {
     border-color: rgba(239, 68, 68, 0.15);
 }
 
-/* Redesigned Connection Center Layout */
-.connection-layout-streamlined {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
+/* 4-Card Quad Grid Connection Center */
+.connection-quad-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: stretch;
     margin-top: 0;
 }
 
-.connection-grid-pair {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 18px;
-    align-items: stretch;
-}
-
-.connection-grid-pair > .card {
+.quad-card {
     margin-bottom: 0;
-    height: 100%;
+    min-height: 250px;
     display: flex;
     flex-direction: column;
+    padding: 18px 22px;
+    background: rgba(22, 28, 38, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    backdrop-filter: blur(16px);
 }
 
-.connection-grid-pair > .card .devices-list-container,
-.connection-grid-pair > .card .mdns-devices-list {
+.quad-card h3 {
+    font-size: 15px;
+    margin-bottom: 6px;
+}
+
+.quad-card p {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.quad-card .devices-list-container {
     flex: 1;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.quad-card .mdns-devices-list {
+    max-height: 120px;
+    overflow-y: auto;
 }
 
 @media (max-width: 1024px) {
-    .connection-grid-pair {
+    .connection-quad-grid {
         grid-template-columns: 1fr;
     }
 }

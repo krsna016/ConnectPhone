@@ -172,6 +172,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const headerDeviceSelect = document.getElementById('header-device-select');
+    if (headerDeviceSelect) {
+        headerDeviceSelect.addEventListener('change', async (e) => {
+            const chosen = e.target.value;
+            if (!chosen) return;
+            showToast(`Switching active device to ${chosen}...`, 'info');
+            try {
+                const res = await postAction('/api/devices/select', { serial: chosen });
+                if (res && res.success) {
+                    showToast(res.message || 'Device selected', 'success');
+                    await fetchStatus(true);
+                } else {
+                    showToast(res ? res.message : 'Failed to switch device', 'error');
+                }
+            } catch (err) {
+                showToast(`Error: ${err.message}`, 'error');
+            }
+        });
+    }
+
     // Toast Notifications
     function showToast(message, type = 'success') {
         const toast = document.createElement('div');
@@ -503,25 +523,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const cleanInfo = (data.device_info || "").replace(/\\033\[[0-9;]*m/g, '').replace(/\x1b\[[0-9;]*m/g, '');
         
         const wasConnected = window.isConnected;
+        const previousActiveDevice = window.activeDevice;
         window.isConnected = !!data.connected;
         window.activeDevice = data.connected ? (data.active_device || '') : '';
+        const deviceChanged = Boolean(previousActiveDevice && window.activeDevice && previousActiveDevice !== window.activeDevice);
         syncMdnsConnectionButtons();
         if (storageDisconnectedAlert && storageMainView) {
             if (window.isConnected) {
                 storageDisconnectedAlert.style.display = 'none';
                 storageMainView.style.display = 'flex';
-                if (!wasConnected) loadPhoneStorages();
+                if (!wasConnected || deviceChanged) {
+                    loadPhoneStorages();
+                    if (deviceChanged) {
+                        window.currentStoragePath = '/sdcard';
+                        if (storageCurrentPath) storageCurrentPath.value = '/sdcard';
+                    }
+                }
                 
-                // If we just connected, or if we are on the storage tab and it hasn't loaded yet (e.g. empty path input)
-                if ((!wasConnected || !storageCurrentPath.value) && currentTab === 'storage') {
-                    if (window.loadStorageDirectory) window.loadStorageDirectory(window.currentStoragePath);
+                // If we just connected, or if active device changed, or if we are on the storage tab and it hasn't loaded yet
+                if ((!wasConnected || deviceChanged || !storageCurrentPath.value) && currentTab === 'storage') {
+                    if (window.loadStorageDirectory) window.loadStorageDirectory(window.currentStoragePath || '/sdcard');
                 }
             } else {
                 storageDisconnectedAlert.style.display = 'flex';
                 storageMainView.style.display = 'none';
             }
         }
+        if (deviceChanged && currentTab === 'metrics' && window.fetchLiveMetrics) {
+            window.fetchLiveMetrics();
+        }
 
+        const headerDevSelect = document.getElementById('header-device-select');
         if (data.connected) {
             connStatus.className = 'connection-badge connected';
             const onlineCount = (data.fleet || []).filter(device => device.status === 'online').length;
@@ -534,12 +566,28 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 headerDevice.innerHTML = `<span style="font-size:13px; color: var(--text-secondary);"><i class="material-symbols-outlined" style="font-size:13px">cable</i> Selected: ${escapeHtml(data.active_device)} • ${onlineCount} online</span>`;
             }
+
+            if (headerDevSelect) {
+                const onlineFleet = (data.fleet || []).filter(device => device.status === 'online');
+                if (onlineFleet.length > 1) {
+                    headerDevSelect.innerHTML = onlineFleet.map(device => {
+                        const isSel = device.selected || device.serial === data.active_device;
+                        const label = `${device.name} (${device.serial})`;
+                        return `<option value="${escapeHtml(device.serial)}" ${isSel ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+                    }).join('');
+                    headerDevSelect.style.display = 'inline-block';
+                } else {
+                    headerDevSelect.style.display = 'none';
+                }
+            }
+
             if (btnHeaderUnlock) btnHeaderUnlock.style.display = 'inline-flex';
             if (btnPhoneUnlock) btnPhoneUnlock.disabled = false;
         } else {
             connStatus.className = 'connection-badge disconnected';
             connStatusText.textContent = 'Disconnected';
             headerDevice.innerHTML = 'Connection Center <i class="material-symbols-outlined">link</i> Connect using USB or Wi-Fi IP';
+            if (headerDevSelect) headerDevSelect.style.display = 'none';
             if (btnHeaderUnlock) btnHeaderUnlock.style.display = 'none';
             if (btnPhoneUnlock) btnPhoneUnlock.disabled = true;
         }
@@ -590,18 +638,20 @@ document.addEventListener('DOMContentLoaded', () => {
                             const battery = match[2];
                             const storage = match[3];
                             
-                                    let displayActiveSerial = (devices[0] && devices[0].serial) || data.devices[0] || 'USB Connection';
+                                    let displayActiveSerial = data.active_device || (devices[0] && devices[0].serial) || (data.devices && data.devices[0]) || 'USB Connection';
                                     if (displayActiveSerial.includes('._adb-tls-connect._tcp')) {
                                         displayActiveSerial = displayActiveSerial.replace('._adb-tls-connect._tcp', '');
                                         if (displayActiveSerial.startsWith('adb-')) displayActiveSerial = displayActiveSerial.substring(4);
                                         displayActiveSerial = 'ID: ' + displayActiveSerial;
                                     }
+                                    const activeDevObj = devices.find(d => d.serial === data.active_device || (Array.isArray(d.aliases) && d.aliases.includes(data.active_device)));
+                                    const activeModel = (activeDevObj && activeDevObj.model) || model;
                                     
                                     activeDetailsBox.innerHTML = `
                                         <div class="active-device-details">
                                             <div class="detail-item">
                                                 <span><i class="material-symbols-outlined">smartphone</i> Device Model</span>
-                            <p>${escapeHtml(model)}</p>
+                            <p>${escapeHtml(activeModel)}</p>
                                             </div>
                                             <div class="detail-item">
                                                 <span><i class="material-symbols-outlined">battery_full</i> Battery Level</span>

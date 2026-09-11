@@ -75,8 +75,11 @@
                         <span class="ts-dot" style="width: 7px; height: 7px; border-radius: 50%; display: inline-block;"></span>
                         <span id="tailscale-badge-text">Tailscale</span>
                     </div>
-                    <div class="device-details" id="header-device-info">
-                        Select Connection Settings in Preferences or connect using Wi-Fi IP
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <div class="device-details" id="header-device-info">
+                            Select Connection Settings in Preferences or connect using Wi-Fi IP
+                        </div>
+                        <select class="header-device-select" id="header-device-select" title="Switch active device" style="display: none;"></select>
                     </div>
                 </div>
 

@@ -61,7 +61,7 @@ class TransferManager:
             normalized.append({"path": path, "size": size, "is_dir": bool(item.get("is_dir", False))})
         return normalized
 
-    def start(self, *, direction, items, destination, conflict="rename"):
+    def start(self, *, direction, items, destination, conflict="rename", serial=""):
         if direction not in self.VALID_DIRECTIONS:
             raise ValueError("Invalid transfer direction")
         if conflict not in self.VALID_CONFLICTS:
@@ -83,6 +83,7 @@ class TransferManager:
         now = time.time()
         job = {
             "id": job_id,
+            "serial": str(serial or "").strip(),
             "direction": direction,
             "items": normalized,
             "destination": destination,
@@ -194,13 +195,14 @@ class TransferManager:
         self._update(job_id, status="completed" if not errors else "failed", active_name="")
 
     def _copy_item(self, job_id, job, item):
+        target_serial = job.get("serial", "")
         if job["direction"] == "local_to_phone":
             source = resolve_local_path(item["path"])
             destination = posixpath.join(job["destination"], source.name)
-            destination = self._resolve_remote_conflict(destination, job["conflict"])
+            destination = self._resolve_remote_conflict(destination, job["conflict"], serial=target_serial)
             if destination is None:
                 return False
-            command = ["adb", "push", "-p", str(source), destination]
+            command = ["adb", "-s", target_serial, "push", "-p", str(source), destination] if target_serial else ["adb", "push", "-p", str(source), destination]
         else:
             source = item["path"]
             filename = safe_download_name(source, "phone-item")
@@ -208,7 +210,7 @@ class TransferManager:
             destination = self._resolve_local_conflict(destination, job["conflict"])
             if destination is None:
                 return False
-            command = ["adb", "pull", "-a", source, str(destination)]
+            command = ["adb", "-s", target_serial, "pull", "-a", source, str(destination)] if target_serial else ["adb", "pull", "-a", source, str(destination)]
         self._run_process(job_id, command)
         return True
 
@@ -243,26 +245,32 @@ class TransferManager:
             with self._lock:
                 self._processes.pop(job_id, None)
 
-    def _remote_exists(self, path):
-        result = self._run(adb_shell_command("test", "-e", path), capture_output=True, timeout=5)
+    def _remote_exists(self, path, serial=""):
+        cmd = adb_shell_command("test", "-e", path)
+        if serial:
+            cmd = ["adb", "-s", serial, *cmd[1:]]
+        result = self._run(cmd, capture_output=True, timeout=5)
         return result.returncode == 0
 
-    def _resolve_remote_conflict(self, destination, policy):
+    def _resolve_remote_conflict(self, destination, policy, serial=""):
         if not valid_remote_path(destination, destructive=True):
             raise ValueError("Invalid phone destination")
-        if not self._remote_exists(destination):
+        if not self._remote_exists(destination, serial=serial):
             return destination
         if policy == "skip":
             return None
         if policy == "overwrite":
-            result = self._run(adb_shell_command("rm", "-rf", "--", destination), capture_output=True, text=True, timeout=30)
+            cmd = adb_shell_command("rm", "-rf", "--", destination)
+            if serial:
+                cmd = ["adb", "-s", serial, *cmd[1:]]
+            result = self._run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 raise RuntimeError((result.stderr or "Could not replace phone item").strip())
             return destination
         base, extension = posixpath.splitext(destination)
         for index in range(1, 1000):
             candidate = f"{base} ({index}){extension}"
-            if not self._remote_exists(candidate):
+            if not self._remote_exists(candidate, serial=serial):
                 return candidate
         raise RuntimeError("Could not choose a unique phone filename")
 

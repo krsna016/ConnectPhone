@@ -9,6 +9,12 @@ BOLD = "\033[1m"
 RED = "\033[91m"
 GREEN = "\033[92m"
 
+def _adb_cmd(args, serial=None):
+    target = (serial or os.environ.get("ANDROID_SERIAL", "")).strip()
+    if target:
+        return ["adb", "-s", target, *args]
+    return ["adb", *args]
+
 def check_adb_devices():
     try:
         output = subprocess.check_output(["adb", "devices"], timeout=5).decode("utf-8")
@@ -24,10 +30,10 @@ def check_adb_devices():
         print(f"{RED}Error checking ADB: {e}{RESET}")
         return []
 
-def get_device_info():
+def get_device_info(serial=None):
     try:
         result = subprocess.run(
-            ["adb", "shell", "sh", "-c", "echo __BATTERY__; dumpsys battery; echo __STORAGE__; df -h /sdcard; echo __MODEL__; getprop ro.product.model"],
+            _adb_cmd(["shell", "sh", "-c", "echo __BATTERY__; dumpsys battery; echo __STORAGE__; df -h /sdcard; echo __MODEL__; getprop ro.product.model"], serial=serial),
             capture_output=True,
             text=True,
             timeout=6,
@@ -69,7 +75,7 @@ def push_file_to_phone():
     filename = os.path.basename(path)
     phone_path = f"/sdcard/Download/{filename}"
     print(f"\n⏳ Pushing {filename} to Phone's Download folder...")
-    res = subprocess.run(["adb", "push", path, phone_path], capture_output=True, text=True)
+    res = subprocess.run(_adb_cmd(["push", path, phone_path]), capture_output=True, text=True)
     
     if res.returncode == 0:
         print(f"{GREEN}✅ File pushed successfully to phone at: {phone_path}{RESET}")
@@ -89,7 +95,7 @@ def install_apk():
         return
         
     print(f"\n⏳ Installing APK onto device...")
-    res = subprocess.run(["adb", "install", path], capture_output=True, text=True)
+    res = subprocess.run(_adb_cmd(["install", path]), capture_output=True, text=True)
     if res.returncode == 0:
         print(f"{GREEN}✅ APK installed successfully!{RESET}")
     else:
@@ -99,7 +105,7 @@ def install_apk():
 def is_keyguard_locked():
     try:
         # Check using dumpsys window (very reliable across MIUI/Xiaomi devices)
-        out2 = subprocess.check_output(["adb", "shell", "dumpsys", "window"], stderr=subprocess.DEVNULL).decode("utf-8")
+        out2 = subprocess.check_output(_adb_cmd(["shell", "dumpsys", "window"]), stderr=subprocess.DEVNULL).decode("utf-8")
         is_showing = False
         for line in out2.split("\n"):
             line_lower = line.lower().replace(" ", "")
@@ -117,7 +123,7 @@ def is_keyguard_locked():
         pass
 
     try:
-        out = subprocess.check_output(["adb", "shell", "dumpsys", "keyguard"], stderr=subprocess.DEVNULL).decode("utf-8")
+        out = subprocess.check_output(_adb_cmd(["shell", "dumpsys", "keyguard"]), stderr=subprocess.DEVNULL).decode("utf-8")
         if "can't find service" in out.lower() or not out.strip():
             return False
         return "showing=true" in out.lower() or "showing: true" in out.lower()
@@ -127,7 +133,7 @@ def is_keyguard_locked():
 
 def is_fingerprint_active():
     try:
-        out = subprocess.check_output(["adb", "shell", "dumpsys", "fingerprint"], stderr=subprocess.DEVNULL).decode("utf-8")
+        out = subprocess.check_output(_adb_cmd(["shell", "dumpsys", "fingerprint"]), stderr=subprocess.DEVNULL).decode("utf-8")
         for line in out.split("\n"):
             if "current operation" in line.lower() and "fingerprintauthenticationclient" in line.lower():
                 return True

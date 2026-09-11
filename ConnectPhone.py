@@ -1959,17 +1959,28 @@ def main():
             continue
             
         # Device Connected Dashboard
-        info_line = get_device_info()
+        active_serial = os.environ.get("ANDROID_SERIAL", "")
+        if not active_serial or active_serial not in devices:
+            active_serial = devices[0]
+            os.environ["ANDROID_SERIAL"] = active_serial
+
+        info_line = get_device_info(active_serial)
         print_header("ConnectPhone - Integration Command Center")
+        if len(devices) > 1:
+            print(f"{CYAN}📱 Active Device: {BOLD}{active_serial}{RESET} ({len(devices)} devices connected)")
         print(info_line)
         print("\n" + f"{BOLD}Select integration category:{RESET}")
         print(f"1) {GREEN}🖥️ Mirroring & Camera Modes{RESET}")
         print(f"2) {CYAN}📁 File Transfer & App Installer{RESET}")
         print(f"3) {BLUE}🎮 Quick Controls & Keyboard{RESET}")
         print(f"4) {YELLOW}🔧 Connection Settings & Troubleshooting{RESET}")
-        print(f"5) {RED}Exit{RESET}")
+        if len(devices) > 1:
+            print(f"5) {MAGENTA}🔀 Switch Active Device{RESET}")
+            print(f"6) {RED}Exit{RESET}")
+        else:
+            print(f"5) {RED}Exit{RESET}")
         
-        choice = input(f"\nEnter choice (1-5): ").strip()
+        choice = input(f"\nEnter choice: ").strip()
         if choice == "1":
             run_mirroring_menu()
         elif choice == "2":
@@ -1993,7 +2004,23 @@ def main():
                     input("\nPress Enter to continue...")
                 elif trouble_choice == "3":
                     break
-        elif choice == "5":
+        elif len(devices) > 1 and choice == "5":
+            print_header("Switch Active Device")
+            for idx, d in enumerate(devices, 1):
+                marker = f" {GREEN}(current){RESET}" if d == active_serial else ""
+                print(f"{idx}) {d}{marker}")
+            dev_choice = input(f"\nSelect device (1-{len(devices)}): ").strip()
+            try:
+                sel_idx = int(dev_choice) - 1
+                if 0 <= sel_idx < len(devices):
+                    os.environ["ANDROID_SERIAL"] = devices[sel_idx]
+                    print(f"\n{GREEN}✅ Switched to {devices[sel_idx]}{RESET}")
+                    import time
+                    time.sleep(1)
+            except ValueError:
+                pass
+            continue
+        elif (len(devices) > 1 and choice == "6") or (len(devices) <= 1 and choice == "5"):
             print("Exiting.")
             break
 

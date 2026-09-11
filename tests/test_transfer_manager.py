@@ -77,6 +77,36 @@ class TransferManagerTests(unittest.TestCase):
             self.assertEqual(renamed.name, "photo (1).jpg")
             self.assertEqual(destination.read_text(encoding="utf-8"), "original")
 
+    def test_queues_and_completes_transfer_with_pinned_serial(self):
+        calls = []
+
+        def runner(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 1 if "shell" in args and any(isinstance(a, str) and a.startswith("test -e ") for a in args) else 0, "", "")
+
+        def popen(args, **kwargs):
+            calls.append(args)
+            return FakeProcess()
+
+        with tempfile.TemporaryDirectory(dir=pathlib.Path.home()) as temp_dir:
+            source = pathlib.Path(temp_dir) / "test.bin"
+            source.write_bytes(b"data")
+            manager = TransferManager(runner=runner, popen_factory=popen)
+            job = manager.start(
+                direction="local_to_phone",
+                items=[{"path": str(source), "size": 4}],
+                destination="/sdcard/Download",
+                serial="PHONE-999",
+            )
+            deadline = time.time() + 2
+            while time.time() < deadline and manager.get(job["id"])["status"] not in {"completed", "failed"}:
+                time.sleep(0.01)
+            result = manager.get(job["id"])
+            manager.shutdown()
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["serial"], "PHONE-999")
+        self.assertIn(["adb", "-s", "PHONE-999", "push", "-p", str(source), "/sdcard/Download/test.bin"], calls)
+
 
 if __name__ == "__main__":
     unittest.main()

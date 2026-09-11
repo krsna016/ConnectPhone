@@ -180,6 +180,11 @@ def run_adb_cmd_with_retry(cmd_args, timeout=10, max_retries=3, delay=0.25):
     """
     Executes an ADB command with automatic retries for transient connection drops.
     """
+    if len(cmd_args) >= 2 and cmd_args[0] == "adb" and cmd_args[1] != "-s":
+        active_serial = os.environ.get("ANDROID_SERIAL", "").strip()
+        if active_serial:
+            cmd_args = ["adb", "-s", active_serial, *cmd_args[1:]]
+
     for attempt in range(max_retries):
         try:
             res = subprocess.run(cmd_args, capture_output=True, text=True, timeout=timeout)
@@ -2399,11 +2404,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 res_data.update(success=True, message="Companion pairing revoked from this Mac.")
             elif self.path == '/api/transfers/start':
                 try:
+                    target_serial = str(data.get("serial", "")).strip() or os.environ.get("ANDROID_SERIAL", "")
                     job = TRANSFER_MANAGER.start(
                         direction=str(data.get("direction", "")),
                         items=data.get("items", []),
                         destination=str(data.get("destination", "")),
                         conflict=str(data.get("conflict", "rename")),
+                        serial=target_serial,
                     )
                     res_data.update(success=True, message="Transfer queued", job=job)
                 except (OSError, ValueError) as exc:
@@ -2874,7 +2881,15 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     else:
                         AUTO_RECONNECTOR.pause_auto_reconnect()
 
-                os.environ.pop("ANDROID_SERIAL", None)
+                active_before = os.environ.get("ANDROID_SERIAL", "")
+                was_targeted = bool(target_serial or target_ip)
+                if not was_targeted:
+                    os.environ.pop("ANDROID_SERIAL", None)
+                elif active_before and (active_before == target_serial or (target_ip and target_ip in active_before)):
+                    os.environ.pop("ANDROID_SERIAL", None)
+                    remaining = get_detailed_adb_devices()
+                    check_and_autoselect_device(remaining)
+
                 res_data["success"] = True
                 _invalidate_status_cache()
 
@@ -3156,7 +3171,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
                 is_wireless = is_wireless_transport(current_serial)
 
-                cmd = ["scrcpy", "--window-title", "ConnectPhone"]
+                cmd = ["scrcpy"]
+                if current_serial:
+                    cmd += ["-s", current_serial]
+                cmd += ["--window-title", "ConnectPhone"]
                 a_buf = "40" if is_tailscale else config.get("audio_buffer", "20")
                 cmd.append(f"--audio-buffer={a_buf}")
                 # Keep the macOS playback queue short as well. The transport

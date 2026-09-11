@@ -163,6 +163,17 @@ class ConfigurationSafetyTests(unittest.TestCase):
             self.assertEqual(loaded["saved_devices"][0]["ip"], "100.93.0.20")
             self.assertEqual(loaded["saved_devices"][0]["fallback_endpoints"], ["192.168.29.222:5555"])
 
+    def test_fallback_endpoints_do_not_leak_across_devices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            manager = ConfigurationManager(path)
+            manager.load()
+            manager.update_last_connection("192.168.29.222", 5555, "DEVICE-X")
+            manager.update_last_connection("192.168.29.100", 5555, "DEVICE-Y")
+            loaded = manager.load()
+            dev_y = next(d for d in loaded["saved_devices"] if d["device_serial"] == "DEVICE-Y")
+            self.assertEqual(dev_y.get("fallback_endpoints", []), [])
+
 
 class CameraStreamingSafetyTests(unittest.TestCase):
     def test_camera_streaming_profiles_identify_transports(self):

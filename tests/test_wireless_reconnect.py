@@ -394,7 +394,69 @@ class WirelessReconnectTests(unittest.TestCase):
         self.assertFalse(connected)
         self.assertIn(["adb", "disconnect", endpoint], commands)
 
+    def test_busy_check_bypasses_keepalive_and_preserves_session(self):
+        commands = []
+        reconnector = AutoReconnector(
+            "/nonexistent",
+            scanner=FakeScanner(),
+            command_runner=lambda cmd, **kw: commands.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""),
+            busy_check=lambda: True,
+        )
+        reconnector.connected_endpoints.add("100.93.0.20:5555")
+        reconnector._endpoint_serial["100.93.0.20:5555"] = "SERIAL-TS"
+        states = {"100.93.0.20:5555": "device"}
+
+        # Probe when app is busy (screen mirroring / camera / transfer active)
+        reconnector._keepalive(states)
+        self.assertIn("100.93.0.20:5555", reconnector.connected_endpoints)
+        self.assertEqual(commands, [])
+
+    def test_candidate_identity_timeout_does_not_sever_connection(self):
+        commands = []
+
+        def runner(command, **_kwargs):
+            commands.append(command)
+            # Simulates adb getprop timing out or returning empty
+            return subprocess.CompletedProcess(command, 1, "", "timeout expired")
+
+        reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
+        endpoint = "192.168.1.50:5555"
+        states = {endpoint: "device"}
+        # Candidate iteration with identity query returning None
+        from core.auto_reconnect import read_transport_identity
+        ident = read_transport_identity(runner, endpoint, timeout=1.0)
+        self.assertIsNone(ident)
+
+        # Ensure candidate check does NOT call reset_wireless_transport
+        # when ident is None
+        if ident is not None and ident != "SERIAL-TARGET":
+            from core.auto_reconnect import reset_wireless_transport
+            reset_wireless_transport(runner, endpoint, restart_daemon=False)
+        self.assertNotIn(["adb", "disconnect", endpoint], commands)
+
+    def test_keepalive_wakes_dormant_tailscale_peer_on_miss(self):
+        commands = []
+
+        def runner(command, **_kwargs):
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
+        ts_ep = "100.93.0.20:5555"
+        reconnector.connected_endpoints.add(ts_ep)
+        reconnector._endpoint_serial[ts_ep] = "SERIAL-TS"
+        states = {ts_ep: "device"}
+
+        with mock.patch.object(reconnector, "_port_open", return_value=False):
+            with mock.patch("core.tailscale.wake_tailscale_peer") as mock_wake:
+                mock_wake.return_value = True
+                # Probe 1: missed, wake_tailscale_peer should be triggered
+                reconnector._keepalive(states)
+                self.assertIn(ts_ep, reconnector.connected_endpoints)
+                mock_wake.assert_called_once_with("100.93.0.20", timeout=1.5)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

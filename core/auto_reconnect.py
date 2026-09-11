@@ -225,9 +225,11 @@ class AutoReconnector:
                             if ident == serial:
                                 self._mark_connected(endpoint, ident)
                                 break
-                            elif ident is None:
+                            elif ident is not None and ident != serial:
                                 reset_wireless_transport(self._run, endpoint, restart_daemon=False)
                                 states.pop(endpoint, None)
+                            else:
+                                self._schedule_failure(endpoint)
                         if self._try_connect(endpoint, serial):
                             break
                     else:
@@ -305,7 +307,15 @@ class AutoReconnector:
     @staticmethod
     def _port_open(endpoint):
         host = endpoint.split(":", 1)[0] if ":" in endpoint else endpoint
-        timeout = 5.0 if is_tailscale_ip(host) else 4.0
+        if is_tailscale_ip(host):
+            try:
+                from core.tailscale import wake_tailscale_peer
+                wake_tailscale_peer(host, timeout=1.0)
+            except Exception:
+                pass
+            timeout = 5.0
+        else:
+            timeout = 4.0
         return endpoint_port_open(endpoint, timeout=timeout)
 
     def _maybe_reset_stale_endpoint(self, endpoint):
@@ -496,7 +506,9 @@ class AutoReconnector:
                         self._schedule_failure(endpoint)
                 continue
             since = self._offline_since.setdefault(endpoint, now)
-            grace = self.EXPLICIT_OFFLINE_GRACE if state == "offline" else self.OFFLINE_GRACE
+            is_ts = is_tailscale_ip(endpoint.split(":")[0])
+            explicit_grace = 10.0 if is_ts else 6.0
+            grace = explicit_grace if state == "offline" else (12.0 if is_ts else 8.0)
             if now - since < grace:
                 continue
             self.connected_endpoints.discard(endpoint)
@@ -574,6 +586,12 @@ class AutoReconnector:
             self._keepalive_failures[endpoint] = failures
             limit = (3 if not port_up else failure_limit) if is_ts else (2 if not port_up else failure_limit)
             if failures < limit:
+                if is_ts:
+                    try:
+                        from core.tailscale import wake_tailscale_peer
+                        wake_tailscale_peer(endpoint.split(":")[0], timeout=1.5)
+                    except Exception:
+                        pass
                 self.logger.warning(
                     "Wireless health probe missed for %s (%d/%d, port_up=%s); connection retained",
                     endpoint,

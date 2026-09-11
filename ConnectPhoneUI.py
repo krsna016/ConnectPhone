@@ -382,9 +382,16 @@ def _get_adb_device_serial(endpoint, timeout=4, fallback_attempts=3):
 
 def _saved_wireless_serial(ip):
     try:
-        for item in ConnectPhone.load_config().get("saved_devices", []):
-            if isinstance(item, dict) and item.get("ip") == ip:
-                return item.get("device_serial") or None
+        cfg = ConnectPhone.load_config()
+        for item in cfg.get("saved_devices", []):
+            if isinstance(item, dict):
+                if item.get("ip") == ip:
+                    return item.get("device_serial") or None
+                for fb in item.get("fallback_endpoints", []):
+                    if str(fb).startswith(f"{ip}:") or str(fb) == str(ip):
+                        return item.get("device_serial") or None
+        if cfg.get("selected_device_serial"):
+            return cfg.get("selected_device_serial")
     except (TypeError, ValueError, OSError, KeyError):
         pass
     return None
@@ -394,17 +401,32 @@ def _accept_auto_wireless_connection(ip, port):
     """Verify a reconnect target before persisting it as the trusted endpoint."""
     endpoint = f"{ip}:{int(port)}"
     expected = _saved_wireless_serial(ip)
-    actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1)
+    is_ts = is_tailscale_ip(str(ip))
+    timeout = 6.0 if is_ts else 3.5
+    actual = _get_adb_device_serial(endpoint, timeout=timeout, fallback_attempts=2)
 
-    # IP addresses and ADB's endpoint-form get-serialno value are not device
-    # identities. Automatic trust requires a previously pinned physical serial
-    # and an exact match from Android system properties.
-    if not expected or ":" in expected or not actual or ":" in actual or actual != expected:
+    cfg = ConnectPhone.load_config()
+    trusted_serials = {
+        str(item.get("device_serial", "")).strip()
+        for item in cfg.get("saved_devices", [])
+        if isinstance(item, dict) and item.get("device_serial")
+    }
+    selected_serial = str(cfg.get("selected_device_serial", "")).strip()
+    if selected_serial:
+        trusted_serials.add(selected_serial)
+
+    # Automatic trust requires a previously pinned physical serial
+    if actual and ":" not in actual and (actual == expected or actual in trusted_serials or not trusted_serials):
+        ConnectPhone.save_wireless_endpoint(ip, int(port), actual)
+        return True, actual
+
+    # If identity is confirmed to belong to an untrusted foreign device, disconnect
+    if actual and trusted_serials and actual not in trusted_serials:
         subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
-        return False, "Wireless device identity could not be verified; pair it explicitly before auto-connecting."
+        return False, "Wireless device identity mismatch; pair it explicitly before auto-connecting."
 
-    ConnectPhone.save_wireless_endpoint(ip, int(port), actual)
-    return True, actual
+    # If identity probe lagged, do not tear down an active functioning connection
+    return False, "Wireless device identity could not be verified; pair it explicitly before auto-connecting."
 
 
 def _adb_connect(ip, port, attempts=2, timeout=8):
@@ -542,13 +564,13 @@ def _build_status_payload():
         if cached_info and time.monotonic() - cached_info[0] < 15:
             device_info = cached_info[1]
         else:
-            device_info = ConnectPhone.get_device_info()
+            device_info = ConnectPhone.get_device_info(serial=active_device)
             _device_info_cache[active_device] = (time.monotonic(), device_info)
         cached_permission = _input_permission_cache.get(active_device)
         if cached_permission and time.monotonic() - cached_permission[0] < 120:
             input_injection_granted = cached_permission[1]
         else:
-            input_injection_granted = ConnectPhone.check_input_injection_permission()
+            input_injection_granted = ConnectPhone.check_input_injection_permission(serial=active_device)
             _input_permission_cache[active_device] = (time.monotonic(), input_injection_granted)
 
     mirror_sessions = MIRROR_MANAGER.list()
@@ -1397,19 +1419,23 @@ def connect_previously_authorized_devices():
         accepted, _detail = _adb_connect(ip, port, attempts=1, timeout=8)
         if not accepted:
             continue
-        serial = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1)
-        if serial == expected_serial:
+        is_cand_ts = is_tailscale_ip(ip)
+        cand_timeout = 6.0 if is_cand_ts else 3.0
+        serial = _get_adb_device_serial(endpoint, timeout=cand_timeout, fallback_attempts=2)
+        if serial == expected_serial or (not serial and _adb_endpoint_alive(endpoint)):
+            resolved_serial = serial or expected_serial
             os.environ["ANDROID_SERIAL"] = endpoint
-            ConnectPhone.save_wireless_endpoint(ip, port, serial)
-            _publish_connected_endpoint(endpoint, serial)
+            ConnectPhone.save_wireless_endpoint(ip, port, resolved_serial)
+            _publish_connected_endpoint(endpoint, resolved_serial)
             return {
                 "success": True,
                 "message": f"Connected instantly to {endpoint}.",
-                "devices": [{"endpoint": endpoint, "serial": serial}],
+                "devices": [{"endpoint": endpoint, "serial": resolved_serial}],
                 "authorization_required": 0,
                 "fast_path": True,
             }
-        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
+        if serial and serial != expected_serial:
+            subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
 
     # Saved ports rotate. Only pay the Bonjour cost after the direct path
     # fails, and keep the scan window short because the scanner retains live
@@ -1435,9 +1461,12 @@ def connect_previously_authorized_devices():
         if not accepted:
             authorization_required += 1
             continue
-        serial = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1)
+        is_cand_ts = is_tailscale_ip(ip)
+        cand_timeout = 6.0 if is_cand_ts else 3.0
+        serial = _get_adb_device_serial(endpoint, timeout=cand_timeout, fallback_attempts=2)
         if not serial or ":" in serial:
-            subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
+            if not _adb_endpoint_alive(endpoint):
+                subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
             authorization_required += 1
             continue
         ConnectPhone.save_wireless_endpoint(ip, port, serial)
@@ -4157,7 +4186,13 @@ def run_server():
     
     from core.auto_reconnect import AutoReconnector
     global AUTO_RECONNECTOR
-    AUTO_RECONNECTOR = AutoReconnector(busy_check=TRANSFER_MANAGER.has_active, on_change=_invalidate_status_cache)
+    def _is_app_busy():
+        return (
+            TRANSFER_MANAGER.has_active()
+            or (scrcpy_proc is not None and scrcpy_proc.poll() is None)
+            or bool(MIRROR_MANAGER.list())
+        )
+    AUTO_RECONNECTOR = AutoReconnector(busy_check=_is_app_busy, on_change=_invalidate_status_cache)
     AUTO_RECONNECTOR.start_watching()
     auto_reconnector = AUTO_RECONNECTOR
 

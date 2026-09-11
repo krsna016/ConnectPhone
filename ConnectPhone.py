@@ -1320,9 +1320,9 @@ def get_pin_input_coords():
 
 # Moved is_keyguard_locked to adb_client.py
 
-def check_input_injection_permission():
+def check_input_injection_permission(serial=None):
     try:
-        target = os.environ.get("ANDROID_SERIAL", "").strip()
+        target = (serial or os.environ.get("ANDROID_SERIAL", "")).strip()
         is_ts = False
         try:
             from core.tailscale import is_tailscale_ip

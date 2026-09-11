@@ -9,6 +9,7 @@ import threading
 import re
 from typing import Dict, Any
 from core import keychain
+from core.tailscale import is_valid_host_or_ip
 
 _CONFIG_LOCK = threading.RLock()
 _DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
@@ -68,6 +69,9 @@ class ConfigurationManager:
         "audio_buffer": "20",
         "device_profile": "generic",
         "selected_device_serial": "",
+        "tailscale_remote_profile": False,
+        "close_to_menubar": True,
+        "hide_dock_on_close": True,
         "saved_ips": [],
         "saved_devices": []
     }
@@ -462,10 +466,8 @@ class ConfigurationManager:
 
     @staticmethod
     def _is_valid_ip(ip: str) -> bool:
-        try:
-            return isinstance(ip, str) and isinstance(ipaddress.ip_address(ip.strip()), ipaddress.IPv4Address)
-        except ValueError:
-            return False
+        return is_valid_host_or_ip(ip)
+
 
     @staticmethod
     def _is_valid_port(port: Any) -> bool:

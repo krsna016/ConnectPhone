@@ -119,14 +119,14 @@ class CompanionServer:
         if thread and thread is not threading.current_thread():
             thread.join(timeout=5)
 
-    def new_pairing(self) -> tuple[PairingOffer, str]:
+    def new_pairing(self, host: str | None = None) -> tuple[PairingOffer, str]:
         offer = PairingOffer.create()
         with self._lock:
             self._offers[offer.session_id] = offer
             self._prune_offers()
             while len(self._offers) > MAX_PAIRING_OFFERS:
                 self._offers.pop(next(iter(self._offers)))
-        return offer, offer.qr_payload(local_ipv4(), self.port)
+        return offer, offer.qr_payload(host or local_ipv4(), self.port)
 
     def pairing_status(self, session_id: str) -> dict:
         with self._lock:

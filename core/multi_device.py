@@ -14,6 +14,7 @@ import threading
 import time
 import wave
 from pathlib import Path
+from core.tailscale import is_tailscale_ip
 
 
 MAX_FLEET_DEVICES = 10
@@ -280,10 +281,16 @@ class MirrorSessionManager:
             codec = str(config.get("camera_codec", "h265"))
             if codec not in {"h264", "h265"}:
                 codec = "h264"
-            bitrate = "8M" if wireless else "16M"
+            host_candidate = serial.split(":", 1)[0] if ":" in serial else ""
+            is_ts = is_tailscale_ip(host_candidate) or bool(config.get("tailscale_remote_profile", False))
+            bitrate = "8M" if (wireless or is_ts) else "16M"
             command += [f"--video-bit-rate={bitrate}", f"--video-codec={codec}"]
-            if wireless:
+            if is_ts:
+                command.append("--video-buffer=40")
+                command.append("--max-size=1600")
+            elif wireless:
                 command.append("--video-buffer=80")
+
             if mode == "record":
                 stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_serial = re.sub(r"[^A-Za-z0-9._-]", "_", serial)[:40]
@@ -295,13 +302,24 @@ class MirrorSessionManager:
             if facing not in {"front", "back"} or resolution not in {"720p", "1080p", "4k"}:
                 raise ValueError("Invalid camera options")
             size = {"720p": "1280x720", "1080p": "1920x1080", "4k": "3840x2160"}[resolution]
+            host_candidate = serial.split(":", 1)[0] if ":" in serial else ""
+            is_ts = is_tailscale_ip(host_candidate) or bool(config.get("tailscale_remote_profile", False))
+            cam_bitrate = ("2M" if resolution == "720p" else ("3M" if resolution == "1080p" else "6M")) if is_ts else ("4M" if wireless else ("16M" if resolution == "4k" else "8M"))
+            cam_codec = "h264" if (is_ts or resolution != "4k") else "h265"
             command += [
                 "--video-source=camera", f"--camera-facing={facing}", f"--camera-size={size}",
-                "--camera-fps=30", "--stay-awake", "--no-downsize-on-error",
-                f"--video-bit-rate={'16M' if resolution == '4k' else '8M'}",
-                f"--video-codec={'h265' if resolution == '4k' else 'h264'}",
+                "--camera-fps=30", "--no-downsize-on-error",
+                f"--video-bit-rate={cam_bitrate}",
+                f"--video-codec={cam_codec}",
             ]
-            if bool(options.get("no_audio", False)):
+            if is_ts:
+                command.append("--video-buffer=160")
+                command.append("--no-control")
+            elif wireless:
+                command.append("--video-buffer=40")
+
+            if bool(options.get("no_audio", True)):
+                command = [c for c in command if not c.startswith("--audio-")]
                 command.append("--no-audio")
             else:
                 command += ["--audio-source=mic-camcorder", "--audio-codec=opus", "--audio-bit-rate=128000"]

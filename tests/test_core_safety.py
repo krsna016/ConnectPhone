@@ -136,6 +136,38 @@ class ConfigurationSafetyTests(unittest.TestCase):
                 "auto_reconnect": True, "name": "Phone",
             }])
 
+    def test_close_to_menubar_default_and_persistence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            manager = ConfigurationManager(path)
+            loaded = manager.load()
+            self.assertTrue(loaded.get("close_to_menubar", False))
+            self.assertTrue(loaded.get("hide_dock_on_close", False))
+            manager.set("close_to_menubar", False)
+            manager.set("hide_dock_on_close", False)
+            manager.save()
+            reloaded = ConfigurationManager(path).load()
+            self.assertFalse(reloaded["close_to_menubar"])
+            self.assertFalse(reloaded["hide_dock_on_close"])
+
+
+class CameraStreamingSafetyTests(unittest.TestCase):
+    def test_camera_streaming_profiles_identify_transports(self):
+        from core.tailscale import is_tailscale_ip
+        from core.multi_device import is_wireless_transport
+
+        # Tailscale remote endpoint
+        self.assertTrue(is_tailscale_ip("100.93.0.20"))
+        self.assertTrue(is_wireless_transport("100.93.0.20:5555"))
+
+        # Local Wi-Fi endpoint
+        self.assertFalse(is_tailscale_ip("192.168.1.50"))
+        self.assertTrue(is_wireless_transport("192.168.1.50:5555"))
+
+        # USB physical serial
+        self.assertFalse(is_tailscale_ip("8ff8852d"))
+        self.assertFalse(is_wireless_transport("8ff8852d"))
+
 
 if __name__ == "__main__":
     unittest.main()

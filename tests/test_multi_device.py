@@ -153,6 +153,17 @@ class MultiDeviceTests(unittest.TestCase):
         self.assertTrue(any("--set 15" in command for command in flattened))
         self.assertTrue(any("--set 6" in command for command in flattened))
 
+    def test_camera_mode_tuning_for_tailscale_and_audio(self):
+        manager = MirrorSessionManager()
+        cmd_ts = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": True}, "Live Camera")
+        self.assertIn("--video-source=camera", cmd_ts)
+        self.assertIn("--video-bit-rate=3M", cmd_ts)
+        self.assertIn("--video-codec=h264", cmd_ts)
+        self.assertIn("--video-buffer=160", cmd_ts)
+        self.assertIn("--no-audio", cmd_ts)
+        self.assertIn("--no-control", cmd_ts)
+        self.assertFalse(any(a.startswith("--audio-buffer=") for a in cmd_ts))
+
 
 if __name__ == "__main__":
     unittest.main()

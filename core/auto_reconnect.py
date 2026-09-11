@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 
+from core.tailscale import is_tailscale_ip
 from core.config_manager import persist_current_endpoint
 from core.adb_lifecycle import endpoint_port_open, load_saved_devices, read_transport_identity, reset_wireless_transport, wireless_transport_states
 from core.mdns_scanner import ZeroPingScanner
@@ -99,10 +100,19 @@ class AutoReconnector:
     def unpause_auto_reconnect(self, target=None):
         """Resume auto-reconnecting when user requests connection."""
         if target:
-            self._manually_disconnected.discard(str(target))
+            target_str = str(target)
+            self._manually_disconnected.discard(target_str)
+            for k in list(self._failures):
+                if target_str in k:
+                    self._failures.pop(k, None)
+            for k in list(self._next_attempt):
+                if target_str in k:
+                    self._next_attempt.pop(k, None)
         else:
             self._manually_disconnected.clear()
             self._manually_disconnected_all = False
+            self._failures.clear()
+            self._next_attempt.clear()
 
     def _notify_change(self):
         if callable(self._on_change):
@@ -167,8 +177,16 @@ class AutoReconnector:
                             matches.append(f"{device['ip']}:{int(device['port'])}")
                     candidates = matches or [f"{item['ip']}:{item['port']}"]
                     for endpoint in dict.fromkeys(candidates):
-                        if states.get(endpoint) == "device" or endpoint in self.connected_endpoints:
+                        if endpoint in self.connected_endpoints:
                             continue
+                        if states.get(endpoint) == "device":
+                            ident = read_transport_identity(self._run, endpoint, timeout=2)
+                            if ident == serial:
+                                self._mark_connected(endpoint, ident)
+                                break
+                            elif ident is None:
+                                reset_wireless_transport(self._run, endpoint, restart_daemon=False)
+                                states.pop(endpoint, None)
                         if self._try_connect(endpoint, serial):
                             break
                     else:
@@ -185,9 +203,10 @@ class AutoReconnector:
                 continue
             ip, port, serial = item.get("ip"), item.get("port"), str(item.get("device_serial") or "").strip()
             try:
-                valid = isinstance(ipaddress.ip_address(ip), ipaddress.IPv4Address) and 1 <= int(port) <= 65535
+                valid = (isinstance(ipaddress.ip_address(ip), ipaddress.IPv4Address) or is_tailscale_ip(ip)) and 1 <= int(port) <= 65535
             except (ValueError, TypeError):
-                valid = False
+                valid = is_tailscale_ip(ip) and 1 <= int(port) <= 65535
+
             if valid and serial and serial not in seen:
                 seen.add(serial)
                 devices.append({"ip": ip, "port": int(port), "serial": serial})
@@ -303,6 +322,16 @@ class AutoReconnector:
         if now - self._last_port_scan.get(expected_serial, 0) < self.PORT_SCAN_COOLDOWN:
             return False
         self._last_port_scan[expected_serial] = now
+
+        priority_ports = []
+        if old_port != 5555:
+            priority_ports.append(5555)
+        for p in priority_ports:
+            ep = f"{ip}:{p}"
+            if self._try_connect(ep, expected_serial):
+                self.logger.info("Recovered standard Wireless Debugging port: %s", ep)
+                return True
+
         try:
             ports = self._discover_ports(ip, self._stop_event)
         except (OSError, RuntimeError, TypeError, ValueError):
@@ -375,7 +404,13 @@ class AutoReconnector:
                 # A real shell identity probe is authoritative; keep advancing
                 # recovery instead of accepting the stale list entry forever.
                 self._schedule_failure(endpoint)
-                self._maybe_reset_stale_endpoint(endpoint)
+                failures = self._failures.get(endpoint, 0)
+                if failures >= 2 and reset_wireless_transport(self._run, endpoint, restart_daemon=False):
+                    self.logger.warning("Cleared dead ghost transport: %s", endpoint)
+                    self._last_reset[endpoint] = now
+                    self._next_attempt[endpoint] = now + 0.5
+                else:
+                    self._maybe_reset_stale_endpoint(endpoint)
         return states
 
     def _keepalive(self, states):

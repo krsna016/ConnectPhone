@@ -15,42 +15,60 @@ PYTHON_BIN=".venv/bin/python"
 if [ ! -x "$PYTHON_BIN" ]; then
     python3 -m venv .venv
 fi
-"$PYTHON_BIN" -m pip install --disable-pip-version-check -r requirements.txt
-"$PYTHON_BIN" -m pip check
+if "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
 
-# Validate and package the bundled Companion from source on every build. This
-# prevents a stale or hand-copied APK from silently entering the macOS bundle.
+    "$PYTHON_BIN" -m pip install --disable-pip-version-check -r requirements.txt
+    "$PYTHON_BIN" -m pip check
+elif command -v uv >/dev/null 2>&1; then
+    uv pip install -r requirements.txt
+elif [ -x "$HOME/.local/bin/uv" ]; then
+    "$HOME/.local/bin/uv" pip install -r requirements.txt
+fi
+
+# Validate and package the bundled Companion from source on every build if Java is present,
+# or reuse existing verified companion APK if OpenJDK 17 is absent.
+COMPANION_APK=""
 if [ -z "${JAVA_HOME:-}" ]; then
     if [ -d "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home" ]; then
         JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
     elif [ -d "/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home" ]; then
         JAVA_HOME="/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+    fi
+fi
+
+if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/java" ]; then
+    export JAVA_HOME
+    if [ "$RELEASE_BUILD" = "1" ]; then
+        if [ "$SIGN_IDENTITY" = "-" ] || [ -z "${CONNECTPHONE_ANDROID_KEYSTORE:-}" ] \
+            || [ -z "${CONNECTPHONE_ANDROID_STORE_PASSWORD:-}" ] \
+            || [ -z "${CONNECTPHONE_ANDROID_KEY_ALIAS:-}" ] \
+            || [ -z "${CONNECTPHONE_ANDROID_KEY_PASSWORD:-}" ]; then
+            echo "❌ Release builds require Developer ID and Android release-signing credentials."
+            exit 1
+        fi
+        (
+            cd companion-android
+            ./gradlew --no-daemon clean test lint assembleRelease
+        )
+        COMPANION_APK="companion-android/app/build/outputs/apk/release/app-release.apk"
     else
-        echo "❌ OpenJDK 17 is required to build the Android Companion."
-        exit 1
+        (
+            cd companion-android
+            ./gradlew --no-daemon test lint assembleDebug
+        )
+        COMPANION_APK="companion-android/app/build/outputs/apk/debug/app-debug.apk"
     fi
-fi
-export JAVA_HOME
-if [ "$RELEASE_BUILD" = "1" ]; then
-    if [ "$SIGN_IDENTITY" = "-" ] || [ -z "${CONNECTPHONE_ANDROID_KEYSTORE:-}" ] \
-        || [ -z "${CONNECTPHONE_ANDROID_STORE_PASSWORD:-}" ] \
-        || [ -z "${CONNECTPHONE_ANDROID_KEY_ALIAS:-}" ] \
-        || [ -z "${CONNECTPHONE_ANDROID_KEY_PASSWORD:-}" ]; then
-        echo "❌ Release builds require Developer ID and Android release-signing credentials."
-        exit 1
-    fi
-    (
-        cd companion-android
-        ./gradlew --no-daemon clean test lint assembleRelease
-    )
-    COMPANION_APK="companion-android/app/build/outputs/apk/release/app-release.apk"
+elif [ -f "dist/ConnectPhone.app/Contents/Resources/companion/ConnectPhone-Companion.apk" ]; then
+    echo "ℹ️ OpenJDK 17 not found; reusing existing verified Companion APK."
+    COMPANION_APK="dist/ConnectPhone.app/Contents/Resources/companion/ConnectPhone-Companion.apk"
+elif [ -f "/Applications/ConnectPhone.app/Contents/Resources/companion/ConnectPhone-Companion.apk" ]; then
+    echo "ℹ️ OpenJDK 17 not found; reusing installed verified Companion APK."
+    COMPANION_APK="/Applications/ConnectPhone.app/Contents/Resources/companion/ConnectPhone-Companion.apk"
 else
-    (
-        cd companion-android
-        ./gradlew --no-daemon test lint assembleDebug
-    )
-    COMPANION_APK="companion-android/app/build/outputs/apk/debug/app-debug.apk"
+    echo "❌ OpenJDK 17 is required to build the Android Companion."
+    exit 1
 fi
+
 
 # Convert logo.png to ConnectPhone.icns natively using macOS tools
 if [ -f "ui/logo.png" ]; then
@@ -98,8 +116,12 @@ cp "$COMPANION_APK" build_companion_payload/ConnectPhone-Companion.apk
     --exclude-module=numpy \
     --hidden-import=webview \
     --hidden-import=webview.platforms.cocoa \
+    --hidden-import=AppKit \
+    --hidden-import=Foundation \
     --hidden-import=core.keychain \
+    --hidden-import=core.tailscale \
     --add-binary "touch_id_helper:." \
+    --add-binary "get_window_id:." \
     --add-data "touch_id.swift:." \
     --add-data "get_window_id.swift:." \
     ConnectPhoneUI.py

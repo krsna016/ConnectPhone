@@ -5,7 +5,17 @@ import re
 import subprocess
 
 
+from core.tailscale import is_tailscale_ip
+
+
 _SUCCESS = re.compile(r"successfully\s+paired", re.IGNORECASE)
+
+
+def _is_valid_pairing_host(host: str) -> bool:
+    try:
+        return isinstance(ipaddress.ip_address(host), ipaddress.IPv4Address)
+    except (ValueError, AttributeError):
+        return is_tailscale_ip(host)
 
 
 def pair_with_secret(endpoint, secret, runner=subprocess.run, timeout=15):
@@ -14,7 +24,7 @@ def pair_with_secret(endpoint, secret, runner=subprocess.run, timeout=15):
         return False, "Invalid pairing endpoint"
     host, raw_port = endpoint.rsplit(":", 1)
     try:
-        if not isinstance(ipaddress.ip_address(host), ipaddress.IPv4Address) or not 1 <= int(raw_port) <= 65535:
+        if not _is_valid_pairing_host(host) or not 1 <= int(raw_port) <= 65535:
             return False, "Invalid pairing endpoint"
     except ValueError:
         return False, "Invalid pairing endpoint"

@@ -13,6 +13,7 @@ import shlex
 import secrets
 import re
 from urllib.parse import urlsplit, parse_qs
+import urllib.request
 import tempfile
 import posixpath
 import pathlib
@@ -154,6 +155,12 @@ from core.multi_device import (
 from core.companion_server import CompanionServer
 from core.secure_companion import CompanionSecurityError
 from core.companion_installer import find_companion_apk, install_companion
+from core.tailscale import (
+    is_tailscale_ip,
+    is_valid_host_or_ip,
+    get_local_tailscale_ip,
+    get_tailscale_status,
+)
 
 ADB_LIFECYCLE = AdbLifecycle()
 TRANSFER_MANAGER = TransferManager()
@@ -221,6 +228,12 @@ def _valid_port(value):
         return False
 
 
+def _valid_endpoint_host(value):
+    """Allow standard IPv4 addresses and Tailscale IP / MagicDNS domain names."""
+    return _valid_ipv4(value) or is_tailscale_ip(value)
+
+
+
 
 
 def parse_multipart(rfile, headers):
@@ -277,7 +290,11 @@ def _validated_settings(data):
         "keyboard_mode": {"uhid", "sdk"},
         "device_profile": {"generic", "oneplus"},
     }
-    bools = {"mirror_enabled", "screen_off_enabled", "stay_awake_enabled", "show_touches_enabled", "biometric_daemon_enabled"}
+    bools = {
+        "mirror_enabled", "screen_off_enabled", "stay_awake_enabled",
+        "show_touches_enabled", "biometric_daemon_enabled",
+        "tailscale_remote_profile", "close_to_menubar", "hide_dock_on_close",
+    }
     for key, allowed in enums.items():
         if key in data and str(data[key]) in allowed:
             updates[key] = str(data[key])
@@ -399,6 +416,31 @@ def _adb_connect(ip, port, attempts=2, timeout=8):
             last_output = ((result.stdout or "") + " " + (result.stderr or "")).strip()
             lowered = last_output.lower()
             if "connected to" in lowered or "already connected" in lowered:
+                if "already connected" in lowered:
+                    state_probe = subprocess.run(
+                        ["adb", "-s", endpoint, "get-state"],
+                        capture_output=True,
+                        text=True,
+                        timeout=1.5,
+                    )
+                    state = (state_probe.stdout or "").strip()
+                    if state_probe.returncode != 0 or state != "device":
+                        # Stale ghost transport retained by ADB daemon; clear and connect fresh
+                        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=2.0)
+                        time.sleep(0.2)
+                        fresh_res = subprocess.run(
+                            ["adb", "connect", endpoint],
+                            capture_output=True,
+                            text=True,
+                            timeout=timeout,
+                        )
+                        last_output = ((fresh_res.stdout or "") + " " + (fresh_res.stderr or "")).strip()
+                        lowered_fresh = last_output.lower()
+                        if "connected to" not in lowered_fresh and "already connected" not in lowered_fresh:
+                            if attempt + 1 < attempts:
+                                time.sleep(0.35)
+                                continue
+                            return False, last_output
                 ADB_LIFECYCLE.register(endpoint)
                 return True, last_output
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -508,11 +550,13 @@ def _build_status_payload():
         "fleet": fleet,
         "fleet_limit": MAX_FLEET_DEVICES,
         "companion_devices": COMPANION_SERVER.devices(),
+        "tailscale": get_tailscale_status(),
         "input_injection_granted": input_injection_granted,
         "transfer_active": transfer_active,
         "config": public_config,
         "dependencies": {name: bool(shutil.which(name)) for name in ("adb", "scrcpy", "ffmpeg", "ffprobe")},
     }
+
 
 def _status_cache_worker():
     """Background thread: refresh cache every 1.2 s or immediately on demand."""
@@ -838,7 +882,7 @@ def discover_adb_service_hybrid(service_type, target_substring=None, target_ip=N
 
 
 def stop_scrcpy_bg():
-    global scrcpy_proc, scrcpy_state
+    global scrcpy_proc, scrcpy_state, scrcpy_clipboard_proc
     if scrcpy_proc:
         try:
             scrcpy_proc.terminate()
@@ -849,13 +893,27 @@ def stop_scrcpy_bg():
             except Exception:
                 pass
         scrcpy_proc = None
+
+    if 'scrcpy_clipboard_proc' in globals() and scrcpy_clipboard_proc:
+        try:
+            scrcpy_clipboard_proc.terminate()
+            scrcpy_clipboard_proc.wait(timeout=2)
+        except Exception:
+            try:
+                scrcpy_clipboard_proc.kill()
+            except Exception:
+                pass
+        scrcpy_clipboard_proc = None
         
     if scrcpy_state["audio_proc"]:
         try:
             scrcpy_state["audio_proc"].terminate()
             scrcpy_state["audio_proc"].wait(timeout=2)
         except Exception:
-            pass
+            try:
+                scrcpy_state["audio_proc"].kill()
+            except Exception:
+                pass
         scrcpy_state["audio_proc"] = None
         
     # Clean up temp files
@@ -1234,6 +1292,12 @@ def _connect_after_pairing(ip):
             for item in services
             if item.get("type") == "connect" and _valid_port(item.get("port"))
         ]
+        if not connect_ports:
+            fallback_ports = [5555]
+            last_port = ConnectPhone.load_config().get("last_port")
+            if last_port and _valid_port(last_port) and int(last_port) not in fallback_ports:
+                fallback_ports.append(int(last_port))
+            connect_ports = fallback_ports
         for connect_port in connect_ports:
             if connect_port in attempted:
                 continue
@@ -1276,7 +1340,7 @@ def connect_previously_authorized_devices():
     for item in saved:
         ip, port = str(item.get("ip", "")).strip(), item.get("port")
         serial = str(item.get("device_serial", "")).strip()
-        if _valid_ipv4(ip) and _valid_port(port) and serial and ":" not in serial:
+        if _valid_endpoint_host(ip) and _valid_port(port) and serial and ":" not in serial:
             endpoint = (ip, int(port), serial)
             if endpoint[:2] not in seen:
                 seen.add(endpoint[:2])
@@ -1353,18 +1417,32 @@ def connect_previously_authorized_devices():
     }
 
 
+def _adb_endpoint_alive(endpoint, timeout=1.5):
+    try:
+        res = subprocess.run(
+            ["adb", "-s", endpoint, "get-state"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return res.returncode == 0 and (res.stdout or "").strip() == "device"
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
     """Reconnect every enrolled phone while preserving the selected target."""
+    ConnectPhone.global_config_mgr.enable_auto_reconnect()
     config = ConnectPhone.load_config()
     saved = [
         dict(item) for item in config.get("saved_devices", [])
         if isinstance(item, dict)
         and (ignore_auto_reconnect_flag or item.get("auto_reconnect", True))
-        and _valid_ipv4(str(item.get("ip", "")))
+        and _valid_endpoint_host(str(item.get("ip", "")))
         and _valid_port(item.get("port"))
     ][:MAX_FLEET_DEVICES]
 
-    if not saved and config.get("last_ip") and _valid_ipv4(str(config.get("last_ip"))):
+    if not saved and config.get("last_ip") and _valid_endpoint_host(str(config.get("last_ip"))):
         last_port = config.get("last_port") or 5555
         if _valid_port(last_port):
             saved = [{
@@ -1390,18 +1468,27 @@ def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
         identity = str(item.get("device_serial", ""))
         endpoint = f"{ip}:{port}"
         if endpoint in online or (identity and identity in online):
-            connected.append({"endpoint": endpoint if endpoint in online else identity, "serial": identity})
-            continue
-        accepted, _ = _adb_connect(ip, port, attempts=1, timeout=3)
-        actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1) if accepted else None
-        if actual and (not identity or actual == identity):
-            ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, actual)
+            live_ep = endpoint if endpoint in online else identity
             ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
-            connected.append({"endpoint": endpoint, "serial": actual})
+            connected.append({"endpoint": live_ep, "serial": identity})
+            continue
+        accepted, _ = _adb_connect(ip, port, attempts=2, timeout=4)
+        actual = _get_adb_device_serial(endpoint, timeout=3.5, fallback_attempts=2) if accepted else None
+        if accepted and (not identity or actual == identity):
+            resolved_serial = actual or identity
+            if resolved_serial:
+                ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, resolved_serial)
+            ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
+            connected.append({"endpoint": endpoint, "serial": resolved_serial})
+            os.environ["ANDROID_SERIAL"] = endpoint
+        elif accepted and not actual and _adb_endpoint_alive(endpoint):
+            # Transport is healthy but serial query lagged over wireless/VPN. Retain connection!
+            ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
+            connected.append({"endpoint": endpoint, "serial": identity})
             os.environ["ANDROID_SERIAL"] = endpoint
         else:
             if accepted:
-                subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
+                subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=2)
             unresolved.append(item)
 
     services = discover_all_mdns_services(timeout=1.0)
@@ -1414,18 +1501,25 @@ def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
         for item in unresolved:
             ip = str(item["ip"])
             identity = str(item.get("device_serial", ""))
-            for port in by_ip.get(ip, []):
+            candidate_ports = list(by_ip.get(ip, []))
+            # Fallback to configured port and standard 5555 for non-mDNS / Tailscale environments
+            for p in (int(item["port"]), 5555):
+                if p not in candidate_ports:
+                    candidate_ports.append(p)
+            for port in candidate_ports:
                 endpoint = f"{ip}:{port}"
                 accepted, _ = _adb_connect(ip, port, attempts=1, timeout=3)
-                actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1) if accepted else None
-                if actual and (not identity or actual == identity):
-                    ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, actual)
+                actual = _get_adb_device_serial(endpoint, timeout=3.0, fallback_attempts=1) if accepted else None
+                if accepted and (not identity or actual == identity or (not actual and _adb_endpoint_alive(endpoint))):
+                    resolved_serial = actual or identity
+                    if resolved_serial:
+                        ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, resolved_serial)
                     ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
-                    connected.append({"endpoint": endpoint, "serial": actual})
+                    connected.append({"endpoint": endpoint, "serial": resolved_serial})
                     os.environ["ANDROID_SERIAL"] = endpoint
                     break
                 if accepted:
-                    subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
+                    subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=2)
 
     # Fallback: connect to ANY discovered connect target on mDNS if authorized
     if not connected:
@@ -1435,7 +1529,7 @@ def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
                 endpoint = f"{ip}:{port}"
                 accepted, _ = _adb_connect(ip, port, attempts=1, timeout=3)
                 if accepted:
-                    actual = _get_adb_device_serial(endpoint, timeout=1.5, fallback_attempts=1)
+                    actual = _get_adb_device_serial(endpoint, timeout=3.0, fallback_attempts=1)
                     if actual:
                         ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, actual)
                         ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
@@ -1443,7 +1537,7 @@ def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
                         os.environ["ANDROID_SERIAL"] = endpoint
                         break
                     else:
-                        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=3)
+                        subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=2)
 
     if connected:
         _publish_connected_endpoint(connected[0]["endpoint"], connected[0].get("serial", ""))
@@ -1518,6 +1612,7 @@ def _foreground_connect_worker():
 def start_foreground_connect():
     """Acknowledge immediately and reconnect all trusted phones in background."""
     global _foreground_connect_thread, _foreground_connect_result
+    ConnectPhone.global_config_mgr.enable_auto_reconnect()
     if AUTO_RECONNECTOR:
         AUTO_RECONNECTOR.unpause_auto_reconnect()
     with _foreground_connect_lock:
@@ -1769,7 +1864,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             "/api/mdns/discover", "/api/pair/qr/status", "/api/storage/list",
             "/api/storage/download", "/api/files/roots", "/api/files/local",
             "/api/files/storages", "/api/transfers", "/api/companion/status",
-            "/api/companion/pair/status",
+            "/api/companion/pair/status", "/api/tailscale/status",
         }
         if parsed_path.path not in known_get_paths:
             self.send_error(404, "Unknown GET endpoint")
@@ -1790,6 +1885,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 with _status_cache_lock:
                     _status_cache = payload
             self.wfile.write(json.dumps(payload).encode('utf-8'))
+        elif self.path == '/api/tailscale/status':
+            self.wfile.write(json.dumps(get_tailscale_status()).encode('utf-8'))
+
         elif self.path == '/api/metrics':
             res_metrics = get_live_metrics()
             self.wfile.write(json.dumps(res_metrics).encode('utf-8'))
@@ -2210,14 +2308,18 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
         
         try:
             if self.path == '/api/companion/pair/start':
-                offer, payload = COMPANION_SERVER.new_pairing()
+                use_ts = bool(data.get("tailscale"))
+                ts_ip = get_local_tailscale_ip() if use_ts else None
+                offer, payload = COMPANION_SERVER.new_pairing(host=ts_ip if (use_ts and ts_ip) else None)
                 res_data.update(
                     success=True,
                     message="Scan this QR in the ConnectPhone Companion app.",
                     session_id=offer.session_id,
                     expires_at=offer.expires_at,
                     qr_image=svg_data_url(payload),
+                    tailscale_ip=get_local_tailscale_ip(),
                 )
+
             elif self.path == '/api/companion/install':
                 detailed = get_detailed_adb_devices()
                 serial = str(data.get("serial") or check_and_autoselect_device(detailed) or "").strip()
@@ -2287,7 +2389,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     endpoint = f"{removed.get('ip')}:{removed.get('port')}"
                     MIRROR_MANAGER.stop(serial=endpoint)
-                    if _valid_ipv4(str(removed.get("ip", ""))) and _valid_port(removed.get("port")):
+                    if _valid_endpoint_host(str(removed.get("ip", ""))) and _valid_port(removed.get("port")):
                         subprocess.run(["adb", "disconnect", endpoint], capture_output=True, timeout=5)
                     _invalidate_status_cache()
                     res_data.update(success=True, message="Phone forgotten. Pair it again before future automatic reconnects.")
@@ -2533,32 +2635,36 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
             elif self.path == '/api/connect':
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "5555")).strip()
-                if not _valid_ipv4(ip):
-                    res_data["message"] = "A valid IPv4 address is required."
+                if not _valid_endpoint_host(ip):
+                    res_data["message"] = "A valid IPv4 address or Tailscale MagicDNS name is required."
                 elif not _valid_port(port):
                     res_data["message"] = "A valid TCP port is required."
                 else:
                     ip_port = f"{ip}:{port}"
                     if AUTO_RECONNECTOR:
                         AUTO_RECONNECTOR.unpause_auto_reconnect(ip)
-                    connected, output = _adb_connect(ip, int(port), attempts=1, timeout=4)
+                    connected, output = _adb_connect(ip, int(port), attempts=2, timeout=4)
                     if connected:
                         res_data["success"] = True
                         os.environ["ANDROID_SERIAL"] = ip_port
-                        device_serial = _get_adb_device_serial(ip_port)
-                        if device_serial:
-                            ConnectPhone.save_wireless_endpoint(ip, int(port), device_serial)
+                        device_serial = _get_adb_device_serial(ip_port, timeout=3.5, fallback_attempts=2)
+                        saved_serial = _saved_wireless_serial(ip)
+                        pin_serial = device_serial or saved_serial
+                        if pin_serial:
+                            ConnectPhone.save_wireless_endpoint(ip, int(port), pin_serial)
                             ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, int(port))
                             res_data["message"] = f"Connected to {ip_port}; identity pinned for persistent reconnect."
-                            _publish_connected_endpoint(ip_port, device_serial)
+                            _publish_connected_endpoint(ip_port, pin_serial)
                         else:
-                            res_data["message"] = "Connected, but Android identity could not be verified; persistent reconnect is disabled until you reconnect manually."
+                            ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, int(port))
+                            res_data["message"] = f"Connected to {ip_port}."
+                            _publish_connected_endpoint(ip_port, "")
                         # Cache this port for lightning reconnect
                         try:
                             cfg = ConnectPhone.load_config()
                             cfg["last_port"] = int(port)
-                            if device_serial:
-                                cfg["last_device_serial"] = device_serial
+                            if pin_serial:
+                                cfg["last_device_serial"] = pin_serial
                             ConnectPhone.save_config(cfg)
                         except Exception:
                             pass
@@ -2589,7 +2695,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 saved = [
                     item for item in config.get("saved_devices", [])
                     if isinstance(item, dict) and item.get("auto_reconnect", True)
-                    and _valid_ipv4(str(item.get("ip", "")).strip())
+                    and _valid_endpoint_host(str(item.get("ip", "")).strip())
                     and _valid_port(item.get("port"))
                 ]
                 preferred = saved[0] if saved else {}
@@ -2604,7 +2710,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     res_data["success"] = False
                     res_data["message"] = "No previously paired IP address found in config. Connect manually first."
                 else:
-                    if not _valid_ipv4(ip):
+                    if not _valid_endpoint_host(ip):
                         res_data["message"] = "Saved IP is invalid. Choose a saved device or connect manually."
                         self.wfile.write(json.dumps(res_data).encode('utf-8'))
                         return
@@ -2683,25 +2789,22 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 
                 if target_serial and ":" in target_serial and not target_serial.startswith("adb-"):
                     ip_part, port_part = target_serial.rsplit(":", 1)
-                    if _valid_ipv4(ip_part) and _valid_port(port_part):
+                    if _valid_endpoint_host(ip_part) and _valid_port(port_part):
                         target_ip, target_port = ip_part, port_part
 
-                if target_ip and target_port and _valid_ipv4(target_ip) and _valid_port(target_port):
+                if target_ip and target_port and _valid_endpoint_host(target_ip) and _valid_port(target_port):
                     ip_port = f"{target_ip}:{target_port}"
                     res = subprocess.run(["adb", "disconnect", ip_port], capture_output=True, text=True)
-                    ConnectPhone.global_config_mgr.disable_auto_reconnect(target_ip, int(target_port))
                     res_data["message"] = f"Disconnected from {ip_port}."
                 elif target_serial:
                     res = subprocess.run(["adb", "disconnect", target_serial], capture_output=True, text=True)
                     res_data["message"] = f"Disconnected from {target_serial}."
-                elif target_ip and _valid_ipv4(target_ip):
+                elif target_ip and _valid_endpoint_host(target_ip):
                     res = subprocess.run(["adb", "disconnect", target_ip], capture_output=True, text=True)
-                    ConnectPhone.global_config_mgr.disable_auto_reconnect(target_ip)
                     res_data["message"] = f"Disconnected from {target_ip}."
                 else:
                     res = subprocess.run(["adb", "disconnect"], capture_output=True, text=True)
                     res_data["message"] = "Disconnected from all devices."
-                    ConnectPhone.global_config_mgr.disable_auto_reconnect()
                     stop_scrcpy_bg()
 
                 if AUTO_RECONNECTOR:
@@ -2720,8 +2823,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "")).strip()
                 code = str(data.get("code", "")).strip()
-                if not _valid_ipv4(ip) or not _valid_port(port) or not code.isdigit() or len(code) != 6:
-                    res_data["message"] = "Enter a valid IPv4 address, TCP port, and 6-digit pairing code."
+                if not _valid_endpoint_host(ip) or not _valid_port(port) or not code.isdigit() or len(code) != 6:
+                    res_data["message"] = "Enter a valid IP/Tailscale address, TCP port, and 6-digit pairing code."
                 else:
                     res_data.update(pair_and_connect_wireless(ip, int(port), code))
                     self.wfile.write(json.dumps(res_data).encode('utf-8'))
@@ -2932,8 +3035,8 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 
             elif self.path == '/api/ping':
                 ip = str(data.get("ip", "")).strip() if data and data.get("ip") is not None else ""
-                if ip and not _valid_ipv4(ip):
-                    res_data["message"] = "A valid IPv4 address is required."
+                if ip and not _valid_endpoint_host(ip):
+                    res_data["message"] = "A valid IPv4 address or Tailscale MagicDNS name is required."
                     ip = ""
                 if not ip:
                     ip = "unknown"
@@ -3017,24 +3120,28 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     # Apply video quality settings to screen mirroring as well
                     s_codec = config.get("camera_codec", "h265")
                     s_bitrate = config.get("camera_bitrate", "32M")
-                    if is_wireless:
+                    current_serial = os.environ.get("ANDROID_SERIAL", "")
+                    target_host = current_serial.split(":", 1)[0] if ":" in current_serial else ""
+                    is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
+                    if is_tailscale:
+                        s_bitrate = "4M"
+                        cmd.append("--video-buffer=100")
+                        cmd.append("--max-size=1600")
+                    elif is_wireless:
                         s_bitrate = "16M"
                         cmd.append("--video-buffer=100")
                     cmd += [f"--video-bit-rate={s_bitrate}", f"--video-codec={s_codec}"]
+
                         
                 elif mirror_type == "camera":
                     is_cam = True
                     facing = data.get("camera_facing", "back")
                     resolution = data.get("resolution", "1080p")
-                    no_audio = data.get("no_audio", False)
+                    no_audio = data.get("no_audio", True)
                     if facing not in {"front", "back"} or resolution not in {"720p", "1080p", "4k"} or not isinstance(no_audio, bool):
                         raise ValueError("Invalid camera options")
                     
                     cmd += ["--video-source=camera", f"--camera-facing={facing}"]
-                    if no_audio:
-                        cmd.append("--no-audio")
-                    else:
-                        cmd += audio_args
                         
                     if resolution == "4k":
                         cmd.append("--camera-size=3840x2160")
@@ -3046,10 +3153,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     if config.get("mirror_enabled", True):
                         cmd.append("--orientation=flip0")
                         
-                    # Apply camera quality preferences.  Do not add a
-                    # wireless buffer here: scrcpy already defaults to zero
-                    # video buffering, which is the lowest-latency path.  A
-                    # buffer hides jitter but makes the preview visibly late.
+                    # Apply camera quality preferences.
                     c_bitrate = config.get("camera_bitrate", "32M")
                     c_fps = config.get("camera_fps", "60")
                     c_codec = config.get("camera_codec", "h265")
@@ -3058,36 +3162,56 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     if c_fps not in ["120", "240"]:
                         c_fps = "30"
                         
-                    # Use a predictable Wi-Fi profile instead of silently
-                    # dropping every camera stream to 6 Mbps.  This phone
-                    # advertises 4K/30 on the rear camera and 1080p/30 on the
-                    # front camera. H.264 is the safer low-latency choice for
-                    # 1080p; H.265 is retained for 4K where bandwidth matters.
-                    if facing == "front":
-                        c_bitrate = "12M"
+                    current_serial = os.environ.get("ANDROID_SERIAL", "")
+                    target_host = current_serial.split(":", 1)[0] if ":" in current_serial else ""
+                    is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
+
+                    if is_tailscale:
+                        # Remote Tailscale profile: optimize for network stability and jitter absorption over VPN
+                        c_bitrate = "2M" if resolution == "720p" else ("3M" if resolution == "1080p" else "6M")
                         c_codec = "h264"
-                    elif resolution == "4k":
-                        c_bitrate = "32M"
-                        c_codec = "h265"
+                        cmd.append("--video-buffer=160")
+                        cmd.append("--no-control")
                     elif is_wireless:
-                        c_bitrate = "16M"
-                        c_codec = "h264"
-                            
-                    cmd.append("--stay-awake")
-                    cmd += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
-                    # Never silently replace a requested HD size with a
-                    # smaller one. Fail clearly if a different phone cannot
-                    # provide the requested camera mode.
-                    cmd.append("--no-downsize-on-error")
+                        # Wireless Wi-Fi profile: 6 Mbps with 40ms jitter buffer for buttery smooth 30fps
+                        c_bitrate = "6M" if resolution != "4k" else "10M"
+                        c_codec = "h264" if resolution != "4k" else "h265"
+                        cmd.append("--video-buffer=40")
+                    else:
+                        # Wired USB: lowest latency high-bitrate streaming
+                        if facing == "front":
+                            c_bitrate = "12M"
+                            c_codec = "h264"
+                        elif resolution == "4k":
+                            c_bitrate = "32M"
+                            c_codec = "h265"
+                        cmd.append("--no-downsize-on-error")
+
+                    if no_audio:
+                        # Strip default audio args and disable audio for ultra-smooth zero latency video
+                        cmd = [c for c in cmd if not c.startswith("--audio-")]
+                        cmd.append("--no-audio")
+                    else:
+                        cmd = [c for c in cmd if not c.startswith("--audio-buffer=")]
+                        a_buf = "160" if is_tailscale else ("50" if is_wireless else "20")
+                        a_bitrate = "64000" if is_tailscale else "128000"
+                        cmd.append(f"--audio-buffer={a_buf}")
+                        cmd += [c for c in audio_args if not c.startswith("--audio-bit-rate=")]
+                        cmd.append(f"--audio-bit-rate={a_bitrate}")
                     
                     if c_fps in ["120", "240"]:
                         cmd = [a for a in cmd if not a.startswith("--camera-size=")]
                         cmd.append("--camera-size=1280x720")
                         cmd.append("--camera-high-speed")
+                    else:
+                        cmd.append(f"--camera-fps={c_fps}")
+
+                    cmd += [f"--video-bit-rate={c_bitrate}", f"--video-codec={c_codec}"]
                         
-                    temp_mkv_path = os.path.expanduser("~/.connectphone_temp_rec.mkv")
-                    cmd.append(f"--record={temp_mkv_path}")
-                    cmd.append("--record-orientation=0")
+                    if config.get("camera_buffer_recording", False):
+                        temp_mkv_path = os.path.expanduser("~/.connectphone_temp_rec.mkv")
+                        cmd.append(f"--record={temp_mkv_path}")
+                        cmd.append("--record-orientation=0")
                     
                 elif mirror_type == "audio":
                     cmd += ["--no-video"] + audio_args
@@ -3121,10 +3245,18 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     # Apply video quality settings to recording as well
                     s_codec = config.get("camera_codec", "h265")
                     s_bitrate = config.get("camera_bitrate", "32M")
-                    if is_wireless:
+                    current_serial = os.environ.get("ANDROID_SERIAL", "")
+                    target_host = current_serial.split(":", 1)[0] if ":" in current_serial else ""
+                    is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
+                    if is_tailscale:
+                        s_bitrate = "8M"
+                        cmd.append("--video-buffer=40")
+                        cmd.append("--max-size=1600")
+                    elif is_wireless:
                         s_bitrate = "16M"
                         cmd.append("--video-buffer=100")
                     cmd += [f"--video-bit-rate={s_bitrate}", f"--video-codec={s_codec}"]
+
                     
                     res_data["message"] = f"Entire session is being recorded to Desktop: {os.path.basename(record_path)}"
                     
@@ -3144,7 +3276,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 if mirror_type == "camera":
                     # Ensure device is awake so camera capture session does not get suspended
                     try:
-                        subprocess.run(["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"], capture_output=True)
+                        wake_cmd = ["adb"]
+                        if current_serial:
+                            wake_cmd += ["-s", current_serial]
+                        wake_cmd += ["shell", "input", "keyevent", "KEYCODE_WAKEUP"]
+                        subprocess.run(wake_cmd, capture_output=True)
                     except Exception:
                         pass
                 
@@ -3722,8 +3858,8 @@ def camera_record_stop():
         return False, f"FFmpeg failed: {error_msg}"
 
 def camera_capture():
-    global scrcpy_state
-    if not scrcpy_state["temp_mkv"]:
+    global scrcpy_state, scrcpy_proc
+    if not scrcpy_state.get("mirror_type") and (scrcpy_proc is None or scrcpy_proc.poll() is not None):
         return False, "No active video stream."
         
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -3914,6 +4050,8 @@ def run_server():
 
     cleanup_lock = threading.Lock()
     cleanup_complete = False
+    status_item = None
+    really_quit = False
 
     def cleanup_resources(*_args):
         nonlocal cleanup_complete
@@ -3922,12 +4060,18 @@ def run_server():
                 return
             cleanup_complete = True
         print("ConnectPhone is closing; cleaning up local services and ADB transports.")
+        try:
+            if status_item:
+                import AppKit
+                AppKit.NSStatusBar.systemStatusBar().removeStatusItem_(status_item)
+        except Exception:
+            pass
         _shutdown_event.set()
         _status_cache_event.set()
         auto_reconnector.stop_watching()
         COMPANION_SERVER.stop()
         if cache_thread.is_alive():
-            cache_thread.join(timeout=15)
+            cache_thread.join(timeout=2)
         if keepalive_thread.is_alive():
             keepalive_thread.join(timeout=2)
         stop_scrcpy_bg()
@@ -3943,7 +4087,14 @@ def run_server():
         except (OSError, TypeError, ValueError):
             owned_serials = set()
         ADB_LIFECYCLE.cleanup(auto_reconnector.connected_endpoints, owned_serials)
-        httpd.shutdown()
+        try:
+            httpd.shutdown()
+        except Exception:
+            pass
+        try:
+            httpd.server_close()
+        except Exception:
+            pass
 
     atexit.register(cleanup_resources)
 
@@ -3952,6 +4103,7 @@ def run_server():
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, handle_termination)
+    signal.signal(signal.SIGINT, handle_termination)
     
     server_thread = threading.Thread(target=start_server_in_thread, args=(httpd,))
     server_thread.daemon = True
@@ -3959,12 +4111,273 @@ def run_server():
 
     try:
         import webview
+        import webview.platforms.cocoa as cocoa
+        import AppKit
+        import Foundation
+
+        # Patch AppDelegate to support reopening window when clicked from macOS Dock
+        def restore_dashboard():
+            if win:
+                try:
+                    AppKit.NSApp.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
+                except Exception as e:
+                    print(f"[UI] Could not set regular activation policy: {e}")
+                win.show()
+                AppKit.NSApp.activateIgnoringOtherApps_(True)
+
+        orig_reopen = getattr(cocoa.BrowserView.AppDelegate, "applicationShouldHandleReopen_hasVisibleWindows_", None)
+        def handle_reopen(self, app, flag):
+            restore_dashboard()
+            if orig_reopen:
+                return orig_reopen(self, app, flag)
+            return Foundation.YES
+        cocoa.BrowserView.AppDelegate.applicationShouldHandleReopen_hasVisibleWindows_ = handle_reopen
+
+        # Patch AppDelegate.applicationShouldTerminate_ so Cmd+Q cleanly quits the app
+        orig_terminate = getattr(cocoa.BrowserView.AppDelegate, "applicationShouldTerminate_", None)
+        def handle_terminate(self, app):
+            nonlocal really_quit
+            really_quit = True
+            cleanup_resources()
+            return Foundation.YES
+        cocoa.BrowserView.AppDelegate.applicationShouldTerminate_ = handle_terminate
+
         webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
         js_api = WebviewApi()
-        win = webview.create_window('ConnectPhone Dashboard', f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}", width=1450, height=950, frameless=False, js_api=js_api)
+        win = webview.create_window(
+            'ConnectPhone Dashboard',
+            f"http://{UI_HOST}:{PORT}/#token={API_TOKEN}",
+            width=1450,
+            height=950,
+            frameless=False,
+            js_api=js_api
+        )
         js_api.set_window(win)
-        win.events.closing += cleanup_resources
+
+        def on_window_closing():
+            nonlocal really_quit
+            if really_quit:
+                cleanup_resources()
+                return True
+            cfg = ConnectPhone.load_config()
+            if cfg.get("close_to_menubar", True):
+                win.hide()
+                if cfg.get("hide_dock_on_close", True):
+                    try:
+                        AppKit.NSApp.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+                    except Exception as e:
+                        print(f"[UI] Could not set accessory activation policy: {e}")
+                return False  # Cancels window destruction; keeps app alive in Menu Bar!
+            else:
+                really_quit = True
+                cleanup_resources()
+                return True
+
+        win.events.closing += on_window_closing
         win.events.closed += cleanup_resources
+
+        def create_menubar_vector_icon():
+            """Renders a sleek, monochrome native macOS status bar template icon using vector paths."""
+            try:
+                size = AppKit.NSMakeSize(18.0, 18.0)
+                image = AppKit.NSImage.alloc().initWithSize_(size)
+                image.lockFocus()
+
+                AppKit.NSColor.clearColor().set()
+                AppKit.NSRectFill(AppKit.NSMakeRect(0, 0, 18, 18))
+
+                AppKit.NSColor.blackColor().setStroke()
+                AppKit.NSColor.blackColor().setFill()
+
+                # Phone body outline
+                phone_rect = AppKit.NSMakeRect(1.5, 1.5, 9.0, 15.0)
+                body = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(phone_rect, 2.0, 2.0)
+                body.setLineWidth_(1.2)
+                body.stroke()
+
+                # Top speaker notch
+                speaker = AppKit.NSBezierPath.bezierPath()
+                speaker.moveToPoint_(AppKit.NSMakePoint(4.5, 14.5))
+                speaker.lineToPoint_(AppKit.NSMakePoint(7.5, 14.5))
+                speaker.setLineWidth_(1.0)
+                speaker.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
+                speaker.stroke()
+
+                # Bottom home indicator
+                home = AppKit.NSBezierPath.bezierPath()
+                home.moveToPoint_(AppKit.NSMakePoint(4.8, 3.5))
+                home.lineToPoint_(AppKit.NSMakePoint(7.2, 3.5))
+                home.setLineWidth_(1.0)
+                home.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
+                home.stroke()
+
+                # Radiating wireless waves
+                arc1 = AppKit.NSBezierPath.bezierPath()
+                arc1.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_(
+                    AppKit.NSMakePoint(8.0, 9.5), 3.5, -45.0, 45.0
+                )
+                arc1.setLineWidth_(1.2)
+                arc1.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
+                arc1.stroke()
+
+                arc2 = AppKit.NSBezierPath.bezierPath()
+                arc2.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_(
+                    AppKit.NSMakePoint(8.0, 9.5), 6.5, -45.0, 45.0
+                )
+                arc2.setLineWidth_(1.2)
+                arc2.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
+                arc2.stroke()
+
+                image.unlockFocus()
+                image.setTemplate_(True)
+                return image
+            except Exception as e:
+                print(f"[StatusBar] Vector icon generation error: {e}")
+                return None
+
+        def get_menubar_icon():
+            """Returns a native macOS menu bar template icon (SF Symbol or vector fallback)."""
+            try:
+                img = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+                    "iphone.radiowaves.left.and.right", "ConnectPhone"
+                )
+                if img:
+                    img.setTemplate_(True)
+                    return img
+            except Exception:
+                pass
+            return create_menubar_vector_icon()
+
+        class StatusBarMenuController(AppKit.NSObject):
+            def openDashboard_(self, sender):
+                restore_dashboard()
+
+            def startMirror_(self, sender):
+                threading.Thread(target=self._post_api, args=("/api/mirror", {"type": "screen"}), daemon=True).start()
+
+            def startCamera_(self, sender):
+                threading.Thread(target=self._post_api, args=("/api/mirror", {"type": "camera"}), daemon=True).start()
+
+            def disconnectDevice_(self, sender):
+                threading.Thread(target=self._post_api, args=("/api/disconnect", {}), daemon=True).start()
+
+            def autoConnect_(self, sender):
+                threading.Thread(target=self._post_api, args=("/api/connect/auto", {}), daemon=True).start()
+
+            def quitApp_(self, sender):
+                nonlocal really_quit
+                really_quit = True
+                cleanup_resources()
+                AppKit.NSApp.terminate_(None)
+
+            def _post_api(self, path, payload):
+                try:
+                    req = urllib.request.Request(
+                        f"http://{UI_HOST}:{PORT}{path}",
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={
+                            "Content-Type": "application/json",
+                            "X-ConnectPhone-Token": API_TOKEN,
+                            "Origin": f"http://{UI_HOST}:{PORT}",
+                        },
+                    )
+                    with urllib.request.urlopen(req, timeout=5):
+                        pass
+                except Exception as e:
+                    print(f"[StatusBar] Action {path} error: {e}")
+
+            def menuWillOpen_(self, menu):
+                self._rebuild_menu(menu)
+
+            def _rebuild_menu(self, menu):
+                global _status_cache, _status_cache_lock
+                menu.removeAllItems()
+
+                cached = None
+                try:
+                    with _status_cache_lock:
+                        if isinstance(_status_cache, dict):
+                            cached = dict(_status_cache)
+                except Exception:
+                    cached = None
+
+                if not cached:
+                    cached = {}
+
+                connected = cached.get("connected", False)
+                active_device = str(cached.get("active_device") or "").strip()
+                device_info = cached.get("device_info") if isinstance(cached.get("device_info"), dict) else {}
+                model = str(device_info.get("model") or "").strip() or "Android Device"
+                battery = device_info.get("battery")
+                ip = str(device_info.get("ip") or active_device or "").strip()
+
+                if connected:
+                    info_text = f"● Connected: {model}"
+                    if battery is not None and battery != -1:
+                        info_text += f" ({battery}%)"
+                    status_item_menu = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(info_text, None, "")
+                    status_item_menu.setEnabled_(False)
+                    menu.addItem_(status_item_menu)
+
+                    if ip:
+                        sub_text = f"   Endpoint: {ip}"
+                        sub_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(sub_text, None, "")
+                        sub_item.setEnabled_(False)
+                        menu.addItem_(sub_item)
+                else:
+                    status_item_menu = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("○ No Phone Connected", None, "")
+                    status_item_menu.setEnabled_(False)
+                    menu.addItem_(status_item_menu)
+
+                menu.addItem_(AppKit.NSMenuItem.separatorItem())
+
+                open_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Open Dashboard", "openDashboard:", "o")
+                open_item.setTarget_(self)
+                menu.addItem_(open_item)
+
+                menu.addItem_(AppKit.NSMenuItem.separatorItem())
+
+                if connected:
+                    mirror_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Start Screen Mirror", "startMirror:", "m")
+                    mirror_item.setTarget_(self)
+                    menu.addItem_(mirror_item)
+
+                    cam_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Live Camera Feed", "startCamera:", "c")
+                    cam_item.setTarget_(self)
+                    menu.addItem_(cam_item)
+
+                    disc_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Disconnect Phone", "disconnectDevice:", "d")
+                    disc_item.setTarget_(self)
+                    menu.addItem_(disc_item)
+                else:
+                    recon_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quick Connect", "autoConnect:", "r")
+                    recon_item.setTarget_(self)
+                    menu.addItem_(recon_item)
+
+                menu.addItem_(AppKit.NSMenuItem.separatorItem())
+
+                quit_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit ConnectPhone", "quitApp:", "q")
+                quit_item.setTarget_(self)
+                menu.addItem_(quit_item)
+
+        menu_controller = StatusBarMenuController.alloc().init()
+        status_bar = AppKit.NSStatusBar.systemStatusBar()
+        status_item = status_bar.statusItemWithLength_(AppKit.NSVariableStatusItemLength)
+        status_btn = status_item.button()
+        if status_btn:
+            status_icon = get_menubar_icon()
+            if status_icon:
+                status_btn.setImage_(status_icon)
+                status_btn.setImagePosition_(AppKit.NSImageOnly)
+                status_btn.setTitle_("")
+            else:
+                status_btn.setTitle_("📱")
+
+        menu = AppKit.NSMenu.alloc().init()
+        menu.setDelegate_(menu_controller)
+        menu_controller._rebuild_menu(menu)
+        status_item.setMenu_(menu)
+
         webview.start(debug=False)
     except ImportError:
         print("💡 pywebview not found, falling back to standard web browser.")

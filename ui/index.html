@@ -71,10 +71,15 @@
                         <span class="status-dot"></span>
                         <span class="status-text">Disconnected</span>
                     </div>
+                    <div class="tailscale-badge" id="tailscale-badge" title="Tailscale VPN Mesh Network" style="display: none; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 600; margin-left: 8px;">
+                        <span class="ts-dot" style="width: 7px; height: 7px; border-radius: 50%; display: inline-block;"></span>
+                        <span id="tailscale-badge-text">Tailscale</span>
+                    </div>
                     <div class="device-details" id="header-device-info">
                         Select Connection Settings in Preferences or connect using Wi-Fi IP
                     </div>
                 </div>
+
                 
                 <div class="header-right">
                     <button class="header-btn btn-header-accent" id="btn-header-autoconnect" title="Instant Auto-Connect">
@@ -198,23 +203,35 @@
                             <div class="mdns-devices-list" id="mdns-discovered-list" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;">
                                 <p class="list-placeholder">Click 'Scan' to find local wireless debugging targets.</p>
                             </div>
+                            <div class="tailscale-devices-list" id="tailscale-discovered-list" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                    <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 4px;">
+                                        <i class="material-symbols-outlined" style="font-size: 13px; color: #38bdf8;">vpn_lock</i> Tailscale Peers
+                                    </span>
+                                    <span id="tailscale-peer-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 8px; background: rgba(255,255,255,0.06); color: var(--text-secondary);">Checking...</span>
+                                </div>
+                                <div id="tailscale-peers-content">
+                                    <p class="list-placeholder" style="font-size: 11.5px;">Scanning Tailscale peers...</p>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Card 3: Fast Wireless Connect -->
                         <div class="card connection-controls-card quad-card">
                             <h3><i class="material-symbols-outlined">bolt</i> Fast Wireless Connect</h3>
-                            <p>Connect to your phone using its Wireless Debugging IP and Port.</p>
+                            <p>Connect to your phone using its Wireless Debugging IP and Port (Wi-Fi or Tailscale).</p>
                             <div class="settings-form">
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label for="conn-ip">IP Address:</label>
+                                        <label for="conn-ip">IP Address / MagicDNS:</label>
                                         <div class="ip-entry-controls">
-                                            <input type="text" id="conn-ip" placeholder="e.g. 192.168.29.127">
+                                            <input type="text" id="conn-ip" placeholder="192.168.x.x, 100.x.y.z, or *.ts.net">
                                             <select id="saved-ips-dropdown" class="saved-device-select" title="Select a saved wireless device">
                                                 <option value="" disabled selected>▼</option>
                                             </select>
                                         </div>
                                     </div>
+
                                     <div class="form-group">
                                         <label for="conn-port">Port:</label>
                                         <input type="text" id="conn-port" inputmode="numeric" placeholder="e.g. 42771">
@@ -310,14 +327,14 @@
                                 <label for="cam-res">Resolution:</label>
                                 <select id="cam-res">
                                     <option value="1080p">1080p Full HD (Recommended)</option>
+                                    <option value="720p">720p HD (Ultra-Smooth / Lowest Latency)</option>
                                     <option value="4k">4k Ultra HD (Wired Only)</option>
-                                    <option value="720p">720p HD (High FPS)</option>
                                 </select>
                             </div>
                             
                             <div class="mirror-checkbox-group">
-                                <input type="checkbox" id="cam-no-audio">
-                                <label for="cam-no-audio">Mute audio capture</label>
+                                <input type="checkbox" id="cam-no-audio" checked>
+                                <label for="cam-no-audio">Ultra-Smooth Mode (Mute mic to prevent A/V latency)</label>
                             </div>
                             
                             <button class="btn btn-accent start-mirror-btn" data-type="camera">Start Camera Stream</button>
@@ -792,7 +809,23 @@
                                     <label for="pref-biometric-daemon">Auto-Prompt macOS Touch ID for Android Lockscreen & App Locks</label>
                                 </div>
                                 
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-tailscale-remote">
+                                    <label for="pref-tailscale-remote">Tailscale Remote Profile (Lower 8 Mbps bitrate, 40ms buffer, 1600p cap)</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group">
+                                    <input type="checkbox" id="pref-close-to-menubar" checked>
+                                    <label for="pref-close-to-menubar">Keep running in macOS Menu Bar when window is closed</label>
+                                </div>
+                                
+                                <div class="mirror-checkbox-group" id="group-hide-dock" style="margin-left: 18px;">
+                                    <input type="checkbox" id="pref-hide-dock" checked>
+                                    <label for="pref-hide-dock">Hide Dock icon when minimized to Menu Bar (Menu Bar Only mode)</label>
+                                </div>
+                                
                                 <button class="btn btn-accent" id="btn-save-pref">Save Preferences</button>
+
                             </div>
                         </div>
                         

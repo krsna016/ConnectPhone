@@ -209,8 +209,10 @@ document.addEventListener('DOMContentLoaded', () => {
             renderCompanionDevices(data.companion_devices || []);
             renderFleet(data);
             updateConnectionUI(data);
+            updateTailscaleUI(data.tailscale);
             updatePreferencesForm(data.config);
             updateCameraOverlayUI(data);
+
             if (isManual) {
                 if (data.connected) {
                     showToast('Devices scanned successfully. Phone is connected.', 'success');
@@ -265,7 +267,95 @@ document.addEventListener('DOMContentLoaded', () => {
         await fetchStatus(true);
     });
 
+    function updateTailscaleUI(ts) {
+        const badge = document.getElementById('tailscale-badge');
+        const badgeText = document.getElementById('tailscale-badge-text');
+        const peerBadge = document.getElementById('tailscale-peer-badge');
+        const peerContent = document.getElementById('tailscale-peers-content');
+
+        if (!ts) {
+            if (badge) badge.style.display = 'none';
+            if (peerBadge) peerBadge.textContent = 'Unavailable';
+            if (peerContent) peerContent.innerHTML = '<p class="list-placeholder" style="font-size: 11.5px;">Tailscale not active.</p>';
+            return;
+        }
+
+        if (badge && badgeText) {
+            const dot = badge.querySelector('.ts-dot');
+            if (ts.running && ts.mac_ip) {
+                badge.style.display = 'inline-flex';
+                badge.style.background = 'rgba(56, 189, 248, 0.12)';
+                badge.style.border = '1px solid rgba(56, 189, 248, 0.35)';
+                badge.style.color = '#38bdf8';
+                if (dot) dot.style.background = '#38bdf8';
+                badgeText.textContent = `Tailscale: ${ts.mac_ip}`;
+            } else if (ts.installed) {
+                badge.style.display = 'inline-flex';
+                badge.style.background = 'rgba(251, 191, 36, 0.12)';
+                badge.style.border = '1px solid rgba(251, 191, 36, 0.35)';
+                badge.style.color = '#fbbf24';
+                if (dot) dot.style.background = '#fbbf24';
+                badgeText.textContent = 'Tailscale: Idle';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        if (peerBadge) {
+            if (ts.running) {
+                const count = (ts.android_peers || []).length;
+                peerBadge.style.background = count > 0 ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.08)';
+                peerBadge.style.color = count > 0 ? '#4ade80' : 'var(--text-secondary)';
+                peerBadge.textContent = `${count} Android peer${count === 1 ? '' : 's'}`;
+            } else if (ts.installed) {
+                peerBadge.style.background = 'rgba(251, 191, 36, 0.12)';
+                peerBadge.style.color = '#fbbf24';
+                peerBadge.textContent = 'Offline';
+            } else {
+                peerBadge.textContent = 'Not Installed';
+            }
+        }
+
+        if (peerContent) {
+            if (!ts.running) {
+                peerContent.innerHTML = `<p class="list-placeholder" style="font-size: 11.5px;">${ts.installed ? 'Tailscale is not active on this Mac. Open Tailscale.app to connect.' : 'Install Tailscale to mirror phones over cellular and remote networks.'}</p>`;
+                return;
+            }
+
+            const peers = (ts.android_peers && ts.android_peers.length) ? ts.android_peers : (ts.peers || []).filter(p => p.online);
+            if (!peers.length) {
+                peerContent.innerHTML = '<p class="list-placeholder" style="font-size: 11.5px;">No Tailscale Android devices online right now.</p>';
+                return;
+            }
+
+            peerContent.innerHTML = peers.map(peer => `
+                <div class="device-row" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; margin-bottom: 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                        <i class="material-symbols-outlined" style="font-size: 18px; color: ${peer.online ? '#4ade80' : 'var(--text-secondary)'};">smartphone</i>
+                        <div style="min-width: 0;">
+                            <div style="font-size: 12.5px; font-weight: 600; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(peer.name || peer.ip)}</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); font-family: monospace;">${escapeHtml(peer.ip)} ${peer.is_android ? '• Android' : ''}</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-primary" onclick="window.connectTailscalePeer('${peer.ip}')" style="padding: 4px 10px; font-size: 11.5px; border-radius: 6px; white-space: nowrap;">
+                        <i class="material-symbols-outlined" style="font-size: 13px;">link</i> Fill IP
+                    </button>
+                </div>
+            `).join('');
+        }
+    }
+
+    window.connectTailscalePeer = function(ip) {
+        const connIpInput = document.getElementById('conn-ip');
+        if (connIpInput) {
+            connIpInput.value = ip;
+            connIpInput.focus();
+            showToast(`Filled Tailscale IP ${ip}. Enter port or click Auto-Connect.`, 'info');
+        }
+    };
+
     function renderFleet(data) {
+
         if (!fleetGrid) return;
         const fleet = Array.isArray(data.fleet) ? data.fleet : [];
         fleetOnlineSerials = fleet.filter(device => device.status === 'online').map(device => device.serial);
@@ -731,7 +821,14 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('pref-stay-awake').checked = config.stay_awake_enabled !== false;
             document.getElementById('pref-show-touches').checked = config.show_touches_enabled === true;
             document.getElementById('pref-biometric-daemon').checked = config.biometric_daemon_enabled === true;
+            const prefTsRemote = document.getElementById('pref-tailscale-remote');
+            if (prefTsRemote) prefTsRemote.checked = config.tailscale_remote_profile === true;
+            const prefCloseToMenubar = document.getElementById('pref-close-to-menubar');
+            if (prefCloseToMenubar) prefCloseToMenubar.checked = config.close_to_menubar !== false;
+            const prefHideDock = document.getElementById('pref-hide-dock');
+            if (prefHideDock) prefHideDock.checked = config.hide_dock_on_close !== false;
         }
+
 
         // Auto fill IP in connection form
         const connIpInput = document.getElementById('conn-ip');
@@ -911,7 +1008,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!data.success) throw new Error(data.message || 'Could not start Companion pairing');
             companionImage.src = data.qr_image;
             companionPanel.classList.remove('hidden');
-            companionStatus.textContent = 'Waiting for the Companion app to scan…';
+            companionStatus.textContent = data.tailscale_ip
+                ? `Waiting for scan (Tailscale: ${data.tailscale_ip})…`
+                : 'Waiting for the Companion app to scan…';
+
             companionPoll = setInterval(async () => {
                 const response = await fetch(`${API_BASE}/api/companion/pair/status?id=${encodeURIComponent(data.session_id)}`);
                 const state = await response.json();
@@ -1101,9 +1201,13 @@ document.addEventListener('DOMContentLoaded', () => {
             stay_awake_enabled: document.getElementById('pref-stay-awake').checked,
             show_touches_enabled: document.getElementById('pref-show-touches').checked,
             biometric_daemon_enabled: document.getElementById('pref-biometric-daemon').checked,
+            tailscale_remote_profile: document.getElementById('pref-tailscale-remote') ? document.getElementById('pref-tailscale-remote').checked : false,
+            close_to_menubar: document.getElementById('pref-close-to-menubar') ? document.getElementById('pref-close-to-menubar').checked : true,
+            hide_dock_on_close: document.getElementById('pref-hide-dock') ? document.getElementById('pref-hide-dock').checked : true,
             mac_mic_device: document.getElementById('pref-mac-mic-device').value,
             audio_buffer: document.getElementById('pref-audio-buffer').value
         };
+
         showToast('Saving preferences...', 'info');
         postAction('/api/settings/save', body).then(() => {
             preferencesLoaded = false;

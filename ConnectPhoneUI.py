@@ -3133,11 +3133,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
                     if is_tailscale:
                         s_bitrate = "4M"
-                        cmd.append("--video-buffer=0")
+                        cmd.append("--video-buffer=100")
                         cmd.append("--max-size=1600")
                     elif is_wireless:
-                        s_bitrate = "12M"
-                        cmd.append("--video-buffer=0")
+                        s_bitrate = "16M"
+                        cmd.append("--video-buffer=100")
                     cmd += [f"--video-bit-rate={s_bitrate}", f"--video-codec={s_codec}"]
 
                         
@@ -3174,40 +3174,34 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     target_host = current_serial.split(":", 1)[0] if ":" in current_serial else ""
                     is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
 
-                    # Zero display buffer: render every frame the microsecond it arrives for exactly live feed
-                    cmd.append("--video-buffer=0")
-                    cmd.append("--no-control")
-                    # Baseline profile (profile=1) disables B-frames for zero lookahead delay; i-frame-interval=1 ensures instant recovery
-                    cmd.append("--video-codec-options=i-frame-interval=1,profile=1")
-
                     if is_tailscale:
-                        # Remote Tailscale profile: tight bitrate prevents packet queueing in cellular buffers
-                        c_bitrate = "3M" if resolution == "720p" else ("4M" if resolution == "1080p" else "6M")
+                        # Remote Tailscale profile: optimize for network stability and jitter absorption over VPN
+                        c_bitrate = "2M" if resolution == "720p" else ("3M" if resolution == "1080p" else "6M")
                         c_codec = "h264"
+                        cmd.append("--video-buffer=160")
+                        cmd.append("--no-control")
                     elif is_wireless:
-                        # Wireless Wi-Fi profile: 4-6 Mbps for ultra-smooth instantaneous streaming
-                        c_bitrate = "4M" if resolution == "720p" else ("6M" if resolution == "1080p" else "10M")
+                        # Wireless Wi-Fi profile: 6 Mbps with 40ms jitter buffer for buttery smooth 30fps
+                        c_bitrate = "6M" if resolution != "4k" else "10M"
                         c_codec = "h264" if resolution != "4k" else "h265"
+                        cmd.append("--video-buffer=40")
                     else:
                         # Wired USB: lowest latency high-bitrate streaming
                         if facing == "front":
-                            c_bitrate = "8M"
-                            c_codec = "h264"
-                        elif resolution == "4k":
-                            c_bitrate = "24M"
-                            c_codec = "h265"
-                        else:
                             c_bitrate = "12M"
                             c_codec = "h264"
+                        elif resolution == "4k":
+                            c_bitrate = "32M"
+                            c_codec = "h265"
                         cmd.append("--no-downsize-on-error")
 
                     if no_audio:
-                        # Strip default audio args and disable audio for ultra-smooth zero latency video without A/V sync delays
+                        # Strip default audio args and disable audio for ultra-smooth zero latency video
                         cmd = [c for c in cmd if not c.startswith("--audio-")]
                         cmd.append("--no-audio")
                     else:
                         cmd = [c for c in cmd if not c.startswith("--audio-buffer=")]
-                        a_buf = "20"
+                        a_buf = "160" if is_tailscale else ("50" if is_wireless else "20")
                         a_bitrate = "64000" if is_tailscale else "128000"
                         cmd.append(f"--audio-buffer={a_buf}")
                         cmd += [c for c in audio_args if not c.startswith("--audio-bit-rate=")]

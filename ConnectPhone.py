@@ -737,13 +737,24 @@ def run_mirroring_flow(mode, config):
         # lowest practical latency; wireless mode must not silently degrade
         # the requested HD resolution.
         devices = check_adb_devices()
+        current_serial = os.environ.get("ANDROID_SERIAL", "")
+        target_host = current_serial.split(":", 1)[0] if ":" in current_serial else ""
+        from core.tailscale import is_tailscale_ip
+        is_ts = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
         is_wireless = any(":" in d for d in devices) if devices else False
         
-        if is_wireless:
+        if is_ts:
+            c_bitrate = "2M" if resolution == "1080p" else ("1500K" if resolution == "720p" else "4M")
+            c_codec = config.get("camera_codec", "h265")
+            c_fps = "30"
+            args.append("--video-buffer=90")
+            print(f"\n{YELLOW}🌐 Remote WAN/Tailscale mode: {c_bitrate} {c_codec.upper()}, adaptive 90ms jitter buffer.{RESET}")
+        elif is_wireless:
             if resolution == "4k":
                 c_bitrate, c_codec = "32M", "h265"
             else:
                 c_bitrate, c_codec = "16M", "h264"
+            c_fps = "30"
             print(f"\n{YELLOW}📶 Wireless HD mode: {c_bitrate} {c_codec.upper()}, zero intentional video buffering.{RESET}")
         else:
             if facing == "front":
@@ -752,15 +763,12 @@ def run_mirroring_flow(mode, config):
             else:
                 c_bitrate = config.get("camera_bitrate", "32M")
                 c_codec = config.get("camera_codec", "h265")
+            c_fps = "30" if facing == "front" else config.get("camera_fps", "60")
 
-        if facing == "front" or is_wireless:
-            c_fps = "30"
-        else:
-            c_fps = config.get("camera_fps", "60")
-                
         args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
         args.append("--no-downsize-on-error")
-        args.append("--stay-awake")
+        if not is_ts:
+            args.append("--stay-awake")
         if c_fps in ["120", "240"]:
             if resolution != "720p":
                 print(f"\n{YELLOW}⚠️ High-Speed Mode ({c_fps} FPS) is restricted to 720p or lower resolution on this device.{RESET}")
@@ -804,13 +812,24 @@ def run_mirroring_flow(mode, config):
             
         # Apply camera quality preferences with zero intentional video buffering.
         devices = check_adb_devices()
+        current_serial = os.environ.get("ANDROID_SERIAL", "")
+        target_host = current_serial.split(":", 1)[0] if ":" in current_serial else ""
+        from core.tailscale import is_tailscale_ip
+        is_ts = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
         is_wireless = any(":" in d for d in devices) if devices else False
         
-        if is_wireless:
+        if is_ts:
+            c_bitrate = "2M" if resolution == "1080p" else ("1500K" if resolution == "720p" else "4M")
+            c_codec = config.get("camera_codec", "h265")
+            c_fps = "30"
+            args.append("--video-buffer=90")
+            print(f"\n{YELLOW}🌐 Remote WAN/Tailscale mode: {c_bitrate} {c_codec.upper()}, adaptive 90ms jitter buffer.{RESET}")
+        elif is_wireless:
             if resolution == "4k":
                 c_bitrate, c_codec = "32M", "h265"
             else:
                 c_bitrate, c_codec = "16M", "h264"
+            c_fps = "30"
             print(f"\n{YELLOW}📶 Wireless HD mode: {c_bitrate} {c_codec.upper()}, zero intentional video buffering.{RESET}")
         else:
             if facing == "front":
@@ -819,15 +838,12 @@ def run_mirroring_flow(mode, config):
             else:
                 c_bitrate = config.get("camera_bitrate", "32M")
                 c_codec = config.get("camera_codec", "h265")
+            c_fps = "30" if facing == "front" else config.get("camera_fps", "60")
 
-        if facing == "front" or is_wireless:
-            c_fps = "30"
-        else:
-            c_fps = config.get("camera_fps", "60")
-                
         args += [f"--video-bit-rate={c_bitrate}", f"--camera-fps={c_fps}", f"--video-codec={c_codec}"]
         args.append("--no-downsize-on-error")
-        args.append("--stay-awake")
+        if not is_ts:
+            args.append("--stay-awake")
         if c_fps in ["120", "240"]:
             if resolution != "720p":
                 print(f"\n{YELLOW}⚠️ High-Speed Mode ({c_fps} FPS) is restricted to 720p or lower resolution on this device.{RESET}")

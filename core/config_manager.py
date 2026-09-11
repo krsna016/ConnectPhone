@@ -350,6 +350,14 @@ class ConfigurationManager:
                             fallback_endpoints.append(ep)
                 if item.get("ip") != ip and not is_same and not same_identity:
                     devices.append(item)
+
+        # Include alternative network addresses from saved_ips for dual-network failover (Wi-Fi <-> Tailscale)
+        if device_serial:
+            for alt_ip in self.get("saved_ips", []):
+                if alt_ip and alt_ip != ip:
+                    alt_ep = f"{alt_ip}:5555"
+                    if alt_ep != f"{ip}:{port}" and alt_ep not in fallback_endpoints:
+                        fallback_endpoints.append(alt_ep)
         # Auto-discovery often knows the endpoint before it has re-read the
         # device serial. Never erase an enrolled identity during that path.
         device_serial = device_serial or existing_serial

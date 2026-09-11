@@ -490,11 +490,30 @@ _input_permission_cache: dict[object, tuple] = {}
 _device_info_cache: dict[object, tuple] = {}
 _adb_action_lock = threading.RLock()
 AUTO_RECONNECTOR = None
+_provisioned_usb_devices = set()
+
+def _auto_provision_usb_devices(devices_detailed):
+    global _provisioned_usb_devices
+    live_usb_serials = {
+        d["serial"] for d in devices_detailed
+        if d.get("type") == "usb" and d.get("status") == "device"
+    }
+    _provisioned_usb_devices.intersection_update(live_usb_serials)
+    for usb_serial in live_usb_serials:
+        if usb_serial not in _provisioned_usb_devices:
+            _provisioned_usb_devices.add(usb_serial)
+            def _provision(s):
+                try:
+                    subprocess.run(["adb", "-s", s, "tcpip", "5555"], capture_output=True, timeout=3.5)
+                except Exception:
+                    pass
+            threading.Thread(target=_provision, args=(usb_serial,), daemon=True).start()
 
 def _build_status_payload():
     """Build the full /api/status payload. Called from background thread."""
     global scrcpy_proc, scrcpy_state, sync_watcher_active
     devices_detailed = get_detailed_adb_devices()
+    _auto_provision_usb_devices(devices_detailed)
     active_device = check_and_autoselect_device(devices_detailed)
     device_connected = len(devices_detailed) > 0 and any(d["status"] == "device" for d in devices_detailed)
 
@@ -1508,23 +1527,53 @@ def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
             by_ip.setdefault(str(service.get("ip")), []).append(int(service["port"]))
 
     if unresolved:
+        ts_peers = []
+        try:
+            from core.tailscale import get_tailscale_peers
+            ts_peers = get_tailscale_peers()
+        except Exception:
+            pass
+
         for item in unresolved:
             ip = str(item["ip"])
             identity = str(item.get("device_serial", ""))
-            candidate_ports = list(by_ip.get(ip, []))
-            # Fallback to configured port and standard 5555 for non-mDNS / Tailscale environments
+            candidate_endpoints = []
+
+            # 1. Ports on primary IP (mDNS discovered, item port, and 5555)
+            for p in by_ip.get(ip, []):
+                candidate_endpoints.append(f"{ip}:{p}")
             for p in (int(item["port"]), 5555):
-                if p not in candidate_ports:
-                    candidate_ports.append(p)
-            for port in candidate_ports:
-                endpoint = f"{ip}:{port}"
-                accepted, _ = _adb_connect(ip, port, attempts=1, timeout=3)
+                candidate_endpoints.append(f"{ip}:{p}")
+
+            # 2. Known fallback endpoints
+            for fb in item.get("fallback_endpoints", []):
+                fb_str = str(fb).strip()
+                if fb_str and fb_str not in candidate_endpoints:
+                    candidate_endpoints.append(fb_str)
+
+            # 3. Online Tailscale Android peers
+            for peer in ts_peers:
+                if peer.get("online") and peer.get("ip"):
+                    for p in (5555, int(item["port"])):
+                        ts_ep = f"{peer['ip']}:{p}"
+                        if ts_ep not in candidate_endpoints:
+                            candidate_endpoints.append(ts_ep)
+
+            for endpoint in dict.fromkeys(candidate_endpoints):
+                if ":" not in endpoint:
+                    continue
+                cand_ip, cand_port_str = endpoint.rsplit(":", 1)
+                try:
+                    cand_port = int(cand_port_str)
+                except ValueError:
+                    continue
+                accepted, _ = _adb_connect(cand_ip, cand_port, attempts=1, timeout=3)
                 actual = _get_adb_device_serial(endpoint, timeout=3.0, fallback_attempts=1) if accepted else None
                 if accepted and (not identity or actual == identity or (not actual and _adb_endpoint_alive(endpoint))):
                     resolved_serial = actual or identity
                     if resolved_serial:
-                        ConnectPhone.global_config_mgr.update_device_endpoint(ip, port, resolved_serial)
-                    ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
+                        ConnectPhone.global_config_mgr.update_device_endpoint(cand_ip, cand_port, resolved_serial)
+                    ConnectPhone.global_config_mgr.enable_auto_reconnect(cand_ip, cand_port)
                     connected.append({"endpoint": endpoint, "serial": resolved_serial})
                     os.environ["ANDROID_SERIAL"] = endpoint
                     break
@@ -3102,10 +3151,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     audio_args = ["--audio-source=mic", "--audio-codec=opus", "--audio-bit-rate=128000"]
                 
                 devices = ConnectPhone.check_adb_devices()
-                is_wireless = is_wireless_transport(os.environ.get("ANDROID_SERIAL", ""))
+                current_serial = os.environ.get("ANDROID_SERIAL", "")
+                target_host = current_serial.split(":", 1)[0] if ":" in current_serial else ""
+                is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
+                is_wireless = is_wireless_transport(current_serial)
 
                 cmd = ["scrcpy", "--window-title", "ConnectPhone"]
-                a_buf = config.get("audio_buffer", "20")
+                a_buf = "40" if is_tailscale else config.get("audio_buffer", "20")
                 cmd.append(f"--audio-buffer={a_buf}")
                 # Keep the macOS playback queue short as well. The transport
                 # buffer above absorbs network jitter; this queue should not
@@ -3130,12 +3182,9 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     # Apply video quality settings to screen mirroring as well
                     s_codec = config.get("camera_codec", "h265")
                     s_bitrate = config.get("camera_bitrate", "32M")
-                    current_serial = os.environ.get("ANDROID_SERIAL", "")
-                    target_host = current_serial.split(":", 1)[0] if ":" in current_serial else ""
-                    is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
                     if is_tailscale:
                         s_bitrate = "4M"
-                        cmd.append("--video-buffer=40")
+                        cmd.append("--video-buffer=60")
                         cmd.append("--max-size=1600")
                     elif is_wireless:
                         s_bitrate = "16M"

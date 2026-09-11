@@ -120,6 +120,20 @@ def _get_tailscale_cli() -> Optional[str]:
     return None
 
 
+def is_local_private_ip(ip_or_host: str) -> bool:
+    """Return True if target is an RFC1918 private IPv4 address and NOT a Tailscale CGNAT IP."""
+    if not isinstance(ip_or_host, str):
+        return False
+    value = ip_or_host.strip()
+    if not value or is_tailscale_ip(value):
+        return False
+    try:
+        addr = ipaddress.ip_address(value)
+        return isinstance(addr, ipaddress.IPv4Address) and addr.is_private
+    except ValueError:
+        return False
+
+
 def get_tailscale_peers() -> List[Dict[str, any]]:
     """Query local Tailscale CLI for online peers (specifically Android phones)."""
     ts_cli = _get_tailscale_cli()
@@ -131,7 +145,7 @@ def get_tailscale_peers() -> List[Dict[str, any]]:
             [ts_cli, "status", "--json"],
             capture_output=True,
             text=True,
-            timeout=1.5,
+            timeout=2.5,
         )
         if proc.returncode != 0 or not proc.stdout.strip():
             return []
@@ -146,11 +160,13 @@ def get_tailscale_peers() -> List[Dict[str, any]]:
             ipv4_list = [ip for ip in peer_ips if is_tailscale_ip(ip)]
             if not ipv4_list:
                 continue
-            host_name = peer_info.get("HostName") or peer_info.get("DNSName", "").rstrip(".")
+            dns_name = peer_info.get("DNSName", "").rstrip(".")
+            host_name = peer_info.get("HostName") or dns_name
             os_name = (peer_info.get("OS") or "").lower()
             is_online = bool(peer_info.get("Online", False) or peer_info.get("Active", False))
             peers.append({
                 "name": host_name,
+                "dns_name": dns_name,
                 "ip": ipv4_list[0],
                 "all_ips": ipv4_list,
                 "os": os_name,

@@ -259,6 +259,56 @@ class WirelessReconnectTests(unittest.TestCase):
                 self.assertNotIn("192.0.2.10:5555", reconnector.connected_endpoints)
                 self.assertIn(["adb", "disconnect", "192.0.2.10:5555"], commands)
 
+    def test_seamless_promotion_to_local_wifi(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._config(directory, port=5555, serial="SERIAL-A")
+            commands = []
+
+            def runner(command, **_kwargs):
+                commands.append(command)
+                if command[1:3] == ["connect", "192.168.1.50:5555"]:
+                    return subprocess.CompletedProcess(command, 0, "connected to 192.168.1.50:5555", "")
+                if "getprop" in command and "192.168.1.50:5555" in command:
+                    return subprocess.CompletedProcess(command, 0, "SERIAL-A\n", "")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            reconnector = AutoReconnector(path, scanner=FakeScanner(), command_runner=runner)
+            # Device is currently connected on Tailscale
+            reconnector.connected_endpoints.add("100.93.0.20:5555")
+            reconnector._endpoint_serial["100.93.0.20:5555"] = "SERIAL-A"
+
+            states = {"100.93.0.20:5555": "device"}
+            discovered = [{"type": "connect", "ip": "192.168.1.50", "port": 5555, "device_serial_hint": "SERIAL-A"}]
+            item = {"ip": "100.93.0.20", "port": 5555, "serial": "SERIAL-A", "fallback_endpoints": ["192.168.1.50:5555"]}
+
+            with mock.patch.object(reconnector, "_port_open", return_value=True):
+                promoted = reconnector._maybe_promote_to_local_wifi(item, discovered, states)
+                self.assertTrue(promoted)
+                self.assertIn("192.168.1.50:5555", reconnector.connected_endpoints)
+                self.assertNotIn("100.93.0.20:5555", reconnector.connected_endpoints)
+                self.assertIn(["adb", "disconnect", "100.93.0.20:5555"], commands)
+
+    def test_fast_keepalive_disconnects_when_port_drops(self):
+        commands = []
+
+        def runner(command, **_kwargs):
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
+        reconnector.connected_endpoints.add("192.168.1.50:5555")
+        reconnector._endpoint_serial["192.168.1.50:5555"] = "SERIAL-A"
+
+        states = {"192.168.1.50:5555": "device"}
+        with mock.patch.object(reconnector, "_port_open", return_value=False):
+            # Probe 1: missed
+            reconnector._keepalive(states)
+            self.assertIn("192.168.1.50:5555", reconnector.connected_endpoints)
+            # Probe 2: port is down, must disconnect immediately
+            reconnector._keepalive(states)
+            self.assertNotIn("192.168.1.50:5555", reconnector.connected_endpoints)
+            self.assertIn(["adb", "disconnect", "192.168.1.50:5555"], commands)
+
 
 if __name__ == "__main__":
     unittest.main()

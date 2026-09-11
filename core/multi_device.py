@@ -268,7 +268,9 @@ class MirrorSessionManager:
             return self._public(item), True
 
     def build_command(self, serial, mode, config, options, window_title, tile_index=0, port=27300):
-        audio_buffer = max(10, min(2000, int(config.get("audio_buffer", 20))))
+        host_candidate = serial.split(":", 1)[0] if ":" in serial else ""
+        is_ts = is_tailscale_ip(host_candidate) or bool(config.get("tailscale_remote_profile", False))
+        audio_buffer = 40 if is_ts else max(10, min(2000, int(config.get("audio_buffer", 20))))
         x = 40 + (int(tile_index) % 5) * 70
         y = 60 + (int(tile_index) // 5) * 70
         command = [
@@ -295,12 +297,10 @@ class MirrorSessionManager:
             codec = str(config.get("camera_codec", "h265"))
             if codec not in {"h264", "h265"}:
                 codec = "h264"
-            host_candidate = serial.split(":", 1)[0] if ":" in serial else ""
-            is_ts = is_tailscale_ip(host_candidate) or bool(config.get("tailscale_remote_profile", False))
-            bitrate = "8M" if (wireless or is_ts) else "16M"
+            bitrate = "4M" if is_ts else ("8M" if wireless else "16M")
             command += [f"--video-bit-rate={bitrate}", f"--video-codec={codec}"]
             if is_ts:
-                command.append("--video-buffer=40")
+                command.append("--video-buffer=60")
                 command.append("--max-size=1600")
             elif wireless:
                 command.append("--video-buffer=25")

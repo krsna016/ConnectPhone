@@ -55,13 +55,13 @@ class AutoReconnector:
     # ADB's host daemon occasionally stalls while scrcpy, file transfers, or
     # dashboard probes are opening transports.  Do not turn one such stall
     # into a user-visible disconnect.
-    OFFLINE_GRACE = 8.0
-    EXPLICIT_OFFLINE_GRACE = 2.0
-    KEEPALIVE_INTERVAL = 10.0
+    OFFLINE_GRACE = 4.0
+    EXPLICIT_OFFLINE_GRACE = 1.0
+    KEEPALIVE_INTERVAL = 4.0
     KEEPALIVE_FAILURE_LIMIT = 3
     LOOP_INTERVAL = 1.0
-    CONNECT_TIMEOUT = 4.0
-    PORT_SCAN_COOLDOWN = 30.0
+    CONNECT_TIMEOUT = 3.5
+    PORT_SCAN_COOLDOWN = 20.0
 
     def __init__(self, config_path=None, scanner=None, command_runner=None, busy_check=None, port_discoverer=None, on_change=None):
         self.logger = logging.getLogger(__name__)
@@ -178,6 +178,7 @@ class AutoReconnector:
                     if serial in self._manually_disconnected or ip in self._manually_disconnected:
                         continue
                     if any(states.get(ep) == "device" and value == serial for ep, value in self._endpoint_serial.items()):
+                        self._maybe_promote_to_local_wifi(item, discovered, states)
                         continue
                     matches = []
                     for device in discovered:
@@ -191,14 +192,20 @@ class AutoReconnector:
                     fallback_eps = item.get("fallback_endpoints", [])
                     primary_failing = self._failures.get(primary_ep, 0) > 0 or primary_ep in self._offline_since
 
+                    expanded_ts = list(ts_peer_endpoints)
+                    if item.get("port") and int(item["port"]) != 5555:
+                        for ts_ep in ts_peer_endpoints:
+                            ts_host = ts_ep.split(":", 1)[0]
+                            expanded_ts.append(f"{ts_host}:{int(item['port'])}")
+
                     candidates = list(matches)
                     if not primary_failing:
                         candidates.append(primary_ep)
                         candidates.extend(fallback_eps)
-                        candidates.extend(ts_peer_endpoints)
+                        candidates.extend(expanded_ts)
                     else:
                         candidates.extend(fallback_eps)
-                        candidates.extend(ts_peer_endpoints)
+                        candidates.extend(expanded_ts)
                         candidates.append(primary_ep)
 
                     if not candidates:
@@ -306,8 +313,9 @@ class AutoReconnector:
         last_reset = self._last_reset.get(reset_key)
         if self._busy_check() or failures < 4 or (last_reset is not None and now - last_reset < cooldown):
             return False
-        if not self._port_open(endpoint):
-            return False
+        port_up = self._port_open(endpoint)
+        if hard and not port_up:
+            hard = False
         if hard:
             states = wireless_transport_states(self._run)
             if any(candidate != endpoint for candidate in states):
@@ -391,6 +399,54 @@ class AutoReconnector:
                 return True
         return False
 
+    def _maybe_promote_to_local_wifi(self, item, discovered, states):
+        """Seamlessly promote a phone currently connected on Tailscale/WAN to local Wi-Fi."""
+        if self._busy_check():
+            return False
+        serial = item["serial"]
+        active_ep = next((ep for ep, s in self._endpoint_serial.items() if s == serial and states.get(ep) == "device"), None)
+        if not active_ep:
+            return False
+        host = active_ep.split(":", 1)[0] if ":" in active_ep else active_ep
+        if not is_tailscale_ip(host):
+            return False
+
+        now = time.monotonic()
+        last_promo = getattr(self, "_last_promo_check", {})
+        if now - last_promo.get(serial, 0) < 5.0:
+            return False
+        last_promo[serial] = now
+        self._last_promo_check = last_promo
+
+        local_candidates = []
+        for device in discovered:
+            if device.get("type", "connect") == "connect":
+                dip = str(device.get("ip", "")).strip()
+                hint = device.get("device_serial_hint")
+                if dip and not is_tailscale_ip(dip) and (hint == serial or not hint):
+                    local_candidates.append(f"{dip}:{int(device['port'])}")
+
+        for ep in item.get("fallback_endpoints", []):
+            e_host = ep.split(":", 1)[0] if ":" in ep else ep
+            if e_host and not is_tailscale_ip(e_host) and ep not in local_candidates:
+                local_candidates.append(ep)
+
+        p_ip = str(item.get("ip", "")).strip()
+        if p_ip and not is_tailscale_ip(p_ip):
+            p_ep = f"{p_ip}:{item.get('port', 5555)}"
+            if p_ep not in local_candidates:
+                local_candidates.append(p_ep)
+
+        for cand in dict.fromkeys(local_candidates):
+            if cand == active_ep:
+                continue
+            if self._port_open(cand):
+                self.logger.info("Local Wi-Fi candidate %s is open for %s; promoting to gigabit connection", cand, serial)
+                if self._try_connect(cand, serial):
+                    self.logger.info("Promoted %s from Tailscale (%s) to local Wi-Fi (%s)", serial, active_ep, cand)
+                    return True
+        return False
+
     def _verify_connections(self, trusted_serials):
         states = wireless_transport_states(self._run, unavailable=None)
         if states is None:
@@ -462,28 +518,33 @@ class AutoReconnector:
         for endpoint in list(self.connected_endpoints):
             if states.get(endpoint) != "device" or now - self._last_keepalive.get(endpoint, 0) < self.KEEPALIVE_INTERVAL:
                 continue
-            try:
-                result = self._run_adb(["-s", endpoint, "shell", "true"], 8)
-                if result.returncode == 0:
-                    self._last_keepalive[endpoint] = now
-                    self._record_healthy(endpoint)
-                    continue
-            except (OSError, subprocess.TimeoutExpired):
-                pass
+
+            port_up = self._port_open(endpoint)
+            if port_up:
+                try:
+                    result = self._run_adb(["-s", endpoint, "shell", "true"], 2.0)
+                    if result.returncode == 0:
+                        self._last_keepalive[endpoint] = now
+                        self._record_healthy(endpoint)
+                        continue
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
 
             failures = self._keepalive_failures.get(endpoint, 0) + 1
             self._keepalive_failures[endpoint] = failures
-            if failures < self.KEEPALIVE_FAILURE_LIMIT:
+            limit = 2 if not port_up else self.KEEPALIVE_FAILURE_LIMIT
+            if failures < limit:
                 self.logger.warning(
-                    "Wireless health probe missed for %s (%d/%d); connection retained",
+                    "Wireless health probe missed for %s (%d/%d, port_up=%s); connection retained",
                     endpoint,
                     failures,
-                    self.KEEPALIVE_FAILURE_LIMIT,
+                    limit,
+                    port_up,
                 )
                 continue
 
-            # Several consecutive real-command failures are authoritative.
-            # Only now expose the outage and enter bounded recovery.
+            # Authoritative failure: network port unreachable or consecutive command timeouts.
+            self.logger.warning("Wireless connection dropped on %s (port_up=%s); entering fast failover", endpoint, port_up)
             self.connected_endpoints.discard(endpoint)
             self._endpoint_serial.pop(endpoint, None)
             self._pending_identity.pop(endpoint, None)
@@ -491,7 +552,9 @@ class AutoReconnector:
             self._last_keepalive.pop(endpoint, None)
             self._keepalive_failures.pop(endpoint, None)
             self._schedule_failure(endpoint)
-            self._maybe_reset_stale_endpoint(endpoint)
+            reset_wireless_transport(self._run, endpoint, restart_daemon=False)
+            states.pop(endpoint, None)
+            self._notify_change()
 
     def stop_watching(self):
         self._stop_event.set()

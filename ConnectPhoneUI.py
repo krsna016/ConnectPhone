@@ -3168,11 +3168,14 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         
                     is_mirrored = bool(config.get("mirror_enabled", True)) if facing == "front" else False
                     if cam_orientation == "portrait":
-                        capt_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+                        disp_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+                        rec_orient = "270" if facing == "front" else "90"
                     else:
-                        capt_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
-                    if capt_orient != "0":
-                        cmd.append(f"--capture-orientation={capt_orient}")
+                        disp_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
+                        rec_orient = "0"
+                    if disp_orient != "0":
+                        cmd.append(f"--display-orientation={disp_orient}")
+                        cmd.append(f"--record-orientation={rec_orient}")
                         
                     # Apply camera quality preferences.
                     c_bitrate = config.get("camera_bitrate", "32M")
@@ -3188,10 +3191,10 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
 
                     if is_tailscale:
-                        # Remote Tailscale profile: optimize for network stability and jitter absorption over VPN
-                        c_bitrate = "2M" if resolution == "720p" else ("3M" if resolution == "1080p" else "6M")
-                        c_codec = "h264"
-                        v_buf = "40" if latency_mode == "ultra_low" else ("120" if latency_mode == "smooth" else "60")
+                        # Remote Tailscale profile: optimize for network stability and jitter absorption over WAN/cellular
+                        c_bitrate = "1500K" if resolution == "720p" else ("2M" if resolution == "1080p" else "4M")
+                        c_codec = config.get("camera_codec", "h265")
+                        v_buf = "50" if latency_mode == "ultra_low" else ("150" if latency_mode == "smooth" else "90")
                         cmd.append(f"--video-buffer={v_buf}")
                         cmd.append("--no-control")
                     elif is_wireless:
@@ -3218,7 +3221,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         cmd.append("--no-audio")
                     else:
                         cmd = [c for c in cmd if not c.startswith("--audio-buffer=")]
-                        a_buf = "40" if is_tailscale else ("25" if is_wireless else "20")
+                        a_buf = "50" if is_tailscale else ("25" if is_wireless else "20")
                         a_bitrate = "64000" if is_tailscale else "128000"
                         cmd.append(f"--audio-buffer={a_buf}")
                         cmd += [c for c in audio_args if not c.startswith("--audio-bit-rate=")]

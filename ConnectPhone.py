@@ -724,11 +724,14 @@ def run_mirroring_flow(mode, config):
         cam_orientation = config.get("camera_orientation", "portrait")
         is_mirrored = bool(config.get("mirror_enabled", True)) if facing == "front" else False
         if cam_orientation == "portrait":
-            capt_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+            disp_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+            rec_orient = "270" if facing == "front" else "90"
         else:
-            capt_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
-        if capt_orient != "0":
-            args.append(f"--capture-orientation={capt_orient}")
+            disp_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
+            rec_orient = "0"
+        if disp_orient != "0":
+            args.append(f"--display-orientation={disp_orient}")
+            args.append(f"--record-orientation={rec_orient}")
             
         # Apply camera quality preferences. Keep zero video buffering for the
         # lowest practical latency; wireless mode must not silently degrade
@@ -790,11 +793,14 @@ def run_mirroring_flow(mode, config):
         cam_orientation = config.get("camera_orientation", "portrait")
         is_mirrored = bool(config.get("mirror_enabled", True)) if facing == "front" else False
         if cam_orientation == "portrait":
-            capt_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+            disp_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+            rec_orient = "270" if facing == "front" else "90"
         else:
-            capt_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
-        if capt_orient != "0":
-            args.append(f"--capture-orientation={capt_orient}")
+            disp_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
+            rec_orient = "0"
+        if disp_orient != "0":
+            args.append(f"--display-orientation={disp_orient}")
+            args.append(f"--record-orientation={rec_orient}")
             
         # Apply camera quality preferences with zero intentional video buffering.
         devices = check_adb_devices()
@@ -915,11 +921,14 @@ def mirror_and_record(config):
         cam_orientation = config.get("camera_orientation", "portrait")
         is_mirrored = bool(config.get("mirror_enabled", True)) if facing == "front" else False
         if cam_orientation == "portrait":
-            capt_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+            disp_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+            rec_orient = "270" if facing == "front" else "90"
         else:
-            capt_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
-        if capt_orient != "0":
-            args.append(f"--capture-orientation={capt_orient}")
+            disp_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
+            rec_orient = "0"
+        if disp_orient != "0":
+            args.append(f"--display-orientation={disp_orient}")
+            args.append(f"--record-orientation={rec_orient}")
             
         # Apply camera quality preferences
         c_bitrate = config.get("camera_bitrate", "32M")

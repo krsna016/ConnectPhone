@@ -324,8 +324,10 @@ class MirrorSessionManager:
             size = {"720p": "1280x720", "1080p": "1920x1080", "4k": "3840x2160"}[resolution]
             host_candidate = serial.split(":", 1)[0] if ":" in serial else ""
             is_ts = is_tailscale_ip(host_candidate) or bool(config.get("tailscale_remote_profile", False))
-            cam_bitrate = ("2M" if resolution == "720p" else ("3M" if resolution == "1080p" else "6M")) if is_ts else ("4M" if wireless else ("16M" if resolution == "4k" else "8M"))
-            cam_codec = "h264" if (is_ts or resolution != "4k") else "h265"
+            cam_bitrate = ("1500K" if resolution == "720p" else ("2M" if resolution == "1080p" else "4M")) if is_ts else ("4M" if wireless else ("16M" if resolution == "4k" else "8M"))
+            cam_codec = str(config.get("camera_codec", "h265")) if (is_ts or resolution == "4k") else ("h264" if wireless else "h265")
+            if cam_codec not in {"h264", "h265"}:
+                cam_codec = "h264"
             command += [
                 "--video-source=camera", f"--camera-facing={facing}", f"--camera-size={size}",
                 "--camera-fps=30", "--no-downsize-on-error",
@@ -334,13 +336,16 @@ class MirrorSessionManager:
             ]
             is_mirrored = bool(config.get("mirror_enabled", True)) if facing == "front" else False
             if cam_orientation == "portrait":
-                capt_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+                disp_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+                rec_orient = "270" if facing == "front" else "90"
             else:
-                capt_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
-            if capt_orient != "0":
-                command.append(f"--capture-orientation={capt_orient}")
+                disp_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
+                rec_orient = "0"
+            if disp_orient != "0":
+                command.append(f"--display-orientation={disp_orient}")
+                command.append(f"--record-orientation={rec_orient}")
             if is_ts:
-                v_buf = "40" if latency_mode == "ultra_low" else ("120" if latency_mode == "smooth" else "60")
+                v_buf = "50" if latency_mode == "ultra_low" else ("150" if latency_mode == "smooth" else "90")
                 command.append(f"--video-buffer={v_buf}")
                 command.append("--no-control")
             elif wireless:

@@ -157,20 +157,19 @@ class MultiDeviceTests(unittest.TestCase):
         manager = MirrorSessionManager()
         cmd_ts = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": True}, "Live Camera")
         self.assertIn("--video-source=camera", cmd_ts)
-        self.assertIn("--video-bit-rate=3M", cmd_ts)
-        self.assertIn("--video-codec=h264", cmd_ts)
-        self.assertIn("--video-buffer=60", cmd_ts)
+        self.assertIn("--video-bit-rate=2M", cmd_ts)
+        self.assertIn("--video-buffer=90", cmd_ts)
         self.assertIn("--no-audio", cmd_ts)
         self.assertIn("--no-control", cmd_ts)
         self.assertFalse(any(a.startswith("--audio-buffer=") for a in cmd_ts))
 
         # Test ultra_low latency mode on Tailscale
         cmd_ts_low = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": True, "latency_mode": "ultra_low"}, "Live Camera")
-        self.assertIn("--video-buffer=40", cmd_ts_low)
+        self.assertIn("--video-buffer=50", cmd_ts_low)
 
         # Test smooth latency mode on Tailscale
         cmd_ts_smooth = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": True, "latency_mode": "smooth"}, "Live Camera")
-        self.assertIn("--video-buffer=120", cmd_ts_smooth)
+        self.assertIn("--video-buffer=150", cmd_ts_smooth)
 
         # Test Wi-Fi wireless camera buffers
         cmd_wifi = manager.build_command("192.168.1.50:5555", "camera", {}, {"resolution": "1080p", "no_audio": True}, "Live Camera")
@@ -178,24 +177,27 @@ class MultiDeviceTests(unittest.TestCase):
         cmd_wifi_low = manager.build_command("192.168.1.50:5555", "camera", {}, {"resolution": "1080p", "no_audio": True, "latency_mode": "ultra_low"}, "Live Camera")
         self.assertIn("--video-buffer=15", cmd_wifi_low)
 
-        # Test audio enabled on Tailscale camera reduces audio buffer to 40ms to avoid A/V delay
+        # Test audio enabled on Tailscale camera uses jitter cushion
         cmd_ts_audio = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": False}, "Live Camera")
         self.assertIn("--audio-buffer=40", cmd_ts_audio)
 
-        # Test camera orientation: default back camera opens in portrait (90)
-        self.assertIn("--capture-orientation=90", cmd_ts)
+        # Test camera orientation: default back camera opens in portrait (display-orientation 90)
+        self.assertIn("--display-orientation=90", cmd_ts)
+        self.assertIn("--record-orientation=90", cmd_ts)
 
         # Test front camera with mirror enabled uses flip270 for portrait
         cmd_front = manager.build_command("100.93.0.20:5555", "camera", {"mirror_enabled": True}, {"camera_facing": "front", "resolution": "1080p"}, "Front Camera")
-        self.assertIn("--capture-orientation=flip270", cmd_front)
+        self.assertIn("--display-orientation=flip270", cmd_front)
+        self.assertIn("--record-orientation=270", cmd_front)
 
         # Test front camera without mirror uses 270 for portrait
         cmd_front_nomirror = manager.build_command("100.93.0.20:5555", "camera", {"mirror_enabled": False}, {"camera_facing": "front", "resolution": "1080p"}, "Front Camera")
-        self.assertIn("--capture-orientation=270", cmd_front_nomirror)
+        self.assertIn("--display-orientation=270", cmd_front_nomirror)
+        self.assertIn("--record-orientation=270", cmd_front_nomirror)
 
-        # Test landscape camera mode does not add portrait capture-orientation
+        # Test landscape camera mode does not add portrait display-orientation
         cmd_land = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "orientation": "landscape"}, "Landscape Camera")
-        self.assertFalse(any(a.startswith("--capture-orientation=") for a in cmd_land))
+        self.assertFalse(any(a.startswith("--display-orientation=") for a in cmd_land))
 
     def test_fleet_collapses_failover_endpoint_without_duplicates(self):
         adb_devices = [

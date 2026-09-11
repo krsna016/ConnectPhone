@@ -164,6 +164,32 @@ class MultiDeviceTests(unittest.TestCase):
         self.assertIn("--no-control", cmd_ts)
         self.assertFalse(any(a.startswith("--audio-buffer=") for a in cmd_ts))
 
+    def test_fleet_collapses_failover_endpoint_without_duplicates(self):
+        adb_devices = [
+            {"serial": "100.93.0.20:5555", "status": "device", "model": "Redmi Note 13 Pro 5G"},
+        ]
+        saved_devices = [
+            {
+                "ip": "192.168.29.222",
+                "port": 5555,
+                "device_serial": "8ff8852d",
+                "fallback_endpoints": ["100.93.0.20:5555"],
+                "name": "My Redmi Phone",
+            }
+        ]
+        # Collapse adb transports
+        collapsed = collapse_adb_transports(adb_devices, saved_devices)
+        self.assertEqual(len(collapsed), 1)
+        self.assertEqual(collapsed[0]["identity"], "8ff8852d")
+
+        # Build fleet
+        fleet = build_fleet(adb_devices, saved_devices, identity_map={"100.93.0.20:5555": "8ff8852d"})
+        self.assertEqual(len(fleet), 1)
+        self.assertEqual(fleet[0]["status"], "online")
+        self.assertEqual(fleet[0]["serial"], "100.93.0.20:5555")
+        self.assertEqual(fleet[0]["identity"], "8ff8852d")
+        self.assertEqual(fleet[0]["name"], "My Redmi Phone")
+
 
 if __name__ == "__main__":
     unittest.main()

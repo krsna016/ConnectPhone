@@ -93,6 +93,8 @@ def is_tailscale_installed() -> bool:
     common_locations = [
         "/Applications/Tailscale.app",
         os.path.expanduser("~/Applications/Tailscale.app"),
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        os.path.expanduser("~/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
         "/usr/local/bin/tailscale",
         "/opt/homebrew/bin/tailscale",
     ]
@@ -102,15 +104,25 @@ def is_tailscale_installed() -> bool:
     return bool(shutil.which("tailscale"))
 
 
+def _get_tailscale_cli() -> Optional[str]:
+    """Resolve the executable tailscale CLI on macOS or Linux."""
+    ts_cli = shutil.which("tailscale")
+    if ts_cli:
+        return ts_cli
+    for candidate in [
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        os.path.expanduser("~/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
+        "/usr/local/bin/tailscale",
+        "/opt/homebrew/bin/tailscale",
+    ]:
+        if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
 def get_tailscale_peers() -> List[Dict[str, any]]:
     """Query local Tailscale CLI for online peers (specifically Android phones)."""
-    ts_cli = shutil.which("tailscale")
-    if not ts_cli:
-        for candidate in ["/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale"]:
-            if os.path.exists(candidate) and os.access(candidate, os.X_OK):
-                ts_cli = candidate
-                break
-
+    ts_cli = _get_tailscale_cli()
     if not ts_cli:
         return []
 
@@ -125,7 +137,7 @@ def get_tailscale_peers() -> List[Dict[str, any]]:
             return []
 
         data = json.loads(proc.stdout)
-        peer_status = data.get("PeerStatus", {})
+        peer_status = data.get("Peer") or data.get("PeerStatus") or {}
         peers = []
         for _, peer_info in peer_status.items():
             if not isinstance(peer_info, dict):
@@ -136,7 +148,7 @@ def get_tailscale_peers() -> List[Dict[str, any]]:
                 continue
             host_name = peer_info.get("HostName") or peer_info.get("DNSName", "").rstrip(".")
             os_name = (peer_info.get("OS") or "").lower()
-            is_online = bool(peer_info.get("Online", False))
+            is_online = bool(peer_info.get("Online", False) or peer_info.get("Active", False))
             peers.append({
                 "name": host_name,
                 "ip": ipv4_list[0],

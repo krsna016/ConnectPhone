@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import json
 import logging
@@ -7,7 +9,7 @@ import ipaddress
 import time
 import threading
 import re
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from core import keychain
 from core.tailscale import is_valid_host_or_ip
 
@@ -104,6 +106,12 @@ class ConfigurationManager:
                 "device_serial": identity,
                 "auto_reconnect": bool(raw.get("auto_reconnect", True) and identity),
             }
+            fallbacks = [
+                str(ep).strip() for ep in raw.get("fallback_endpoints", [])
+                if isinstance(ep, str) and ":" in ep and ep != f"{ip}:{port}"
+            ]
+            if fallbacks:
+                item["fallback_endpoints"] = fallbacks[:5]
             name = raw.get("name")
             if isinstance(name, str) and 0 < len(name.strip()) <= 60 and not any(ord(char) < 32 for char in name):
                 item["name"] = name.strip()
@@ -310,6 +318,7 @@ class ConfigurationManager:
 
         existing_serial = None
         existing_metadata = {}
+        fallback_endpoints = []
         devices = []
         for item in self.get("saved_devices", []):
             if isinstance(item, dict):
@@ -331,6 +340,12 @@ class ConfigurationManager:
                     existing_metadata = {
                         key: item[key] for key in ("name",) if item.get(key)
                     }
+                    old_ep = f"{item.get('ip')}:{item.get('port')}"
+                    if old_ep != f"{ip}:{port}" and old_ep not in fallback_endpoints:
+                        fallback_endpoints.append(old_ep)
+                    for ep in item.get("fallback_endpoints", []):
+                        if ep != f"{ip}:{port}" and ep not in fallback_endpoints:
+                            fallback_endpoints.append(ep)
                 if item.get("ip") != ip and not is_same and not same_identity:
                     devices.append(item)
         # Auto-discovery often knows the endpoint before it has re-read the
@@ -338,13 +353,16 @@ class ConfigurationManager:
         device_serial = device_serial or existing_serial
         if device_serial and not self.get("selected_device_serial"):
             self.set("selected_device_serial", device_serial)
-        devices.insert(0, {
+        new_item = {
             **existing_metadata,
             "ip": ip,
             "port": port,
             "device_serial": device_serial,
             "auto_reconnect": bool(device_serial),
-        })
+        }
+        if fallback_endpoints:
+            new_item["fallback_endpoints"] = fallback_endpoints[:5]
+        devices.insert(0, new_item)
         self.set("saved_devices", devices[:10])
         self.save()
 

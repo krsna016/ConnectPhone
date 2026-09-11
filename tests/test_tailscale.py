@@ -105,6 +105,36 @@ class TailscaleSupportTests(unittest.TestCase):
         success, _ = pair_with_secret("host.example:43210", "Secret123", runner=runner)
         self.assertFalse(success)
 
+    def test_get_tailscale_peers_parses_modern_peer_format(self):
+        from core.tailscale import get_tailscale_peers
+        import json
+        from unittest import mock
+
+        mock_json_out = json.dumps({
+            "Peer": {
+                "nodekey:123": {
+                    "HostName": "Redmi Note 13 Pro 5G",
+                    "OS": "android",
+                    "TailscaleIPs": ["100.93.0.20"],
+                    "Online": True,
+                },
+                "nodekey:456": {
+                    "HostName": "Linux Server",
+                    "OS": "linux",
+                    "TailscaleIPs": ["100.93.0.30"],
+                    "Online": True,
+                },
+            }
+        })
+        with mock.patch("core.tailscale._get_tailscale_cli", return_value="/mock/tailscale"), \
+             mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, mock_json_out, "")):
+            peers = get_tailscale_peers()
+            self.assertEqual(len(peers), 2)
+            android_peer = next(p for p in peers if p["is_android"])
+            self.assertEqual(android_peer["ip"], "100.93.0.20")
+            self.assertEqual(android_peer["name"], "Redmi Note 13 Pro 5G")
+            self.assertTrue(android_peer["online"])
+
 
 if __name__ == "__main__":
     unittest.main()

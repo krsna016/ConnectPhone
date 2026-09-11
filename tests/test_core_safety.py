@@ -150,6 +150,19 @@ class ConfigurationSafetyTests(unittest.TestCase):
             self.assertFalse(reloaded["close_to_menubar"])
             self.assertFalse(reloaded["hide_dock_on_close"])
 
+    def test_fallback_endpoints_retained_on_endpoint_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            manager = ConfigurationManager(path)
+            manager.load()
+            # First connected via Wi-Fi
+            manager.update_last_connection("192.168.29.222", 5555, "DEVICE-X")
+            # Then connected via Tailscale
+            manager.update_last_connection("100.93.0.20", 5555, "DEVICE-X")
+            loaded = manager.load()
+            self.assertEqual(loaded["saved_devices"][0]["ip"], "100.93.0.20")
+            self.assertEqual(loaded["saved_devices"][0]["fallback_endpoints"], ["192.168.29.222:5555"])
+
 
 class CameraStreamingSafetyTests(unittest.TestCase):
     def test_camera_streaming_profiles_identify_transports(self):

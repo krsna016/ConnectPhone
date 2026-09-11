@@ -63,7 +63,7 @@ def is_wireless_transport(serial: object) -> bool:
     )
 
 
-def collapse_adb_transports(adb_devices, saved_devices):
+def collapse_adb_transports(adb_devices, saved_devices, identity_map=None):
     """Collapse multiple ADB transport names for each enrolled physical phone.
 
     Raw transports remain available to the backend. This function is only for
@@ -80,9 +80,13 @@ def collapse_adb_transports(adb_devices, saved_devices):
         ip = str(saved.get("ip") or "").strip()
         port = saved.get("port")
         endpoint = f"{ip}:{port}" if ip and port else ""
+        fallbacks = [str(ep) for ep in saved.get("fallback_endpoints", []) if ep]
+        known_endpoints = {endpoint} | set(fallbacks) - {""}
         matches = [
             item for item in devices
-            if item["serial"] == endpoint or transport_matches_identity(item["serial"], identity)
+            if item["serial"] in known_endpoints
+            or (identity_map and identity_map.get(item["serial"]) == identity)
+            or transport_matches_identity(item["serial"], identity)
         ]
         if not matches:
             continue
@@ -102,7 +106,7 @@ def collapse_adb_transports(adb_devices, saved_devices):
     return collapsed
 
 
-def build_fleet(adb_devices, saved_devices, active_transport="", selected_identity="", sessions=()):
+def build_fleet(adb_devices, saved_devices, active_transport="", selected_identity="", sessions=(), identity_map=None):
     """Merge current ADB transports with trusted identities for the dashboard."""
     online = {
         item.get("serial"): dict(item)
@@ -122,15 +126,25 @@ def build_fleet(adb_devices, saved_devices, active_transport="", selected_identi
         ip = str(saved.get("ip") or "").strip()
         port = saved.get("port")
         endpoint = f"{ip}:{port}" if ip and port else ""
+        fallbacks = [str(ep) for ep in saved.get("fallback_endpoints", []) if ep]
+        known_endpoints = ([endpoint] if endpoint else []) + fallbacks
         identity_aliases = [
             serial for serial in online
-            if transport_matches_identity(serial, identity) and serial != identity
+            if (
+                serial in known_endpoints
+                or (identity_map and identity_map.get(serial) == identity)
+                or transport_matches_identity(serial, identity)
+            ) and serial != identity
         ]
-        transport = endpoint if endpoint in online else (
+        online_endpoint = next((ep for ep in known_endpoints if ep in online), None)
+        online_mapped = next((serial for serial in online if identity_map and identity_map.get(serial) == identity), None)
+        transport = online_endpoint or online_mapped or (
             identity if identity in online else (identity_aliases[0] if identity_aliases else endpoint)
         )
         current = online.get(transport, {})
-        consumed.update(item for item in (endpoint, identity, *identity_aliases) if item in online)
+        consumed.update(item for item in (endpoint, *fallbacks, identity, *identity_aliases) if item in online)
+        if online_mapped:
+            consumed.add(online_mapped)
         name = str(saved.get("name") or current.get("model") or "Android Device").strip()[:60]
         device_sessions = list(session_map.get(transport, []))
         if identity and identity != transport:

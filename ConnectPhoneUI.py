@@ -519,9 +519,11 @@ def _build_status_payload():
     mirror_sessions = MIRROR_MANAGER.list()
     scrcpy_running = (scrcpy_proc is not None and scrcpy_proc.poll() is None) or bool(mirror_sessions)
     config = ConnectPhone.load_config()
+    identity_map = dict(AUTO_RECONNECTOR._endpoint_serial) if AUTO_RECONNECTOR else {}
     devices_display = collapse_adb_transports(
         devices_detailed,
         [item for item in config.get("saved_devices", []) if isinstance(item, dict)],
+        identity_map=identity_map,
     )
     fleet = build_fleet(
         devices_detailed,
@@ -529,6 +531,7 @@ def _build_status_payload():
         active_transport=active_device,
         selected_identity=str(config.get("selected_device_serial", "")),
         sessions=mirror_sessions,
+        identity_map=identity_map,
     )
     public_config = dict(config)
     public_config.pop("android_pin", None)
@@ -1148,11 +1151,16 @@ def check_and_autoselect_device(devices_detailed):
         selected_identity = str(config.get("selected_device_serial", "")).strip()
         if selected_identity:
             selected_candidates = [selected_identity]
-            selected_candidates.extend(
-                f"{item.get('ip')}:{item.get('port')}"
-                for item in config.get("saved_devices", [])
-                if isinstance(item, dict) and item.get("device_serial") == selected_identity
-            )
+            for item in config.get("saved_devices", []):
+                if isinstance(item, dict) and item.get("device_serial") == selected_identity:
+                    if item.get("ip") and item.get("port"):
+                        selected_candidates.append(f"{item.get('ip')}:{item.get('port')}")
+                    for fb in item.get("fallback_endpoints", []):
+                        selected_candidates.append(str(fb))
+            if AUTO_RECONNECTOR:
+                for ep, ser in AUTO_RECONNECTOR._endpoint_serial.items():
+                    if ser == selected_identity:
+                        selected_candidates.append(ep)
             selected = next((item for item in selected_candidates if item in online_serials), "")
             if selected:
                 os.environ["ANDROID_SERIAL"] = selected

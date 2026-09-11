@@ -159,6 +159,17 @@ class AutoReconnector:
                             self._manually_disconnected_all = False
                         self._seen_mdns_ports[ip] = port
 
+                # Query online Tailscale Android peers for cellular/remote failover
+                ts_peer_endpoints = []
+                try:
+                    from core.tailscale import get_tailscale_peers
+                    ts_peers = get_tailscale_peers()
+                    for peer in ts_peers:
+                        if peer.get("online") and peer.get("ip"):
+                            ts_peer_endpoints.append(f"{peer['ip']}:5555")
+                except Exception:
+                    pass
+
                 for item in trusted:
                     serial = item["serial"]
                     ip = item["ip"]
@@ -175,7 +186,24 @@ class AutoReconnector:
                         hint = device.get("device_serial_hint")
                         if hint == serial or (not hint and device.get("ip") == item["ip"]):
                             matches.append(f"{device['ip']}:{int(device['port'])}")
-                    candidates = matches or [f"{item['ip']}:{item['port']}"]
+
+                    primary_ep = f"{item['ip']}:{item['port']}"
+                    fallback_eps = item.get("fallback_endpoints", [])
+                    primary_failing = self._failures.get(primary_ep, 0) > 0 or primary_ep in self._offline_since
+
+                    candidates = list(matches)
+                    if not primary_failing:
+                        candidates.append(primary_ep)
+                        candidates.extend(fallback_eps)
+                        candidates.extend(ts_peer_endpoints)
+                    else:
+                        candidates.extend(fallback_eps)
+                        candidates.extend(ts_peer_endpoints)
+                        candidates.append(primary_ep)
+
+                    if not candidates:
+                        candidates = [primary_ep]
+
                     for endpoint in dict.fromkeys(candidates):
                         if endpoint in self.connected_endpoints:
                             continue
@@ -209,7 +237,11 @@ class AutoReconnector:
 
             if valid and serial and serial not in seen:
                 seen.add(serial)
-                devices.append({"ip": ip, "port": int(port), "serial": serial})
+                fallbacks = [
+                    str(ep).strip() for ep in item.get("fallback_endpoints", [])
+                    if isinstance(ep, str) and ":" in ep
+                ]
+                devices.append({"ip": ip, "port": int(port), "serial": serial, "fallback_endpoints": fallbacks})
         return devices
 
     def _run_adb(self, args, timeout):
@@ -238,11 +270,21 @@ class AutoReconnector:
         self._endpoint_serial[endpoint] = serial
         self._pending_identity.pop(endpoint, None)
         self._record_healthy(endpoint)
-        # Reconnecting another trusted phone must not steal the dashboard's
-        # explicitly selected target. The status selector will choose a device
-        # only when the current target is unavailable.
-        if not os.environ.get("ANDROID_SERIAL"):
+        # Update active serial if no target was selected or if current target belonged to this phone
+        current_target = os.environ.get("ANDROID_SERIAL", "")
+        if not current_target or current_target not in self.connected_endpoints or self._endpoint_serial.get(current_target) == serial:
             os.environ["ANDROID_SERIAL"] = endpoint
+        # Disconnect and clean up any stale ghost endpoints that belonged to this same serial
+        for old_ep, old_serial in list(self._endpoint_serial.items()):
+            if old_serial == serial and old_ep != endpoint:
+                self.connected_endpoints.discard(old_ep)
+                self._endpoint_serial.pop(old_ep, None)
+                self._pending_identity.pop(old_ep, None)
+                self._offline_since.pop(old_ep, None)
+                self._failures.pop(old_ep, None)
+                self._keepalive_failures.pop(old_ep, None)
+                self._last_keepalive.pop(old_ep, None)
+                reset_wireless_transport(self._run, old_ep, restart_daemon=False)
         if not persist_current_endpoint(self.config_path, endpoint, serial):
             self.logger.warning("Could not persist wireless endpoint %s", endpoint)
         self._notify_change()

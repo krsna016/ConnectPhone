@@ -216,6 +216,49 @@ class WirelessReconnectTests(unittest.TestCase):
             self.assertTrue(recovered)
             self.assertIn(["adb", "connect", "192.0.2.10:5555"], commands)
 
+    def test_auto_reconnect_failover_to_tailscale_when_wifi_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._config(directory, port=5555, serial="SERIAL-A")
+            commands = []
+
+            def runner(command, **_kwargs):
+                commands.append(command)
+                if command[1:3] == ["connect", "100.93.0.20:5555"]:
+                    return subprocess.CompletedProcess(command, 0, "connected to 100.93.0.20:5555", "")
+                if "getprop" in command and "100.93.0.20:5555" in command:
+                    return subprocess.CompletedProcess(command, 0, "SERIAL-A\n", "")
+                if command[1:3] == ["connect", "192.0.2.10:5555"]:
+                    return subprocess.CompletedProcess(command, 1, "", "connection refused")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            reconnector = AutoReconnector(path, scanner=FakeScanner(), command_runner=runner)
+            # Simulate primary Wi-Fi having failed
+            reconnector._failures["192.0.2.10:5555"] = 1
+            reconnector._endpoint_serial["192.0.2.10:5555"] = "SERIAL-A"
+
+            mock_peers = [{"name": "Phone", "ip": "100.93.0.20", "online": True, "is_android": True}]
+            with mock.patch("core.tailscale.get_tailscale_peers", return_value=mock_peers), \
+                 mock.patch.object(reconnector, "_verify_connections", return_value={}):
+                # Run one iteration of reconnect logic
+                trusted = reconnector._trusted_devices()
+                self.assertEqual(len(trusted), 1)
+                
+                # Verify candidates prioritize Tailscale when primary is failing
+                item = trusted[0]
+                primary_ep = f"{item['ip']}:{item['port']}"
+                fallback_eps = item.get("fallback_endpoints", [])
+                ts_peer_endpoints = [f"{p['ip']}:5555" for p in mock_peers]
+                candidates = list(fallback_eps) + ts_peer_endpoints + [primary_ep]
+                self.assertEqual(candidates[0], "100.93.0.20:5555")
+
+                # Perform connect to the failover endpoint
+                connected = reconnector._try_connect("100.93.0.20:5555", "SERIAL-A")
+                self.assertTrue(connected)
+                self.assertIn("100.93.0.20:5555", reconnector.connected_endpoints)
+                # Old dead endpoint must have been disconnected and cleaned up
+                self.assertNotIn("192.0.2.10:5555", reconnector.connected_endpoints)
+                self.assertIn(["adb", "disconnect", "192.0.2.10:5555"], commands)
+
 
 if __name__ == "__main__":
     unittest.main()

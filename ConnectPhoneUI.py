@@ -290,6 +290,7 @@ def _validated_settings(data):
         "keyboard_mode": {"uhid", "sdk"},
         "device_profile": {"generic", "oneplus"},
         "camera_latency_mode": {"balanced", "ultra_low", "smooth"},
+        "camera_orientation": {"portrait", "landscape"},
     }
     bools = {
         "mirror_enabled", "screen_off_enabled", "stay_awake_enabled",
@@ -3148,10 +3149,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     resolution = data.get("resolution", "1080p")
                     no_audio = data.get("no_audio", True)
                     latency_mode = data.get("latency_mode", config.get("camera_latency_mode", "balanced"))
+                    cam_orientation = data.get("orientation", config.get("camera_orientation", "portrait"))
                     if facing not in {"front", "back"} or resolution not in {"720p", "1080p", "4k"} or not isinstance(no_audio, bool):
                         raise ValueError("Invalid camera options")
                     if latency_mode not in {"balanced", "ultra_low", "smooth"}:
                         latency_mode = "balanced"
+                    if cam_orientation not in {"portrait", "landscape"}:
+                        cam_orientation = "portrait"
                     
                     cmd += ["--video-source=camera", f"--camera-facing={facing}"]
                         
@@ -3162,8 +3166,13 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     elif resolution == "720p":
                         cmd.append("--camera-size=1280x720")
                         
-                    if config.get("mirror_enabled", True):
-                        cmd.append("--orientation=flip0")
+                    is_mirrored = bool(config.get("mirror_enabled", True)) if facing == "front" else False
+                    if cam_orientation == "portrait":
+                        capt_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+                    else:
+                        capt_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
+                    if capt_orient != "0":
+                        cmd.append(f"--capture-orientation={capt_orient}")
                         
                     # Apply camera quality preferences.
                     c_bitrate = config.get("camera_bitrate", "32M")
@@ -3285,7 +3294,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 
                 scrcpy_state["mirror_type"] = mirror_type
                 scrcpy_state["session_start_time"] = time.time()
-                scrcpy_state["orientation"] = "flip0"
+                scrcpy_state["orientation"] = "0"
                 scrcpy_state["recording_active"] = False
                 scrcpy_state["temp_mkv"] = temp_mkv_path
                 

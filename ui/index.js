@@ -789,6 +789,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (document.getElementById('cam-latency')) {
                 document.getElementById('cam-latency').value = config.camera_latency_mode || 'balanced';
             }
+            if (document.getElementById('pref-camera-orientation')) {
+                document.getElementById('pref-camera-orientation').value = config.camera_orientation || 'portrait';
+            }
+            if (document.getElementById('cam-orientation')) {
+                document.getElementById('cam-orientation').value = config.camera_orientation || 'portrait';
+            }
             document.getElementById('pref-audio-preset').value = config.audio_preset || 'voice_communication';
             document.getElementById('pref-sync-delay').value = config.audio_sync_delay || '0.80';
             document.getElementById('pref-keyboard').value = config.keyboard_mode || 'uhid';
@@ -923,6 +929,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const latencyEl = document.getElementById('cam-latency');
                 if (latencyEl) {
                     body.latency_mode = latencyEl.value;
+                }
+                const orientEl = document.getElementById('cam-orientation');
+                if (orientEl) {
+                    body.orientation = orientEl.value;
                 }
             }
             
@@ -1216,7 +1226,8 @@ document.addEventListener('DOMContentLoaded', () => {
             hide_dock_on_close: document.getElementById('pref-hide-dock') ? document.getElementById('pref-hide-dock').checked : true,
             mac_mic_device: document.getElementById('pref-mac-mic-device').value,
             audio_buffer: document.getElementById('pref-audio-buffer').value,
-            camera_latency_mode: document.getElementById('pref-camera-latency') ? document.getElementById('pref-camera-latency').value : 'balanced'
+            camera_latency_mode: document.getElementById('pref-camera-latency') ? document.getElementById('pref-camera-latency').value : 'balanced',
+            camera_orientation: document.getElementById('pref-camera-orientation') ? document.getElementById('pref-camera-orientation').value : 'portrait'
         };
 
         showToast('Saving preferences...', 'info');

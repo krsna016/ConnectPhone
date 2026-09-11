@@ -314,8 +314,11 @@ class MirrorSessionManager:
             facing = str(options.get("camera_facing", "back"))
             resolution = str(options.get("resolution", "1080p"))
             latency_mode = str(options.get("latency_mode", config.get("camera_latency_mode", "balanced")))
+            cam_orientation = str(options.get("orientation", config.get("camera_orientation", "portrait")))
             if latency_mode not in {"balanced", "ultra_low", "smooth"}:
                 latency_mode = "balanced"
+            if cam_orientation not in {"portrait", "landscape"}:
+                cam_orientation = "portrait"
             if facing not in {"front", "back"} or resolution not in {"720p", "1080p", "4k"}:
                 raise ValueError("Invalid camera options")
             size = {"720p": "1280x720", "1080p": "1920x1080", "4k": "3840x2160"}[resolution]
@@ -329,6 +332,13 @@ class MirrorSessionManager:
                 f"--video-bit-rate={cam_bitrate}",
                 f"--video-codec={cam_codec}",
             ]
+            is_mirrored = bool(config.get("mirror_enabled", True)) if facing == "front" else False
+            if cam_orientation == "portrait":
+                capt_orient = ("flip270" if is_mirrored else "270") if facing == "front" else "90"
+            else:
+                capt_orient = ("flip0" if is_mirrored else "0") if facing == "front" else "0"
+            if capt_orient != "0":
+                command.append(f"--capture-orientation={capt_orient}")
             if is_ts:
                 v_buf = "40" if latency_mode == "ultra_low" else ("120" if latency_mode == "smooth" else "60")
                 command.append(f"--video-buffer={v_buf}")

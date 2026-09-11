@@ -182,6 +182,21 @@ class MultiDeviceTests(unittest.TestCase):
         cmd_ts_audio = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": False}, "Live Camera")
         self.assertIn("--audio-buffer=40", cmd_ts_audio)
 
+        # Test camera orientation: default back camera opens in portrait (90)
+        self.assertIn("--capture-orientation=90", cmd_ts)
+
+        # Test front camera with mirror enabled uses flip270 for portrait
+        cmd_front = manager.build_command("100.93.0.20:5555", "camera", {"mirror_enabled": True}, {"camera_facing": "front", "resolution": "1080p"}, "Front Camera")
+        self.assertIn("--capture-orientation=flip270", cmd_front)
+
+        # Test front camera without mirror uses 270 for portrait
+        cmd_front_nomirror = manager.build_command("100.93.0.20:5555", "camera", {"mirror_enabled": False}, {"camera_facing": "front", "resolution": "1080p"}, "Front Camera")
+        self.assertIn("--capture-orientation=270", cmd_front_nomirror)
+
+        # Test landscape camera mode does not add portrait capture-orientation
+        cmd_land = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "orientation": "landscape"}, "Landscape Camera")
+        self.assertFalse(any(a.startswith("--capture-orientation=") for a in cmd_land))
+
     def test_fleet_collapses_failover_endpoint_without_duplicates(self):
         adb_devices = [
             {"serial": "100.93.0.20:5555", "status": "device", "model": "Redmi Note 13 Pro 5G"},

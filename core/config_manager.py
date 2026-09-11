@@ -66,6 +66,7 @@ class ConfigurationManager:
         "keyboard_mode": "uhid",
         "mac_mic_device": "default",
         "camera_latency_mode": "balanced",
+        "camera_orientation": "portrait",
         # 20 ms keeps wireless audio responsive while retaining a small
         # jitter cushion.  The old 100 ms default made mic/audio mirroring
         # feel noticeably delayed.

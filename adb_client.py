@@ -32,11 +32,20 @@ def check_adb_devices():
 
 def get_device_info(serial=None):
     try:
+        target = (serial or os.environ.get("ANDROID_SERIAL", "")).strip()
+        host = target.split(":", 1)[0] if ":" in target else target
+        is_ts = False
+        try:
+            from core.tailscale import is_tailscale_ip
+            is_ts = is_tailscale_ip(host)
+        except Exception:
+            pass
+        timeout = 10 if is_ts else 6
         result = subprocess.run(
-            _adb_cmd(["shell", "sh", "-c", "echo __BATTERY__; dumpsys battery; echo __STORAGE__; df -h /sdcard; echo __MODEL__; getprop ro.product.model"], serial=serial),
+            _adb_cmd(["shell", "sh", "-c", "echo __BATTERY__; cmd battery get level 2>/dev/null || dumpsys battery; echo __STORAGE__; df -h /sdcard 2>/dev/null || df /sdcard; echo __MODEL__; getprop ro.product.model"], serial=serial),
             capture_output=True,
             text=True,
-            timeout=6,
+            timeout=timeout,
         )
         if result.returncode != 0:
             raise RuntimeError((result.stderr or "ADB device query failed").strip())
@@ -46,8 +55,13 @@ def get_device_info(serial=None):
         model = output.split("__MODEL__", 1)[-1].strip() or "Android Device"
         level = "Unknown"
         for line in battery_out.split("\n"):
-            if line.strip().startswith("level:"):
-                level = line.split(":")[-1].strip() + "%"
+            line_str = line.strip()
+            if line_str.isdigit():
+                level = f"{line_str}%"
+                break
+            if line_str.startswith("level:"):
+                level = line_str.split(":")[-1].strip() + "%"
+                break
         
         storage_lines = storage_out.strip().split("\n")
         storage_info = "Unknown"

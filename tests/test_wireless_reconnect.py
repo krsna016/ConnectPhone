@@ -309,6 +309,92 @@ class WirelessReconnectTests(unittest.TestCase):
             self.assertNotIn("192.168.1.50:5555", reconnector.connected_endpoints)
             self.assertIn(["adb", "disconnect", "192.168.1.50:5555"], commands)
 
+    def test_tailscale_keepalive_allows_more_tolerance(self):
+        commands = []
+
+        def runner(command, **_kwargs):
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
+        ts_ep = "100.93.0.20:5555"
+        reconnector.connected_endpoints.add(ts_ep)
+        reconnector._endpoint_serial[ts_ep] = "SERIAL-A"
+
+        states = {ts_ep: "device"}
+        with mock.patch.object(reconnector, "_port_open", return_value=False):
+            # Probe 1: missed
+            reconnector._keepalive(states)
+            self.assertIn(ts_ep, reconnector.connected_endpoints)
+            # Probe 2: missed, but Tailscale retains connection (limit is 3)
+            reconnector._keepalive(states)
+            self.assertIn(ts_ep, reconnector.connected_endpoints)
+            # Probe 3: exceeded limit, disconnects
+            reconnector._keepalive(states)
+            self.assertNotIn(ts_ep, reconnector.connected_endpoints)
+            self.assertIn(["adb", "disconnect", ts_ep], commands)
+
+    def test_authorizing_stuck_transport_cleared_in_verify_connections(self):
+        commands = []
+
+        def runner(command, **_kwargs):
+            commands.append(command)
+            if command[1] == "devices":
+                return subprocess.CompletedProcess(command, 0, "List of devices attached\n100.93.0.20:5555 authorizing\n", "")
+            if command[1] == "disconnect":
+                return subprocess.CompletedProcess(command, 0, "disconnected 100.93.0.20:5555\n", "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
+        endpoint = "100.93.0.20:5555"
+        # First verification cycle: failures = 1
+        states = reconnector._verify_connections({"SERIAL-A"})
+        self.assertNotIn(["adb", "disconnect", endpoint], commands)
+
+        # Second verification cycle: failures = 2, stuck authorizing transport cleared!
+        reconnector._next_attempt.clear()
+        states = reconnector._verify_connections({"SERIAL-A"})
+        self.assertIn(["adb", "disconnect", endpoint], commands)
+
+    def test_try_connect_wakes_tailscale_peer(self):
+        commands = []
+
+        def runner(command, **_kwargs):
+            commands.append(command)
+            if command[1] == "connect":
+                return subprocess.CompletedProcess(command, 0, "connected to 100.93.0.20:5555", "")
+            if "getprop" in command:
+                return subprocess.CompletedProcess(command, 0, "SERIAL-TS\n", "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
+        with mock.patch("core.tailscale.wake_tailscale_peer") as mock_wake:
+            mock_wake.return_value = True
+            connected = reconnector._try_connect("100.93.0.20:5555", "SERIAL-TS")
+            self.assertTrue(connected)
+            mock_wake.assert_called_once_with("100.93.0.20", timeout=2.0)
+
+    def test_already_connected_zombie_transport_cleared_on_failed_identity(self):
+        commands = []
+
+        def runner(command, **_kwargs):
+            commands.append(command)
+            if command[1] == "connect":
+                return subprocess.CompletedProcess(command, 0, "already connected to 100.93.0.20:5555", "")
+            if "getprop" in command:
+                # Identity probe fails (e.g. transport is offline or authorizing)
+                return subprocess.CompletedProcess(command, 1, "", "error: device still authorizing")
+            if command[1] == "disconnect":
+                return subprocess.CompletedProcess(command, 0, "disconnected 100.93.0.20:5555", "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner(), command_runner=runner)
+        endpoint = "100.93.0.20:5555"
+        connected = reconnector._try_connect(endpoint, "SERIAL-TS")
+        self.assertFalse(connected)
+        self.assertIn(["adb", "disconnect", endpoint], commands)
+
 
 if __name__ == "__main__":
     unittest.main()
+

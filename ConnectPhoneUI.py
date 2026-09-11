@@ -160,6 +160,7 @@ from core.tailscale import (
     is_valid_host_or_ip,
     get_local_tailscale_ip,
     get_tailscale_status,
+    wake_tailscale_peer,
 )
 
 ADB_LIFECYCLE = AdbLifecycle()
@@ -336,6 +337,9 @@ def _validated_settings(data):
 
 def _get_adb_device_serial(endpoint, timeout=4, fallback_attempts=3):
     """Read the Android identity behind an already-authorized ADB endpoint."""
+    host = endpoint.split(":", 1)[0] if ":" in endpoint else endpoint
+    if is_tailscale_ip(host):
+        timeout = max(timeout, 6.0)
     # Strategy A: Try to get the real hardware serial number
     for prop in ("ro.serialno", "ro.boot.serialno"):
         try:
@@ -411,6 +415,10 @@ def _adb_connect(ip, port, attempts=2, timeout=8):
     the main source of intermittent reconnects.
     """
     endpoint = f"{ip}:{int(port)}"
+    is_ts = is_tailscale_ip(str(ip))
+    if is_ts:
+        wake_tailscale_peer(str(ip), timeout=2.0)
+        timeout = max(timeout, 8)
     last_output = ""
     for attempt in range(max(1, int(attempts))):
         try:
@@ -424,11 +432,12 @@ def _adb_connect(ip, port, attempts=2, timeout=8):
             lowered = last_output.lower()
             if "connected to" in lowered or "already connected" in lowered:
                 if "already connected" in lowered:
+                    state_timeout = 4.0 if is_ts else 1.5
                     state_probe = subprocess.run(
                         ["adb", "-s", endpoint, "get-state"],
                         capture_output=True,
                         text=True,
-                        timeout=1.5,
+                        timeout=state_timeout,
                     )
                     state = (state_probe.stdout or "").strip()
                     if state_probe.returncode != 0 or state != "device":
@@ -988,13 +997,16 @@ def get_live_metrics():
     active_serial = os.environ.get("ANDROID_SERIAL", "")
     serial = active_serial if active_serial in devices else devices[0]
 
+    is_ts_metric = is_tailscale_ip(serial.split(":", 1)[0] if ":" in serial else serial)
+    metric_timeout = 7 if is_ts_metric else 4
+
     def metric_shell(*args):
         try:
             return subprocess.run(
                 ["adb", "-s", serial, "shell", *args],
                 capture_output=True,
                 text=True,
-                timeout=4,
+                timeout=metric_timeout,
             )
         except (OSError, subprocess.TimeoutExpired):
             return subprocess.CompletedProcess(args, 124, "", "metric command timed out")
@@ -1506,8 +1518,11 @@ def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
             ConnectPhone.global_config_mgr.enable_auto_reconnect(ip, port)
             connected.append({"endpoint": live_ep, "serial": identity})
             continue
-        accepted, _ = _adb_connect(ip, port, attempts=2, timeout=4)
-        actual = _get_adb_device_serial(endpoint, timeout=3.5, fallback_attempts=2) if accepted else None
+        is_ts = is_tailscale_ip(ip)
+        conn_timeout = 8 if is_ts else 4
+        serial_timeout = 6.0 if is_ts else 3.5
+        accepted, _ = _adb_connect(ip, port, attempts=2, timeout=conn_timeout)
+        actual = _get_adb_device_serial(endpoint, timeout=serial_timeout, fallback_attempts=2) if accepted else None
         if accepted and (not identity or actual == identity):
             resolved_serial = actual or identity
             if resolved_serial:
@@ -1572,8 +1587,11 @@ def connect_all_trusted_devices(ignore_auto_reconnect_flag=True):
                     cand_port = int(cand_port_str)
                 except ValueError:
                     continue
-                accepted, _ = _adb_connect(cand_ip, cand_port, attempts=1, timeout=3)
-                actual = _get_adb_device_serial(endpoint, timeout=3.0, fallback_attempts=1) if accepted else None
+                is_cand_ts = is_tailscale_ip(cand_ip)
+                cand_conn_timeout = 8 if is_cand_ts else 3
+                cand_serial_timeout = 6.0 if is_cand_ts else 3.0
+                accepted, _ = _adb_connect(cand_ip, cand_port, attempts=1, timeout=cand_conn_timeout)
+                actual = _get_adb_device_serial(endpoint, timeout=cand_serial_timeout, fallback_attempts=1) if accepted else None
                 if accepted and (not identity or actual == identity or (not actual and _adb_endpoint_alive(endpoint))):
                     resolved_serial = actual or identity
                     if resolved_serial:

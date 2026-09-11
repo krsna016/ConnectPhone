@@ -1322,7 +1322,16 @@ def get_pin_input_coords():
 
 def check_input_injection_permission():
     try:
-        res = subprocess.run(["adb", "shell", "input", "keyevent", "0"], capture_output=True, text=True, timeout=1.5)
+        target = os.environ.get("ANDROID_SERIAL", "").strip()
+        is_ts = False
+        try:
+            from core.tailscale import is_tailscale_ip
+            is_ts = is_tailscale_ip(target.split(":", 1)[0] if ":" in target else target)
+        except Exception:
+            pass
+        timeout = 5.0 if is_ts else 2.5
+        cmd = ["adb", "-s", target, "shell", "input", "keyevent", "0"] if target else ["adb", "shell", "input", "keyevent", "0"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         output = (res.stdout or "") + (res.stderr or "")
         if "SecurityException" in output or "injectInputEvent" in output:
             return False

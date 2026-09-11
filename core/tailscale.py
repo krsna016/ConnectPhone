@@ -209,3 +209,26 @@ def get_tailscale_status(force_refresh: bool = False) -> Dict[str, any]:
     _STATUS_CACHE_TIME = now
     return result
 
+
+def wake_tailscale_peer(ip_or_host: str, timeout: float = 2.0) -> bool:
+    """Send a lightweight Tailscale ping to wake dormant peer and warm up WireGuard NAT."""
+    if not is_tailscale_ip(ip_or_host):
+        return False
+    ts_cli = _get_tailscale_cli()
+    if not ts_cli:
+        return False
+    try:
+        timeout_sec = max(1.0, float(timeout))
+        target = str(ip_or_host).strip()
+        proc = subprocess.run(
+            [ts_cli, "ping", "--c", "1", f"--timeout={timeout_sec:.1f}s", target],
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec + 1.0,
+        )
+        return proc.returncode == 0
+    except Exception as exc:
+        logger.debug("Tailscale wake ping failed for %s: %s", ip_or_host, exc)
+        return False
+
+

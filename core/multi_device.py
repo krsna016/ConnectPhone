@@ -300,10 +300,10 @@ class MirrorSessionManager:
             bitrate = "8M" if (wireless or is_ts) else "16M"
             command += [f"--video-bit-rate={bitrate}", f"--video-codec={codec}"]
             if is_ts:
-                command.append("--video-buffer=40")
+                command.append("--video-buffer=0")
                 command.append("--max-size=1600")
             elif wireless:
-                command.append("--video-buffer=80")
+                command.append("--video-buffer=0")
 
             if mode == "record":
                 stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -318,19 +318,17 @@ class MirrorSessionManager:
             size = {"720p": "1280x720", "1080p": "1920x1080", "4k": "3840x2160"}[resolution]
             host_candidate = serial.split(":", 1)[0] if ":" in serial else ""
             is_ts = is_tailscale_ip(host_candidate) or bool(config.get("tailscale_remote_profile", False))
-            cam_bitrate = ("2M" if resolution == "720p" else ("3M" if resolution == "1080p" else "6M")) if is_ts else ("4M" if wireless else ("16M" if resolution == "4k" else "8M"))
+            cam_bitrate = ("3M" if resolution == "720p" else ("4M" if resolution == "1080p" else "6M")) if is_ts else ("4M" if resolution == "720p" else ("6M" if resolution == "1080p" else "10M"))
             cam_codec = "h264" if (is_ts or resolution != "4k") else "h265"
             command += [
                 "--video-source=camera", f"--camera-facing={facing}", f"--camera-size={size}",
                 "--camera-fps=30", "--no-downsize-on-error",
                 f"--video-bit-rate={cam_bitrate}",
                 f"--video-codec={cam_codec}",
+                "--video-buffer=0",
+                "--no-control",
+                "--video-codec-options=i-frame-interval=1,profile=1",
             ]
-            if is_ts:
-                command.append("--video-buffer=160")
-                command.append("--no-control")
-            elif wireless:
-                command.append("--video-buffer=40")
 
             if bool(options.get("no_audio", True)):
                 command = [c for c in command if not c.startswith("--audio-")]

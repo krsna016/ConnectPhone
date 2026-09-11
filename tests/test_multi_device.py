@@ -159,10 +159,28 @@ class MultiDeviceTests(unittest.TestCase):
         self.assertIn("--video-source=camera", cmd_ts)
         self.assertIn("--video-bit-rate=3M", cmd_ts)
         self.assertIn("--video-codec=h264", cmd_ts)
-        self.assertIn("--video-buffer=160", cmd_ts)
+        self.assertIn("--video-buffer=60", cmd_ts)
         self.assertIn("--no-audio", cmd_ts)
         self.assertIn("--no-control", cmd_ts)
         self.assertFalse(any(a.startswith("--audio-buffer=") for a in cmd_ts))
+
+        # Test ultra_low latency mode on Tailscale
+        cmd_ts_low = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": True, "latency_mode": "ultra_low"}, "Live Camera")
+        self.assertIn("--video-buffer=40", cmd_ts_low)
+
+        # Test smooth latency mode on Tailscale
+        cmd_ts_smooth = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": True, "latency_mode": "smooth"}, "Live Camera")
+        self.assertIn("--video-buffer=120", cmd_ts_smooth)
+
+        # Test Wi-Fi wireless camera buffers
+        cmd_wifi = manager.build_command("192.168.1.50:5555", "camera", {}, {"resolution": "1080p", "no_audio": True}, "Live Camera")
+        self.assertIn("--video-buffer=25", cmd_wifi)
+        cmd_wifi_low = manager.build_command("192.168.1.50:5555", "camera", {}, {"resolution": "1080p", "no_audio": True, "latency_mode": "ultra_low"}, "Live Camera")
+        self.assertIn("--video-buffer=15", cmd_wifi_low)
+
+        # Test audio enabled on Tailscale camera reduces audio buffer to 40ms to avoid A/V delay
+        cmd_ts_audio = manager.build_command("100.93.0.20:5555", "camera", {}, {"resolution": "1080p", "no_audio": False}, "Live Camera")
+        self.assertIn("--audio-buffer=40", cmd_ts_audio)
 
     def test_fleet_collapses_failover_endpoint_without_duplicates(self):
         adb_devices = [

@@ -783,6 +783,12 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('pref-codec').value = config.camera_codec || 'h265';
             document.getElementById('pref-bitrate').value = config.camera_bitrate || '32M';
             document.getElementById('pref-fps').value = config.camera_fps || '60';
+            if (document.getElementById('pref-camera-latency')) {
+                document.getElementById('pref-camera-latency').value = config.camera_latency_mode || 'balanced';
+            }
+            if (document.getElementById('cam-latency')) {
+                document.getElementById('cam-latency').value = config.camera_latency_mode || 'balanced';
+            }
             document.getElementById('pref-audio-preset').value = config.audio_preset || 'voice_communication';
             document.getElementById('pref-sync-delay').value = config.audio_sync_delay || '0.80';
             document.getElementById('pref-keyboard').value = config.keyboard_mode || 'uhid';
@@ -914,6 +920,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 body.camera_facing = document.getElementById('cam-facing').value;
                 body.resolution = document.getElementById('cam-res').value;
                 body.no_audio = document.getElementById('cam-no-audio').checked;
+                const latencyEl = document.getElementById('cam-latency');
+                if (latencyEl) {
+                    body.latency_mode = latencyEl.value;
+                }
             }
             
             showToast(type === 'call' ? 'Starting protected call-audio capture...' : 'Launching scrcpy mirroring stream...', 'info');
@@ -1205,7 +1215,8 @@ document.addEventListener('DOMContentLoaded', () => {
             close_to_menubar: document.getElementById('pref-close-to-menubar') ? document.getElementById('pref-close-to-menubar').checked : true,
             hide_dock_on_close: document.getElementById('pref-hide-dock') ? document.getElementById('pref-hide-dock').checked : true,
             mac_mic_device: document.getElementById('pref-mac-mic-device').value,
-            audio_buffer: document.getElementById('pref-audio-buffer').value
+            audio_buffer: document.getElementById('pref-audio-buffer').value,
+            camera_latency_mode: document.getElementById('pref-camera-latency') ? document.getElementById('pref-camera-latency').value : 'balanced'
         };
 
         showToast('Saving preferences...', 'info');

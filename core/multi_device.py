@@ -303,7 +303,7 @@ class MirrorSessionManager:
                 command.append("--video-buffer=40")
                 command.append("--max-size=1600")
             elif wireless:
-                command.append("--video-buffer=80")
+                command.append("--video-buffer=25")
 
             if mode == "record":
                 stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -313,6 +313,9 @@ class MirrorSessionManager:
         elif mode == "camera":
             facing = str(options.get("camera_facing", "back"))
             resolution = str(options.get("resolution", "1080p"))
+            latency_mode = str(options.get("latency_mode", config.get("camera_latency_mode", "balanced")))
+            if latency_mode not in {"balanced", "ultra_low", "smooth"}:
+                latency_mode = "balanced"
             if facing not in {"front", "back"} or resolution not in {"720p", "1080p", "4k"}:
                 raise ValueError("Invalid camera options")
             size = {"720p": "1280x720", "1080p": "1920x1080", "4k": "3840x2160"}[resolution]
@@ -327,15 +330,22 @@ class MirrorSessionManager:
                 f"--video-codec={cam_codec}",
             ]
             if is_ts:
-                command.append("--video-buffer=160")
+                v_buf = "40" if latency_mode == "ultra_low" else ("120" if latency_mode == "smooth" else "60")
+                command.append(f"--video-buffer={v_buf}")
                 command.append("--no-control")
             elif wireless:
-                command.append("--video-buffer=40")
+                v_buf = "15" if latency_mode == "ultra_low" else ("60" if latency_mode == "smooth" else "25")
+                command.append(f"--video-buffer={v_buf}")
+            elif latency_mode == "smooth":
+                command.append("--video-buffer=20")
 
             if bool(options.get("no_audio", True)):
                 command = [c for c in command if not c.startswith("--audio-")]
                 command.append("--no-audio")
             else:
+                a_buf = "40" if is_ts else ("25" if wireless else "20")
+                command = [c for c in command if not c.startswith("--audio-buffer=")]
+                command.append(f"--audio-buffer={a_buf}")
                 command += ["--audio-source=mic-camcorder", "--audio-codec=opus", "--audio-bit-rate=128000"]
         elif mode == "audio":
             command += ["--no-video", "--audio-source=output", "--audio-codec=opus", "--audio-bit-rate=128000"]

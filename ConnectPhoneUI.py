@@ -289,6 +289,7 @@ def _validated_settings(data):
         "audio_preset": {"voice_communication", "studio_unprocessed", "camcorder", "output", "mac_mic"},
         "keyboard_mode": {"uhid", "sdk"},
         "device_profile": {"generic", "oneplus"},
+        "camera_latency_mode": {"balanced", "ultra_low", "smooth"},
     }
     bools = {
         "mirror_enabled", "screen_off_enabled", "stay_awake_enabled",
@@ -3133,11 +3134,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     is_tailscale = is_tailscale_ip(target_host) or bool(config.get("tailscale_remote_profile", False))
                     if is_tailscale:
                         s_bitrate = "4M"
-                        cmd.append("--video-buffer=100")
+                        cmd.append("--video-buffer=40")
                         cmd.append("--max-size=1600")
                     elif is_wireless:
                         s_bitrate = "16M"
-                        cmd.append("--video-buffer=100")
+                        cmd.append("--video-buffer=25")
                     cmd += [f"--video-bit-rate={s_bitrate}", f"--video-codec={s_codec}"]
 
                         
@@ -3146,8 +3147,11 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                     facing = data.get("camera_facing", "back")
                     resolution = data.get("resolution", "1080p")
                     no_audio = data.get("no_audio", True)
+                    latency_mode = data.get("latency_mode", config.get("camera_latency_mode", "balanced"))
                     if facing not in {"front", "back"} or resolution not in {"720p", "1080p", "4k"} or not isinstance(no_audio, bool):
                         raise ValueError("Invalid camera options")
+                    if latency_mode not in {"balanced", "ultra_low", "smooth"}:
+                        latency_mode = "balanced"
                     
                     cmd += ["--video-source=camera", f"--camera-facing={facing}"]
                         
@@ -3178,15 +3182,19 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         # Remote Tailscale profile: optimize for network stability and jitter absorption over VPN
                         c_bitrate = "2M" if resolution == "720p" else ("3M" if resolution == "1080p" else "6M")
                         c_codec = "h264"
-                        cmd.append("--video-buffer=160")
+                        v_buf = "40" if latency_mode == "ultra_low" else ("120" if latency_mode == "smooth" else "60")
+                        cmd.append(f"--video-buffer={v_buf}")
                         cmd.append("--no-control")
                     elif is_wireless:
-                        # Wireless Wi-Fi profile: 6 Mbps with 40ms jitter buffer for buttery smooth 30fps
+                        # Wireless Wi-Fi profile: 6 Mbps with minimal jitter buffer for buttery smooth 30fps
                         c_bitrate = "6M" if resolution != "4k" else "10M"
                         c_codec = "h264" if resolution != "4k" else "h265"
-                        cmd.append("--video-buffer=40")
+                        v_buf = "15" if latency_mode == "ultra_low" else ("60" if latency_mode == "smooth" else "25")
+                        cmd.append(f"--video-buffer={v_buf}")
                     else:
-                        # Wired USB: lowest latency high-bitrate streaming
+                        # Wired USB: lowest latency high-bitrate streaming (0ms buffering by default)
+                        if latency_mode == "smooth":
+                            cmd.append("--video-buffer=20")
                         if facing == "front":
                             c_bitrate = "12M"
                             c_codec = "h264"
@@ -3201,7 +3209,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         cmd.append("--no-audio")
                     else:
                         cmd = [c for c in cmd if not c.startswith("--audio-buffer=")]
-                        a_buf = "160" if is_tailscale else ("50" if is_wireless else "20")
+                        a_buf = "40" if is_tailscale else ("25" if is_wireless else "20")
                         a_bitrate = "64000" if is_tailscale else "128000"
                         cmd.append(f"--audio-buffer={a_buf}")
                         cmd += [c for c in audio_args if not c.startswith("--audio-bit-rate=")]
@@ -3262,7 +3270,7 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                         cmd.append("--max-size=1600")
                     elif is_wireless:
                         s_bitrate = "16M"
-                        cmd.append("--video-buffer=100")
+                        cmd.append("--video-buffer=40")
                     cmd += [f"--video-bit-rate={s_bitrate}", f"--video-codec={s_codec}"]
 
                     

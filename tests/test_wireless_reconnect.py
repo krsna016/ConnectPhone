@@ -259,16 +259,20 @@ class WirelessReconnectTests(unittest.TestCase):
                 self.assertNotIn("192.0.2.10:5555", reconnector.connected_endpoints)
                 self.assertIn(["adb", "disconnect", "192.0.2.10:5555"], commands)
 
-    def test_seamless_promotion_to_local_wifi(self):
+    def test_tailscale_stays_preferred_with_transient_local_failover(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = self._config(directory, port=5555, serial="SERIAL-A")
+            path = os.path.join(directory, "config.json")
+            with mock.patch("core.config_manager.keychain.available", return_value=False):
+                manager = ConfigurationManager(path)
+                manager.load()
+                manager.update_last_connection("100.93.0.20", 5555, "SERIAL-A")
             commands = []
 
             def runner(command, **_kwargs):
                 commands.append(command)
-                if command[1:3] == ["connect", "192.168.1.50:5555"]:
-                    return subprocess.CompletedProcess(command, 0, "connected to 192.168.1.50:5555", "")
-                if "getprop" in command and "192.168.1.50:5555" in command:
+                if command[1] == "connect":
+                    return subprocess.CompletedProcess(command, 0, f"connected to {command[2]}", "")
+                if "getprop" in command:
                     return subprocess.CompletedProcess(command, 0, "SERIAL-A\n", "")
                 return subprocess.CompletedProcess(command, 0, "", "")
 
@@ -281,12 +285,31 @@ class WirelessReconnectTests(unittest.TestCase):
             discovered = [{"type": "connect", "ip": "192.168.1.50", "port": 5555, "device_serial_hint": "SERIAL-A"}]
             item = {"ip": "100.93.0.20", "port": 5555, "serial": "SERIAL-A", "fallback_endpoints": ["192.168.1.50:5555"]}
 
-            with mock.patch.object(reconnector, "_port_open", return_value=True):
-                promoted = reconnector._maybe_promote_to_local_wifi(item, discovered, states)
-                self.assertTrue(promoted)
+            with mock.patch.object(reconnector, "_port_open", return_value=True), \
+                 mock.patch("core.tailscale.wake_tailscale_peer", return_value=True):
+                # Merely seeing the phone on the LAN must not replace a healthy
+                # preferred Tailscale transport.
+                self.assertFalse(reconnector._maintain_preferred_transport(item, discovered, states))
+                self.assertIn("100.93.0.20:5555", reconnector.connected_endpoints)
+
+                # Consecutive Tailscale misses allow a temporary LAN handover.
+                reconnector._keepalive_failures["100.93.0.20:5555"] = 2
+                self.assertTrue(reconnector._maintain_preferred_transport(item, discovered, states))
                 self.assertIn("192.168.1.50:5555", reconnector.connected_endpoints)
                 self.assertNotIn("100.93.0.20:5555", reconnector.connected_endpoints)
                 self.assertIn(["adb", "disconnect", "100.93.0.20:5555"], commands)
+
+                # A fallback must not overwrite the saved preference.
+                with open(path, encoding="utf-8") as handle:
+                    saved = json.load(handle)
+                self.assertEqual(saved["saved_devices"][0]["ip"], "100.93.0.20")
+
+                # Once reachable again, the preferred Tailscale route wins.
+                states = {"192.168.1.50:5555": "device"}
+                reconnector._next_attempt.clear()
+                self.assertTrue(reconnector._maintain_preferred_transport(item, discovered, states))
+                self.assertIn("100.93.0.20:5555", reconnector.connected_endpoints)
+                self.assertNotIn("192.168.1.50:5555", reconnector.connected_endpoints)
 
     def test_fast_keepalive_disconnects_when_port_drops(self):
         commands = []
@@ -304,6 +327,7 @@ class WirelessReconnectTests(unittest.TestCase):
             # Probe 1: missed
             reconnector._keepalive(states)
             self.assertIn("192.168.1.50:5555", reconnector.connected_endpoints)
+            reconnector._last_keepalive.clear()
             # Probe 2: port is down, must disconnect immediately
             reconnector._keepalive(states)
             self.assertNotIn("192.168.1.50:5555", reconnector.connected_endpoints)
@@ -322,17 +346,36 @@ class WirelessReconnectTests(unittest.TestCase):
         reconnector._endpoint_serial[ts_ep] = "SERIAL-A"
 
         states = {ts_ep: "device"}
-        with mock.patch.object(reconnector, "_port_open", return_value=False):
-            # Probe 1: missed
-            reconnector._keepalive(states)
-            self.assertIn(ts_ep, reconnector.connected_endpoints)
-            # Probe 2: missed, but Tailscale retains connection (limit is 3)
-            reconnector._keepalive(states)
-            self.assertIn(ts_ep, reconnector.connected_endpoints)
-            # Probe 3: exceeded limit, disconnects
+        with mock.patch.object(reconnector, "_port_open", return_value=False), \
+             mock.patch("core.tailscale.wake_tailscale_peer", return_value=True):
+            for _ in range(reconnector.TAILSCALE_KEEPALIVE_FAILURE_LIMIT - 1):
+                reconnector._last_keepalive.clear()
+                reconnector._keepalive(states)
+                self.assertIn(ts_ep, reconnector.connected_endpoints)
+            reconnector._last_keepalive.clear()
             reconnector._keepalive(states)
             self.assertNotIn(ts_ep, reconnector.connected_endpoints)
             self.assertIn(["adb", "disconnect", ts_ep], commands)
+
+    def test_keepalive_misses_respect_probe_interval(self):
+        reconnector = AutoReconnector("/nonexistent", scanner=FakeScanner())
+        endpoint = "100.93.0.20:5555"
+        reconnector.connected_endpoints.add(endpoint)
+        reconnector._endpoint_serial[endpoint] = "SERIAL-A"
+        states = {endpoint: "device"}
+
+        clock = [10.0]
+        with mock.patch("core.auto_reconnect.time.monotonic", side_effect=lambda: clock[0]), \
+             mock.patch.object(reconnector, "_port_open", return_value=False), \
+             mock.patch("core.tailscale.wake_tailscale_peer", return_value=True):
+            reconnector._keepalive(states)
+            self.assertEqual(reconnector._keepalive_failures[endpoint], 1)
+            clock[0] = 11.0
+            reconnector._keepalive(states)
+            self.assertEqual(reconnector._keepalive_failures[endpoint], 1)
+            clock[0] = 15.0
+            reconnector._keepalive(states)
+            self.assertEqual(reconnector._keepalive_failures[endpoint], 2)
 
     def test_authorizing_stuck_transport_cleared_in_verify_connections(self):
         commands = []
@@ -458,5 +501,4 @@ class WirelessReconnectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
 

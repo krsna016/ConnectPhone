@@ -57,8 +57,12 @@ class AutoReconnector:
     # into a user-visible disconnect.
     OFFLINE_GRACE = 4.0
     EXPLICIT_OFFLINE_GRACE = 1.0
-    KEEPALIVE_INTERVAL = 4.0
+    KEEPALIVE_INTERVAL = 5.0
     KEEPALIVE_FAILURE_LIMIT = 3
+    TAILSCALE_KEEPALIVE_FAILURE_LIMIT = 6
+    TAILSCALE_EXPLICIT_OFFLINE_GRACE = 30.0
+    TAILSCALE_MISSING_GRACE = 45.0
+    PREFERRED_TRANSPORT_RETRY_INTERVAL = 15.0
     LOOP_INTERVAL = 1.0
     CONNECT_TIMEOUT = 3.5
     PORT_SCAN_COOLDOWN = 20.0
@@ -183,7 +187,7 @@ class AutoReconnector:
                     if serial in self._manually_disconnected or ip in self._manually_disconnected:
                         continue
                     if any(states.get(ep) == "device" and value == serial for ep, value in self._endpoint_serial.items()):
-                        self._maybe_promote_to_local_wifi(item, discovered, states)
+                        self._maintain_preferred_transport(item, discovered, states)
                         continue
                     matches = []
                     for device in discovered:
@@ -203,12 +207,18 @@ class AutoReconnector:
                             ts_host = ts_ep.split(":", 1)[0]
                             expanded_ts.append(f"{ts_host}:{int(item['port'])}")
 
-                    candidates = list(matches)
                     if not primary_failing:
-                        candidates.append(primary_ep)
-                        candidates.extend(fallback_eps)
+                        # The saved primary is an explicit user preference. In
+                        # particular, keep a Tailscale endpoint ahead of an
+                        # opportunistically discovered LAN endpoint.
+                        candidates = [primary_ep]
                         candidates.extend(expanded_ts)
+                        candidates.extend(matches)
+                        candidates.extend(fallback_eps)
                     else:
+                        # A local endpoint is failover only: use it promptly
+                        # while the preferred route is known to be unhealthy.
+                        candidates = list(matches)
                         candidates.extend(fallback_eps)
                         candidates.extend(expanded_ts)
                         candidates.append(primary_ep)
@@ -220,17 +230,18 @@ class AutoReconnector:
                         if endpoint in self.connected_endpoints:
                             continue
                         is_ts = is_tailscale_ip(endpoint.split(":")[0])
+                        transient_local_fallback = is_tailscale_ip(item["ip"]) and not is_ts
                         if states.get(endpoint) == "device":
                             ident = read_transport_identity(self._run, endpoint, timeout=6 if is_ts else 2.5)
                             if ident == serial:
-                                self._mark_connected(endpoint, ident)
+                                self._mark_connected(endpoint, ident, persist=not transient_local_fallback)
                                 break
                             elif ident is not None and ident != serial:
                                 reset_wireless_transport(self._run, endpoint, restart_daemon=False)
                                 states.pop(endpoint, None)
                             else:
                                 self._schedule_failure(endpoint)
-                        if self._try_connect(endpoint, serial):
+                        if self._try_connect(endpoint, serial, persist=not transient_local_fallback):
                             break
                     else:
                         self._recover_rotated_port(item)
@@ -280,7 +291,7 @@ class AutoReconnector:
         self._offline_since.pop(endpoint, None)
         self._keepalive_failures.pop(endpoint, None)
 
-    def _mark_connected(self, endpoint, serial):
+    def _mark_connected(self, endpoint, serial, persist=True):
         self.connected_endpoints.add(endpoint)
         self._endpoint_serial[endpoint] = serial
         self._pending_identity.pop(endpoint, None)
@@ -300,7 +311,7 @@ class AutoReconnector:
                 self._keepalive_failures.pop(old_ep, None)
                 self._last_keepalive.pop(old_ep, None)
                 reset_wireless_transport(self._run, old_ep, restart_daemon=False)
-        if not persist_current_endpoint(self.config_path, endpoint, serial):
+        if persist and not persist_current_endpoint(self.config_path, endpoint, serial):
             self.logger.warning("Could not persist wireless endpoint %s", endpoint)
         self._notify_change()
 
@@ -350,7 +361,7 @@ class AutoReconnector:
             return True
         return False
 
-    def _try_connect(self, endpoint, expected_serial):
+    def _try_connect(self, endpoint, expected_serial, persist=True):
         if not expected_serial or time.monotonic() < self._next_attempt.get(endpoint, 0):
             return False
         host = endpoint.split(":", 1)[0] if ":" in endpoint else endpoint
@@ -386,7 +397,7 @@ class AutoReconnector:
                 self._run_adb(["disconnect", endpoint], 6)
                 self._schedule_failure(endpoint)
                 return False
-            self._mark_connected(endpoint, identity)
+            self._mark_connected(endpoint, identity, persist=persist)
             return True
         except (OSError, subprocess.TimeoutExpired):
             self._schedule_failure(endpoint)
@@ -432,52 +443,68 @@ class AutoReconnector:
                 return True
         return False
 
-    def _maybe_promote_to_local_wifi(self, item, discovered, states):
-        """Seamlessly promote a phone currently connected on Tailscale/WAN to local Wi-Fi."""
+    def _local_fallback_candidates(self, item, discovered):
+        """Return identity-verified-on-connect LAN candidates for one phone."""
+        serial = item["serial"]
+        candidates = []
+        for device in discovered:
+            if device.get("type", "connect") != "connect":
+                continue
+            dip = str(device.get("ip", "")).strip()
+            hint = device.get("device_serial_hint")
+            if dip and not is_tailscale_ip(dip) and (hint == serial or not hint):
+                candidates.append(f"{dip}:{int(device['port'])}")
+
+        for endpoint in item.get("fallback_endpoints", []):
+            host = endpoint.split(":", 1)[0] if ":" in endpoint else endpoint
+            if host and not is_tailscale_ip(host):
+                candidates.append(endpoint)
+        return list(dict.fromkeys(candidates))
+
+    def _maintain_preferred_transport(self, item, discovered, states):
+        """Keep the saved route preferred and use LAN only as live failover.
+
+        A healthy Tailscale connection must not be replaced merely because a
+        Bonjour/LAN endpoint appeared. If Tailscale has consecutive health
+        misses, a reachable LAN endpoint may take over; while on that fallback,
+        retry the saved Tailscale endpoint periodically and switch back.
+        """
         if self._busy_check():
             return False
         serial = item["serial"]
         active_ep = next((ep for ep, s in self._endpoint_serial.items() if s == serial and states.get(ep) == "device"), None)
         if not active_ep:
             return False
-        host = active_ep.split(":", 1)[0] if ":" in active_ep else active_ep
-        if not is_tailscale_ip(host):
+
+        preferred_ep = f"{item['ip']}:{item['port']}"
+        preferred_host = preferred_ep.split(":", 1)[0]
+        if not is_tailscale_ip(preferred_host):
             return False
 
         now = time.monotonic()
-        last_promo = getattr(self, "_last_promo_check", {})
-        if now - last_promo.get(serial, 0) < 5.0:
+        if active_ep != preferred_ep:
+            last_check = getattr(self, "_last_preferred_check", {})
+            if now - last_check.get(serial, 0) < self.PREFERRED_TRANSPORT_RETRY_INTERVAL:
+                return False
+            last_check[serial] = now
+            self._last_preferred_check = last_check
+            if self._port_open(preferred_ep) and self._try_connect(preferred_ep, serial):
+                self.logger.info("Restored preferred Tailscale route for %s: %s", serial, preferred_ep)
+                return True
             return False
-        last_promo[serial] = now
-        self._last_promo_check = last_promo
 
-        local_candidates = []
-        for device in discovered:
-            if device.get("type", "connect") == "connect":
-                dip = str(device.get("ip", "")).strip()
-                hint = device.get("device_serial_hint")
-                if dip and not is_tailscale_ip(dip) and (hint == serial or not hint):
-                    local_candidates.append(f"{dip}:{int(device['port'])}")
-
-        for ep in item.get("fallback_endpoints", []):
-            e_host = ep.split(":", 1)[0] if ":" in ep else ep
-            if e_host and not is_tailscale_ip(e_host) and ep not in local_candidates:
-                local_candidates.append(ep)
-
-        p_ip = str(item.get("ip", "")).strip()
-        if p_ip and not is_tailscale_ip(p_ip):
-            p_ep = f"{p_ip}:{item.get('port', 5555)}"
-            if p_ep not in local_candidates:
-                local_candidates.append(p_ep)
-
-        for cand in dict.fromkeys(local_candidates):
-            if cand == active_ep:
-                continue
-            if self._port_open(cand):
-                self.logger.info("Local Wi-Fi candidate %s is open for %s; promoting to gigabit connection", cand, serial)
-                if self._try_connect(cand, serial):
-                    self.logger.info("Promoted %s from Tailscale (%s) to local Wi-Fi (%s)", serial, active_ep, cand)
-                    return True
+        # Two properly spaced health misses are enough to try a LAN handover,
+        # but not enough to tear down Tailscale when no fallback is available.
+        if self._keepalive_failures.get(active_ep, 0) < 2:
+            return False
+        for candidate in self._local_fallback_candidates(item, discovered):
+            if self._port_open(candidate) and self._try_connect(candidate, serial, persist=False):
+                self.logger.warning(
+                    "Tailscale is degraded for %s; using local Wi-Fi fallback %s",
+                    serial,
+                    candidate,
+                )
+                return True
         return False
 
     def _verify_connections(self, trusted_serials):
@@ -507,8 +534,9 @@ class AutoReconnector:
                 continue
             since = self._offline_since.setdefault(endpoint, now)
             is_ts = is_tailscale_ip(endpoint.split(":")[0])
-            explicit_grace = 10.0 if is_ts else 6.0
-            grace = explicit_grace if state == "offline" else (12.0 if is_ts else 8.0)
+            explicit_grace = self.TAILSCALE_EXPLICIT_OFFLINE_GRACE if is_ts else 6.0
+            missing_grace = self.TAILSCALE_MISSING_GRACE if is_ts else 8.0
+            grace = explicit_grace if state == "offline" else missing_grace
             if now - since < grace:
                 continue
             self.connected_endpoints.discard(endpoint)
@@ -569,7 +597,12 @@ class AutoReconnector:
 
             is_ts = is_tailscale_ip(endpoint.split(":")[0])
             probe_timeout = 5.0 if is_ts else 2.0
-            failure_limit = 4 if is_ts else self.KEEPALIVE_FAILURE_LIMIT
+            failure_limit = self.TAILSCALE_KEEPALIVE_FAILURE_LIMIT if is_ts else self.KEEPALIVE_FAILURE_LIMIT
+
+            # Record every attempt, not only successes. Otherwise, after the
+            # first miss the one-second supervisor loop immediately retries and
+            # can exhaust the failure limit in a few seconds.
+            self._last_keepalive[endpoint] = now
 
             port_up = self._port_open(endpoint)
             if port_up:
@@ -584,7 +617,7 @@ class AutoReconnector:
 
             failures = self._keepalive_failures.get(endpoint, 0) + 1
             self._keepalive_failures[endpoint] = failures
-            limit = (3 if not port_up else failure_limit) if is_ts else (2 if not port_up else failure_limit)
+            limit = failure_limit if is_ts else (2 if not port_up else failure_limit)
             if failures < limit:
                 if is_ts:
                     try:

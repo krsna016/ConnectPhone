@@ -305,17 +305,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const dot = badge.querySelector('.ts-dot');
             if (ts.running && ts.mac_ip) {
                 badge.style.display = 'inline-flex';
-                badge.style.background = 'rgba(249, 87, 33, 0.14)';
-                badge.style.border = 'none';
-                badge.style.color = 'var(--color-primary)';
-                if (dot) dot.style.background = 'var(--color-primary)';
+                badge.style.background = 'rgba(56, 189, 248, 0.12)';
+                badge.style.border = '1px solid rgba(56, 189, 248, 0.35)';
+                badge.style.color = '#38bdf8';
+                if (dot) dot.style.background = '#38bdf8';
                 badgeText.textContent = `Tailscale: ${ts.mac_ip}`;
             } else if (ts.installed) {
                 badge.style.display = 'inline-flex';
-                badge.style.background = '#1e222c';
-                badge.style.border = 'none';
-                badge.style.color = 'var(--text-secondary)';
-                if (dot) dot.style.background = 'var(--text-secondary)';
+                badge.style.background = 'rgba(251, 191, 36, 0.12)';
+                badge.style.border = '1px solid rgba(251, 191, 36, 0.35)';
+                badge.style.color = '#fbbf24';
+                if (dot) dot.style.background = '#fbbf24';
                 badgeText.textContent = 'Tailscale: Idle';
             } else {
                 badge.style.display = 'none';
@@ -325,14 +325,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (peerBadge) {
             if (ts.running) {
                 const count = (ts.android_peers || []).length;
-                peerBadge.style.background = count > 0 ? 'rgba(249, 87, 33, 0.14)' : '#1e222c';
-                peerBadge.style.border = 'none';
-                peerBadge.style.color = count > 0 ? 'var(--color-primary)' : 'var(--text-secondary)';
+                peerBadge.style.background = count > 0 ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.08)';
+                peerBadge.style.color = count > 0 ? '#4ade80' : 'var(--text-secondary)';
                 peerBadge.textContent = `${count} Android peer${count === 1 ? '' : 's'}`;
             } else if (ts.installed) {
-                peerBadge.style.background = '#1e222c';
-                peerBadge.style.border = 'none';
-                peerBadge.style.color = 'var(--text-secondary)';
+                peerBadge.style.background = 'rgba(251, 191, 36, 0.12)';
+                peerBadge.style.color = '#fbbf24';
                 peerBadge.textContent = 'Offline';
             } else {
                 peerBadge.textContent = 'Not Installed';
@@ -1068,15 +1066,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (mode === 'tailscale') {
             if (btnPairModeTailscale) {
                 btnPairModeTailscale.classList.add('active');
-                btnPairModeTailscale.style.background = '';
-                btnPairModeTailscale.style.color = '';
-                btnPairModeTailscale.setAttribute('aria-selected', 'true');
+                btnPairModeTailscale.style.background = '#38bdf8';
+                btnPairModeTailscale.style.color = '#000';
             }
             if (btnPairModeWifi) {
                 btnPairModeWifi.classList.remove('active');
-                btnPairModeWifi.style.background = '';
-                btnPairModeWifi.style.color = '';
-                btnPairModeWifi.setAttribute('aria-selected', 'false');
+                btnPairModeWifi.style.background = 'transparent';
+                btnPairModeWifi.style.color = 'var(--text-secondary)';
             }
             if (pairTailscaleRow) pairTailscaleRow.classList.remove('hidden');
             if (pairConnectPortGroup) pairConnectPortGroup.classList.remove('hidden');
@@ -1092,15 +1088,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             if (btnPairModeWifi) {
                 btnPairModeWifi.classList.add('active');
-                btnPairModeWifi.style.background = '';
-                btnPairModeWifi.style.color = '';
-                btnPairModeWifi.setAttribute('aria-selected', 'true');
+                btnPairModeWifi.style.background = 'var(--color-primary)';
+                btnPairModeWifi.style.color = '#000';
             }
             if (btnPairModeTailscale) {
                 btnPairModeTailscale.classList.remove('active');
-                btnPairModeTailscale.style.background = '';
-                btnPairModeTailscale.style.color = '';
-                btnPairModeTailscale.setAttribute('aria-selected', 'false');
+                btnPairModeTailscale.style.background = 'transparent';
+                btnPairModeTailscale.style.color = 'var(--text-secondary)';
             }
             if (pairTailscaleRow) pairTailscaleRow.classList.add('hidden');
             if (pairConnectPortGroup) pairConnectPortGroup.classList.add('hidden');
@@ -1442,7 +1436,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const batFill = document.getElementById('metric-bat-fill');
         if (batFill) {
             batFill.style.width = `${batPct}%`;
-            batFill.style.background = 'var(--color-primary)';
+            if (batPct <= 15) {
+                batFill.style.background = 'var(--color-danger)';
+            } else if (batPct <= 35) {
+                batFill.style.background = '#ff9500';
+            } else {
+                batFill.style.background = 'var(--color-success)';
+            }
         }
         document.getElementById('metric-bat-status').textContent = bat.status || '--';
         document.getElementById('metric-bat-health').textContent = bat.health || '--';
@@ -1457,7 +1457,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const ramFill = document.getElementById('metric-ram-fill');
         if (ramFill) {
             ramFill.style.width = `${ramPct}%`;
-            ramFill.style.background = 'var(--color-primary)';
+            if (ramPct >= 85) {
+                ramFill.style.background = 'var(--color-danger)';
+            } else if (ramPct >= 70) {
+                ramFill.style.background = '#ff9500';
+            } else {
+                ramFill.style.background = 'var(--color-primary)';
+            }
         }
         document.getElementById('metric-ram-used').textContent = `${ram.used_gb || 0} GB Used`;
         document.getElementById('metric-ram-total').textContent = `${ram.total_gb || '--'} GB`;
@@ -1470,7 +1476,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const storeFill = document.getElementById('metric-storage-fill');
         if (storeFill) {
             storeFill.style.width = `${storePct}%`;
-            storeFill.style.background = 'var(--color-primary)';
+            if (storePct >= 90) {
+                storeFill.style.background = 'var(--color-danger)';
+            } else if (storePct >= 75) {
+                storeFill.style.background = '#ff9500';
+            } else {
+                storeFill.style.background = 'var(--color-primary)';
+            }
         }
         document.getElementById('metric-storage-used').textContent = `${store.used_gb || 0} GB Used`;
         document.getElementById('metric-storage-total').textContent = `${store.total_gb || '--'} GB`;
@@ -1623,14 +1635,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateClipboardBadge(active) {
         if (!clipboardSyncStatus) return;
         if (active) {
-            clipboardSyncStatus.style.background = 'rgba(249, 87, 33, 0.14)';
-            clipboardSyncStatus.style.border = 'none';
-            clipboardSyncStatus.style.color = 'var(--color-primary)';
+            clipboardSyncStatus.style.background = 'rgba(16, 185, 129, 0.1)';
+            clipboardSyncStatus.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+            clipboardSyncStatus.style.color = 'var(--color-success)';
             clipboardSyncStatus.innerHTML = '<i class="material-symbols-outlined" style="font-size: 16px;">sync</i> <span>Status: Actively Syncing</span>';
         } else {
-            clipboardSyncStatus.style.background = '#1e222c';
-            clipboardSyncStatus.style.border = 'none';
-            clipboardSyncStatus.style.color = 'var(--text-secondary)';
+            clipboardSyncStatus.style.background = 'rgba(239, 68, 68, 0.1)';
+            clipboardSyncStatus.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+            clipboardSyncStatus.style.color = 'var(--color-danger)';
             clipboardSyncStatus.innerHTML = '<i class="material-symbols-outlined" style="font-size: 16px;">sync_disabled</i> <span>Status: Inactive</span>';
         }
     }
@@ -1773,7 +1785,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (termuxInstallProgressStatus) {
                 termuxInstallProgressStatus.style.display = 'block';
                 termuxInstallProgressStatus.textContent = 'Starting installation...';
-                termuxInstallProgressStatus.style.color = 'var(--color-primary)';
+                termuxInstallProgressStatus.style.color = '#00ffcc';
             }
             
             try {
@@ -1784,14 +1796,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     btnTermuxInstallAuto.disabled = false;
                     if (termuxInstallProgressStatus) {
                         termuxInstallProgressStatus.textContent = `Error: ${res.message || 'Could not start installation'}`;
-                        termuxInstallProgressStatus.style.color = 'var(--text-secondary)';
+                        termuxInstallProgressStatus.style.color = '#ff5f56';
                     }
                 }
             } catch (err) {
                 btnTermuxInstallAuto.disabled = false;
                 if (termuxInstallProgressStatus) {
                     termuxInstallProgressStatus.textContent = `Failed: ${err}`;
-                    termuxInstallProgressStatus.style.color = 'var(--text-secondary)';
+                    termuxInstallProgressStatus.style.color = '#ff5f56';
                 }
             }
         });
@@ -1811,13 +1823,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         clearInterval(termuxInstallPollInterval);
                         btnTermuxInstallAuto.disabled = false;
                         if (termuxInstallProgressStatus) {
-                            termuxInstallProgressStatus.style.color = 'var(--color-primary)';
+                            termuxInstallProgressStatus.style.color = '#27c93f';
                         }
                     } else if (data.status === 'error') {
                         clearInterval(termuxInstallPollInterval);
                         btnTermuxInstallAuto.disabled = false;
                         if (termuxInstallProgressStatus) {
-                            termuxInstallProgressStatus.style.color = 'var(--text-secondary)';
+                            termuxInstallProgressStatus.style.color = '#ff5f56';
                         }
                     }
                 }
@@ -1925,11 +1937,11 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (termuxOutput) {
                 const startLine = document.createElement('div');
-                startLine.style.color = 'var(--color-primary)';
+                startLine.style.color = '#00ffcc';
                 startLine.textContent = `\n$ nmap ${type === 'ping' ? '-sn' : (type === 'fast' ? '-F' : '-p 1-1000')} ${target}`;
                 termuxOutput.appendChild(startLine);
                 const infoLine = document.createElement('div');
-                infoLine.style.color = 'var(--text-secondary)';
+                infoLine.style.color = '#a0aec0';
                 infoLine.textContent = `Starting active port sweeps using phone's local network controller. Please wait...`;
                 termuxOutput.appendChild(infoLine);
                 termuxOutput.scrollTop = termuxOutput.scrollHeight;
@@ -1940,7 +1952,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (res && res.success) {
                     if (termuxOutput) {
                         const outLine = document.createElement('pre');
-                        outLine.style.color = 'var(--text-primary)';
+                        outLine.style.color = '#fff';
                         outLine.style.fontFamily = 'inherit';
                         outLine.style.margin = '10px 0';
                         outLine.style.whiteSpace = 'pre-wrap';
@@ -1951,7 +1963,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     if (termuxOutput) {
                         const errLine = document.createElement('div');
-                        errLine.style.color = 'var(--color-primary)';
+                        errLine.style.color = '#ff5f56';
                         errLine.textContent = `Scan failed: ${res ? res.message : 'Unknown error'}\nMake sure 'nmap' package is installed in Termux ('pkg install nmap -y').`;
                         termuxOutput.appendChild(errLine);
                         termuxOutput.scrollTop = termuxOutput.scrollHeight;

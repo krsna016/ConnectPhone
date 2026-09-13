@@ -3849,7 +3849,7 @@ body {
 
 .app-container {
     background-color: #101217 !important;
-    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border: none !important;
     border-radius: 28px !important;
     box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85) !important;
 }
@@ -3861,13 +3861,13 @@ body {
 
 .sidebar {
     background-color: #0d0f14 !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.04) !important;
+    border: none !important;
     padding: 24px 18px !important;
 }
 
 .app-header {
     background-color: #0d0f14 !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+    border: none !important;
     min-height: 72px !important;
     padding: 14px 28px !important;
 }
@@ -3923,13 +3923,13 @@ body {
 
 .sidebar-footer {
     background: #151820 !important;
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border: none !important;
     border-radius: 16px !important;
     padding: 14px !important;
     margin-top: auto !important;
 }
 
-/* Cinematic Cards Grid */
+/* Cinematic Cards Grid: Pure Borderless */
 .card,
 .quad-card,
 .settings-card,
@@ -3937,7 +3937,7 @@ body {
 .fleet-device-card,
 .guide-card {
     background: #151820 !important;
-    border: 1px solid rgba(255, 255, 255, 0.045) !important;
+    border: none !important;
     border-radius: 20px !important;
     padding: 24px !important;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
@@ -3950,15 +3950,15 @@ body {
 .mirror-card:hover,
 .fleet-device-card:hover {
     background: #1a1e28 !important;
-    border-color: rgba(255, 255, 255, 0.09) !important;
+    border: none !important;
     transform: translateY(-2px) !important;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55) !important;
 }
 
-/* Hero Showcase Card (Steam 'Stray' Hero Style) */
+/* Hero Showcase Card: Pure Borderless */
 .active-device-card {
     background: linear-gradient(135deg, #151820 0%, #1c202a 55%, #2a1b18 100%) !important;
-    border: 1px solid rgba(249, 87, 33, 0.22) !important;
+    border: none !important;
     border-radius: 22px !important;
     position: relative !important;
     overflow: hidden !important;
@@ -3978,7 +3978,7 @@ body {
 
 .fleet-device-card.selected {
     background: linear-gradient(135deg, #151820 0%, #1e222d 60%, #281a17 100%) !important;
-    border-color: rgba(249, 87, 33, 0.45) !important;
+    border: none !important;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 24px rgba(249, 87, 33, 0.15) !important;
 }
 
@@ -3989,7 +3989,7 @@ body {
 .stat-item,
 .storage-row {
     background: #11131a !important;
-    border: 1px solid rgba(255, 255, 255, 0.04) !important;
+    border: none !important;
     border-radius: 12px !important;
     box-shadow: none !important;
     transition: all 0.18s ease !important;
@@ -3999,11 +3999,11 @@ body {
 .device-row:hover,
 .storage-row:hover {
     background: #171a23 !important;
-    border-color: rgba(255, 255, 255, 0.08) !important;
+    border: none !important;
 }
 
 /* =========================================================================
-   WARM SUNSET FLAME & GRAPHITE BUTTONS
+   PURE BORDERLESS BUTTONS - THROUGHOUT THE ENTIRE APP
    ========================================================================= */
 
 .btn {
@@ -4033,6 +4033,7 @@ body {
     background: #282d3a !important;
     color: #ffffff !important;
     transform: translateY(-1px) !important;
+    border: none !important;
 }
 
 .btn:active {
@@ -4040,8 +4041,8 @@ body {
 }
 
 .btn:focus-visible {
-    outline: 2px solid rgba(249, 87, 33, 0.7) !important;
-    outline-offset: 2px !important;
+    outline: none !important;
+    box-shadow: 0 0 0 2px rgba(249, 87, 33, 0.5) !important;
 }
 
 .btn:disabled {
@@ -4058,6 +4059,7 @@ body {
     background: linear-gradient(135deg, #f95721 0%, #cf4410 100%) !important;
     color: #ffffff !important;
     font-weight: 700 !important;
+    border: none !important;
     box-shadow: 0 4px 18px rgba(249, 87, 33, 0.35) !important;
 }
 
@@ -4066,6 +4068,7 @@ body {
 .start-mirror-btn:hover {
     background: linear-gradient(135deg, #ff6e3a 0%, #e04510 100%) !important;
     color: #ffffff !important;
+    border: none !important;
     box-shadow: 0 6px 26px rgba(249, 87, 33, 0.5) !important;
     transform: translateY(-1px) !important;
 }
@@ -4081,22 +4084,26 @@ body {
 .btn-secondary {
     background: #1e222c !important;
     color: #dbe0ea !important;
+    border: none !important;
 }
 
 .btn-secondary:hover {
     background: #282d3a !important;
     color: #ffffff !important;
+    border: none !important;
 }
 
 /* Accent Buttons */
 .btn-accent {
     background: rgba(249, 87, 33, 0.12) !important;
     color: #ff6e3a !important;
+    border: none !important;
 }
 
 .btn-accent:hover {
     background: rgba(249, 87, 33, 0.22) !important;
     color: #ffffff !important;
+    border: none !important;
 }
 
 /* Danger Buttons */
@@ -4104,12 +4111,14 @@ body {
 #btn-conn-disconnect {
     background: rgba(244, 63, 94, 0.14) !important;
     color: #fb7185 !important;
+    border: none !important;
 }
 
 .btn-danger:hover,
 #btn-conn-disconnect:hover {
     background: rgba(244, 63, 94, 0.26) !important;
     color: #ffffff !important;
+    border: none !important;
     box-shadow: 0 4px 16px rgba(244, 63, 94, 0.3) !important;
 }
 
@@ -4117,11 +4126,13 @@ body {
 .btn-warning {
     background: rgba(245, 158, 11, 0.14) !important;
     color: #fbbf24 !important;
+    border: none !important;
 }
 
 .btn-warning:hover {
     background: rgba(245, 158, 11, 0.24) !important;
     color: #ffffff !important;
+    border: none !important;
 }
 
 /* Success Buttons */
@@ -4129,18 +4140,21 @@ body {
 .btn.connected-device {
     background: rgba(34, 197, 94, 0.14) !important;
     color: #4ade80 !important;
+    border: none !important;
 }
 
 .btn-success:hover,
 .btn.connected-device:hover {
     background: rgba(34, 197, 94, 0.25) !important;
     color: #ffffff !important;
+    border: none !important;
 }
 
 .btn.connected-device:disabled {
     background: rgba(34, 197, 94, 0.12) !important;
     color: #4ade80 !important;
     opacity: 1 !important;
+    border: none !important;
 }
 
 /* QR Code Pairing Button */
@@ -4149,6 +4163,7 @@ body {
 #btn-companion-pair {
     background: rgba(249, 87, 33, 0.12) !important;
     color: #ff6e3a !important;
+    border: none !important;
 }
 
 .btn-qr:hover,
@@ -4156,6 +4171,7 @@ body {
 #btn-companion-pair:hover {
     background: linear-gradient(135deg, #f95721 0%, #cf4410 100%) !important;
     color: #ffffff !important;
+    border: none !important;
     box-shadow: 0 4px 18px rgba(249, 87, 33, 0.35) !important;
 }
 
@@ -4164,6 +4180,7 @@ body {
     padding: 6px 14px !important;
     font-size: 12px !important;
     border-radius: 9px !important;
+    border: none !important;
 }
 
 /* Header Buttons: Circle Icons and Pills */
@@ -4179,6 +4196,7 @@ body {
 .header-btn:hover {
     background: #242936 !important;
     color: #ffffff !important;
+    border: none !important;
     transform: translateY(-1px) !important;
 }
 
@@ -4187,18 +4205,19 @@ body {
     height: 40px !important;
     min-width: 40px !important;
     border-radius: 50% !important;
+    border: none !important;
     padding: 0 !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
 }
 
-/* Form Inputs & Selects */
+/* Form Inputs & Selects: Pure Borderless */
 input,
 select,
 textarea {
     background: #11131a !important;
-    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border: none !important;
     border-radius: 12px !important;
     color: #ffffff !important;
     padding: 10px 16px !important;
@@ -4217,18 +4236,18 @@ input:focus,
 select:focus,
 textarea:focus {
     background: #161822 !important;
-    border-color: rgba(249, 87, 33, 0.5) !important;
-    box-shadow: 0 0 0 3px rgba(249, 87, 33, 0.18) !important;
+    border: none !important;
+    box-shadow: 0 0 0 2px rgba(249, 87, 33, 0.28) !important;
 }
 
-/* Floating Glass Tags & Status Badges */
+/* Floating Glass Tags & Status Badges: Pure Borderless */
 .status-pill,
 .connection-badge,
 .tailscale-badge,
 .card-badge {
     background: rgba(255, 255, 255, 0.08) !important;
     backdrop-filter: blur(12px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border: none !important;
     border-radius: 9999px !important;
     padding: 5px 14px !important;
     font-size: 12px !important;
@@ -4240,14 +4259,14 @@ textarea:focus {
 .status-connected {
     background: rgba(34, 197, 94, 0.14) !important;
     color: #4ade80 !important;
-    border-color: rgba(34, 197, 94, 0.3) !important;
+    border: none !important;
 }
 
 .fleet-status.offline,
 .status-disconnected {
     background: rgba(255, 255, 255, 0.06) !important;
     color: #848995 !important;
-    border-color: transparent !important;
+    border: none !important;
 }
 
 /* Pairing layout spacing */
@@ -4260,20 +4279,31 @@ textarea:focus {
     margin-top: 16px;
 }
 
+.pairing-mode-toggle {
+    border: none !important;
+    background: #11131a !important;
+}
+
+#btn-pair-mode-wifi,
+#btn-pair-mode-tailscale {
+    border: none !important;
+}
+
 /* Storage Table */
 .storage-browser-card {
     background: #151820 !important;
+    border: none !important;
     border-radius: 20px !important;
 }
 
 .storage-table th {
     background: #101218 !important;
     color: #848995 !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border: none !important;
 }
 
 .storage-row {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.035) !important;
+    border: none !important;
 }
 
 /* Modals & Dialogs */
@@ -4285,7 +4315,7 @@ textarea:focus {
 .modal-card,
 .modal-content {
     background: #151820 !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border: none !important;
     border-radius: 20px !important;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95) !important;
 }
@@ -4312,7 +4342,8 @@ textarea:focus {
 /* Clean Separators & Code */
 hr {
     border: none !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.05) !important;
 }
 
 code {
@@ -4321,5 +4352,14 @@ code {
     color: #ff6e3a;
     padding: 2px 6px;
     border-radius: 6px;
+    border: none !important;
     font-size: 0.88em;
+}
+
+/* =========================================================================
+   GLOBAL OVERRIDE: ZERO SOLID BORDERS ANYWHERE IN THE APP
+   ========================================================================= */
+body *:not(#connectphone-solid-border-exception) {
+    border: none !important;
+    outline: none !important;
 }

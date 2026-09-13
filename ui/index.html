@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ConnectPhone - Dashboard</title>
     <link rel="stylesheet" href="local-fonts.css">
-    <link rel="stylesheet" href="index.css?v=2.3.3">
+    <link rel="stylesheet" href="index.css?v=2.4.0">
 </head>
 <body>
     <div class="glass-bg"></div>
@@ -269,12 +269,12 @@
                         <div class="card pairing-controls-card quad-card">
                             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
                                 <h3 style="margin-bottom: 0;"><i class="material-symbols-outlined">key</i> Wireless Debugging Pairing</h3>
-                                <div class="pairing-mode-toggle" style="display: flex; gap: 3px; background: rgba(255,255,255,0.06); padding: 3px; border-radius: 8px;">
-                                    <button type="button" class="btn btn-sm active" id="btn-pair-mode-wifi" style="padding: 3px 9px; font-size: 11px; border-radius: 6px; background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer;">
+                                <div class="pairing-mode-toggle" role="tablist" aria-label="Pairing Mode">
+                                    <button type="button" class="btn btn-sm active" id="btn-pair-mode-wifi" role="tab" aria-selected="true">
                                         <i class="material-symbols-outlined" style="font-size: 13px; vertical-align: middle;">wifi</i> Wi-Fi
                                     </button>
-                                    <button type="button" class="btn btn-sm" id="btn-pair-mode-tailscale" style="padding: 3px 9px; font-size: 11px; border-radius: 6px; background: transparent; color: var(--text-secondary); font-weight: 600; border: none; cursor: pointer;">
-                                        <i class="material-symbols-outlined" style="font-size: 13px; color: #38bdf8; vertical-align: middle;">vpn_lock</i> Tailnet
+                                    <button type="button" class="btn btn-sm" id="btn-pair-mode-tailscale" role="tab" aria-selected="false">
+                                        <i class="material-symbols-outlined" style="font-size: 13px; vertical-align: middle;">vpn_lock</i> Tailnet
                                     </button>
                                 </div>
                             </div>
@@ -332,50 +332,57 @@
                         <!-- Mode 1: Standard Mirror -->
                         <div class="card mirror-card" data-mode="screen">
                             <div class="card-icon"><i class="material-symbols-outlined">desktop_windows</i></div>
-                            <h3>Standard Screen Mirroring</h3>
-                            <p>Interact with your phone screen directly on your Mac. Seamless audio streaming output.</p>
+                            <div class="mirror-card-body">
+                                <h3>Standard Screen Mirroring</h3>
+                                <p>Interact with your phone screen directly on your Mac. Seamless audio streaming output.</p>
+                            </div>
                             <button class="btn btn-primary start-mirror-btn" data-type="screen">Start Screen Mirror</button>
                         </div>
                         
                         <!-- Mode 2: Camera Feed -->
                         <div class="card mirror-card highlight" data-mode="camera">
-                            <div class="card-badge">PRO</div>
-                            <div class="card-icon"><i class="material-symbols-outlined">camera</i></div>
-                            <h3>Live Camera Feed</h3>
-                            <p>Stream front or back camera directly to your Mac. Supports mic merging and live controls.</p>
-                            
-                            <div class="mirror-form-group">
-                                <label for="cam-facing">Camera Sensor:</label>
-                                <select id="cam-facing">
-                                    <option value="back">Back Camera</option>
-                                    <option value="front">Front Camera</option>
-                                </select>
+                            <div class="mirror-card-header">
+                                <div class="card-icon"><i class="material-symbols-outlined">camera</i></div>
+                                <div class="mirror-card-body">
+                                    <h3>Live Camera Feed <span class="card-badge-inline">PRO</span></h3>
+                                    <p>Stream front or back camera directly to your Mac. Supports mic merging and live controls.</p>
+                                </div>
                             </div>
                             
-                            <div class="mirror-form-group">
-                                <label for="cam-res">Resolution:</label>
-                                <select id="cam-res">
-                                    <option value="1080p">1080p Full HD (Recommended)</option>
-                                    <option value="720p">720p HD (Ultra-Smooth / Lowest Latency)</option>
-                                    <option value="4k">4k Ultra HD (Wired Only)</option>
-                                </select>
-                            </div>
-                            
-                            <div class="mirror-form-group">
-                                <label for="cam-latency">Latency Profile:</label>
-                                <select id="cam-latency">
-                                    <option value="balanced" selected>Balanced Real-time (~90ms WAN / ~25ms Wi-Fi - Recommended)</option>
-                                    <option value="ultra_low">Ultra-Low Latency (~50ms WAN / ~15ms Wi-Fi)</option>
-                                    <option value="smooth">High Stability (~150ms Buffer for Long Distance / Weak Signal)</option>
-                                </select>
-                            </div>
-                            
-                            <div class="mirror-form-group">
-                                <label for="cam-orientation">Camera Orientation:</label>
-                                <select id="cam-orientation">
-                                    <option value="portrait" selected>Portrait (Vertical - Recommended)</option>
-                                    <option value="landscape">Landscape (Horizontal)</option>
-                                </select>
+                            <div class="camera-options-grid">
+                                <div class="mirror-form-group">
+                                    <label for="cam-facing">Camera Sensor:</label>
+                                    <select id="cam-facing">
+                                        <option value="back">Back Camera</option>
+                                        <option value="front">Front Camera</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="mirror-form-group">
+                                    <label for="cam-res">Resolution:</label>
+                                    <select id="cam-res">
+                                        <option value="1080p">1080p Full HD (Recommended)</option>
+                                        <option value="720p">720p HD (Ultra-Smooth / Lowest Latency)</option>
+                                        <option value="4k">4k Ultra HD (Wired Only)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="mirror-form-group">
+                                    <label for="cam-latency">Latency Profile:</label>
+                                    <select id="cam-latency">
+                                        <option value="balanced" selected>Balanced Real-time (~90ms WAN / ~25ms Wi-Fi - Recommended)</option>
+                                        <option value="ultra_low">Ultra-Low Latency (~50ms WAN / ~15ms Wi-Fi)</option>
+                                        <option value="smooth">High Stability (~150ms Buffer for Long Distance / Weak Signal)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="mirror-form-group">
+                                    <label for="cam-orientation">Camera Orientation:</label>
+                                    <select id="cam-orientation">
+                                        <option value="portrait" selected>Portrait (Vertical - Recommended)</option>
+                                        <option value="landscape">Landscape (Horizontal)</option>
+                                    </select>
+                                </div>
                             </div>
                             
                             <div class="mirror-checkbox-group">
@@ -389,25 +396,30 @@
                         <!-- Mode 3: Audio Only -->
                         <div class="card mirror-card" data-mode="audio">
                             <div class="card-icon"><i class="material-symbols-outlined">volume_up</i></div>
-                            <h3>Audio-Only Mirroring</h3>
-                            <p>Listen directly to the Android microphone or system audio stream without rendering video.</p>
+                            <div class="mirror-card-body">
+                                <h3>Audio-Only Mirroring</h3>
+                                <p>Listen directly to the Android microphone or system audio stream without rendering video.</p>
+                            </div>
                             <button class="btn btn-primary start-mirror-btn" data-type="audio">Listen to Mic</button>
                         </div>
 
                         <!-- Mode 4: Phone Call Audio -->
                         <div class="card mirror-card highlight" data-mode="call">
-                            <div class="card-badge">CALL</div>
                             <div class="card-icon"><i class="material-symbols-outlined">phone_in_talk</i></div>
-                            <h3>Call Audio</h3>
-                            <p>Hear both sides of an active cellular call on your Mac when the phone permits protected call capture.</p>
+                            <div class="mirror-card-body">
+                                <h3>Call Audio <span class="card-badge-inline">CALL</span></h3>
+                                <p>Hear both sides of an active cellular call on your Mac when the phone permits protected call capture.</p>
+                            </div>
                             <button class="btn btn-accent start-mirror-btn" data-type="call">Start Call Audio</button>
                         </div>
                         
                         <!-- Mode 5: Record Session -->
                         <div class="card mirror-card" data-mode="record">
                             <div class="card-icon"><i class="material-symbols-outlined">videocam</i></div>
-                            <h3>Mirror & Record Session</h3>
-                            <p>Launches standard screen mirror and records the entire session as an MP4 directly to your Mac Desktop.</p>
+                            <div class="mirror-card-body">
+                                <h3>Mirror & Record Session</h3>
+                                <p>Launches standard screen mirror and records the entire session as an MP4 directly to your Mac Desktop.</p>
+                            </div>
                             <button class="btn btn-primary start-mirror-btn" data-type="record">Mirror & Record Session</button>
                         </div>
                         
@@ -541,7 +553,7 @@
                     </div>
 
                     <!-- Termux Operations Command Deck -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 25px;">
+                    <div class="termux-ops-deck">
                         
                         <!-- TTS Broadcaster -->
                         <div class="card" style="padding: 20px; display: flex; flex-direction: column; justify-content: space-between; background: linear-gradient(180deg, rgba(20,24,33,0.95), rgba(12,15,22,0.95)); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px;">

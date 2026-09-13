@@ -3927,91 +3927,337 @@ textarea:focus {
 }
 
 /* =========================================================================
-   COMPACT DENSITY & REDUNDANT SPACE REMOVAL
+   SEQUENTIAL LIST-GROUP & UNIFIED VERTICAL FLOW LAYOUT (SETTINGS STYLE)
    ========================================================================= */
 
-/* Mirror Grid: Align cards to start to avoid stretching shorter cards to camera card height */
-.mirror-grid {
-    align-items: start !important;
+/* Center and stack all card containers sequentially down the page */
+.connection-quad-grid,
+.mirror-grid,
+.fleet-grid,
+.metrics-grid,
+.connection-layout,
+.settings-layout,
+.settings-layout-single,
+.termux-ops-deck {
+    display: flex !important;
+    flex-direction: column !important;
+    max-width: 860px !important;
+    width: 100% !important;
+    margin: 0 auto !important;
     gap: 14px !important;
 }
 
-.mirror-card {
+/* Headers and toolbars aligned with the sequential column */
+.pane-header,
+.fleet-toolbar,
+.fleet-help,
+.grid-layout {
+    max-width: 860px !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Unified Sequential Card Surface */
+.quad-card,
+.mirror-card,
+.fleet-device-card,
+.metrics-card,
+.settings-card,
+.connection-main,
+.connection-side {
+    background: rgba(14, 18, 26, 0.78) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
     min-height: auto !important;
-    padding: 16px 18px !important;
-}
-
-.mirror-card p {
-    margin-bottom: 14px !important;
-}
-
-.mirror-card .card-icon {
-    font-size: 28px !important;
-    margin-bottom: 10px !important;
-}
-
-.mirror-card h3 {
-    font-size: 15px !important;
-    margin-bottom: 6px !important;
-}
-
-.mirror-form-group {
-    margin-bottom: 8px !important;
-    gap: 4px !important;
-}
-
-.mirror-form-group label {
-    font-size: 11px !important;
-    letter-spacing: 0.5px !important;
-}
-
-.mirror-form-group select {
-    padding: 7px 12px !important;
-    font-size: 13px !important;
-    border-radius: 8px !important;
-}
-
-/* Connection Center Quad Grid: Align cards to start to eliminate huge empty voids */
-.connection-quad-grid {
-    align-items: start !important;
-    gap: 14px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
 }
 
 .quad-card {
-    min-height: auto !important;
-    padding: 16px 18px !important;
+    padding: 18px 22px !important;
+    margin-bottom: 0 !important;
 }
 
 .quad-card h3 {
     font-size: 15px !important;
+    font-weight: 600 !important;
     margin-bottom: 4px !important;
+    color: #ffffff !important;
 }
 
 .quad-card p {
     font-size: 12.5px !important;
     line-height: 1.45 !important;
     margin-bottom: 10px !important;
+    color: rgba(255, 255, 255, 0.65) !important;
 }
 
+/* =========================================================================
+   GOOGLE ACCOUNT / SETTINGS GROUPED LIST (CARD 1: ACTIVE DEVICE STATUS)
+   ========================================================================= */
 .active-device-details {
-    gap: 10px !important;
-    margin-top: 8px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: rgba(8, 12, 18, 0.65) !important;
+    border: 1px solid rgba(255, 255, 255, 0.07) !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    margin-top: 10px !important;
+    gap: 0 !important;
+    padding: 0 !important;
 }
 
 .detail-item {
-    padding: 8px 12px !important;
-    border-radius: 10px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 12px 18px !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    margin: 0 !important;
+    transition: background-color 0.18s ease !important;
+}
+
+.detail-item:last-child {
+    border-bottom: none !important;
+}
+
+.detail-item:hover {
+    background: rgba(255, 255, 255, 0.025) !important;
 }
 
 .detail-item span {
-    font-size: 10.5px !important;
-    margin-bottom: 2px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    margin: 0 !important;
+}
+
+.detail-item span i {
+    font-size: 18px !important;
+    color: var(--color-primary) !important;
+    opacity: 0.9 !important;
 }
 
 .detail-item p {
     font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #ffffff !important;
+    margin: 0 !important;
+    text-align: right !important;
 }
 
+/* =========================================================================
+   MIRRORING CARDS: SEQUENTIAL HORIZONTAL ROWS
+   ========================================================================= */
+.mirror-card:not([data-mode="camera"]) {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 16px 20px !important;
+    gap: 18px !important;
+    border-radius: 14px !important;
+    margin-bottom: 0 !important;
+    min-height: auto !important;
+}
+
+.mirror-card:not([data-mode="camera"]) .card-icon {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    border-radius: 10px !important;
+    background: rgba(42, 207, 202, 0.09) !important;
+    border: 1px solid rgba(42, 207, 202, 0.2) !important;
+    color: #2acfc9 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 22px !important;
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+}
+
+.mirror-card:not([data-mode="camera"]) .mirror-card-body {
+    flex: 1 !important;
+    min-width: 0 !important;
+    text-align: left !important;
+}
+
+.mirror-card:not([data-mode="camera"]) .mirror-card-body h3 {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    margin: 0 0 3px 0 !important;
+    color: #ffffff !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+
+.mirror-card:not([data-mode="camera"]) .mirror-card-body p {
+    font-size: 12.5px !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    margin: 0 !important;
+    line-height: 1.4 !important;
+}
+
+.mirror-card:not([data-mode="camera"]) .start-mirror-btn {
+    width: auto !important;
+    min-width: 175px !important;
+    flex-shrink: 0 !important;
+    padding: 9px 18px !important;
+    font-size: 13px !important;
+    margin: 0 !important;
+}
+
+/* Mode 2: Live Camera Feed (Structured Sequential Card) */
+.mirror-card[data-mode="camera"] {
+    display: flex !important;
+    flex-direction: column !important;
+    padding: 18px 22px !important;
+    border-radius: 14px !important;
+    gap: 0 !important;
+}
+
+.mirror-card-header {
+    display: flex !important;
+    align-items: center !important;
+    gap: 14px !important;
+    margin-bottom: 14px !important;
+    padding-bottom: 12px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+.mirror-card-header .card-icon {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    border-radius: 10px !important;
+    background: rgba(42, 207, 202, 0.09) !important;
+    border: 1px solid rgba(42, 207, 202, 0.2) !important;
+    color: #2acfc9 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 22px !important;
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+}
+
+.mirror-card-header .mirror-card-body {
+    flex: 1 !important;
+    min-width: 0 !important;
+    text-align: left !important;
+}
+
+.mirror-card-header .mirror-card-body h3 {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    margin: 0 0 3px 0 !important;
+    color: #ffffff !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+
+.mirror-card-header .mirror-card-body p {
+    font-size: 12.5px !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    margin: 0 !important;
+    line-height: 1.4 !important;
+}
+
+.camera-options-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px 14px !important;
+    margin-bottom: 12px !important;
+}
+
+.mirror-card[data-mode="camera"] .start-mirror-btn {
+    width: 100% !important;
+    padding: 10px 18px !important;
+    font-size: 13.5px !important;
+    margin-top: 4px !important;
+}
+
+.mirror-form-group {
+    display: flex !important;
+    flex-direction: column !important;
+    margin-bottom: 4px !important;
+    gap: 4px !important;
+}
+
+.mirror-form-group label {
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    letter-spacing: 0.3px !important;
+}
+
+.mirror-form-group select {
+    padding: 7px 12px !important;
+    font-size: 12.5px !important;
+    border-radius: 8px !important;
+    background: rgba(8, 12, 18, 0.75) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+}
+
+/* Inline badges */
+.card-badge-inline {
+    display: inline-flex !important;
+    align-items: center !important;
+    padding: 2px 7px !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+    border-radius: 6px !important;
+    background: rgba(42, 207, 202, 0.15) !important;
+    color: #2acfc9 !important;
+    border: 1px solid rgba(42, 207, 202, 0.3) !important;
+    margin-left: 6px !important;
+    vertical-align: middle !important;
+    line-height: 1.2 !important;
+}
+
+/* =========================================================================
+   ATTACHED DEVICES & LIST ROWS (CARD 2)
+   ========================================================================= */
+.device-row {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 10px 14px !important;
+    border-radius: 8px !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    background: rgba(255, 255, 255, 0.02) !important;
+    margin-bottom: 6px !important;
+    cursor: pointer !important;
+    transition: all 0.18s ease !important;
+}
+
+.device-row:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(42, 207, 202, 0.25) !important;
+}
+
+.device-row.active-device {
+    background: rgba(42, 207, 202, 0.1) !important;
+    border-color: rgba(42, 207, 202, 0.4) !important;
+}
+
+/* Diagnostic actions toolbelt */
 .diagnostic-actions {
     display: flex !important;
     gap: 6px !important;
@@ -4041,6 +4287,45 @@ textarea:focus {
 .list-placeholder {
     margin: 6px 0 !important;
     font-size: 12px !important;
+}
+
+/* =========================================================================
+   FLEET & METRICS SEQUENTIAL STACKS
+   ========================================================================= */
+.fleet-device-card {
+    padding: 18px 22px !important;
+    border-radius: 14px !important;
+    margin-bottom: 0 !important;
+}
+
+.metrics-card {
+    padding: 20px 22px !important;
+    border-radius: 14px !important;
+    margin-bottom: 0 !important;
+}
+
+.termux-ops-deck {
+    display: flex !important;
+    flex-direction: column !important;
+    max-width: 860px !important;
+    margin: 20px auto 0 auto !important;
+    width: 100% !important;
+    gap: 14px !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .mirror-card:not([data-mode="camera"]) {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+    }
+    .mirror-card:not([data-mode="camera"]) .start-mirror-btn {
+        width: 100% !important;
+        margin-top: 10px !important;
+    }
+    .camera-options-grid {
+        grid-template-columns: 1fr !important;
+    }
 }
 
 /* =========================================================================

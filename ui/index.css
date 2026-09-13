@@ -3811,7 +3811,7 @@ textarea:focus {
 }
 
 /* =========================================================================
-   CINEMATIC DARK GRAPHITE & WARM SUNSET FLAME (STEAM DRIBBLE EDITION)
+   CINEMATIC DARK GRAPHITE & WARM SUNSET FLAME (ULTRA-COMPACT OLED EDITION)
    ========================================================================= */
 
 /* Universal Canvas Surfaces */
@@ -3819,6 +3819,7 @@ body {
     background-color: #0a0c10 !important;
     background-image: radial-gradient(circle at 45% 20%, rgba(249, 87, 33, 0.08) 0%, transparent 60%) !important;
     color: #ffffff !important;
+    font-size: 13px !important;
 }
 
 .glass-bg {
@@ -3829,44 +3830,133 @@ body {
 .app-container {
     background-color: #101217 !important;
     border: none !important;
-    border-radius: 28px !important;
+    border-radius: 20px !important;
     box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85) !important;
+    width: 98vw !important;
+    height: 95vh !important;
+    max-width: 1600px !important;
+    max-height: 1050px !important;
 }
 
 .tab-content-container {
     background-color: #101217 !important;
-    padding: 28px !important;
+    padding: 14px 18px !important;
+    overflow-y: auto !important;
 }
 
-.sidebar {
-    background-color: #0d0f14 !important;
-    border: none !important;
-    padding: 24px 18px !important;
-}
-
+/* Compact App Header */
 .app-header {
     background-color: #0d0f14 !important;
     border: none !important;
-    min-height: 72px !important;
-    padding: 14px 28px !important;
+    min-height: 50px !important;
+    max-height: 54px !important;
+    padding: 6px 18px !important;
 }
 
-/* Sidebar Navigation Items: Steam Active Pill Indicator */
+.header-left {
+    gap: 6px !important;
+    flex-direction: row !important;
+    align-items: center !important;
+}
+
+.header-right {
+    gap: 6px !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+.header-btn {
+    background: #1a1e28 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    color: #d1d6e2 !important;
+    padding: 5px 12px !important;
+    font-size: 12px !important;
+    min-height: 30px !important;
+    gap: 6px !important;
+    transition: all 0.18s ease !important;
+}
+
+.header-btn:hover {
+    background: #242936 !important;
+    color: #ffffff !important;
+    border: none !important;
+    transform: translateY(-1px) !important;
+}
+
+#btn-refresh {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    border-radius: 8px !important;
+    border: none !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.connection-badge {
+    padding: 4px 10px !important;
+    font-size: 11.5px !important;
+    border-radius: 8px !important;
+}
+
+.device-details {
+    font-size: 11.5px !important;
+    color: #9096a5 !important;
+}
+
+/* Compact Sidebar Navigation */
+.sidebar {
+    background-color: #0d0f14 !important;
+    border: none !important;
+    width: 215px !important;
+    min-width: 215px !important;
+    max-width: 215px !important;
+    padding: 14px 10px !important;
+}
+
+.brand {
+    gap: 8px !important;
+    margin-bottom: 14px !important;
+    padding-left: 2px !important;
+}
+
+.brand-icon-container {
+    width: 30px !important;
+    height: 30px !important;
+    border-radius: 8px !important;
+}
+
+.brand-icon-container i {
+    font-size: 18px !important;
+}
+
+.brand-text h1 {
+    font-size: 15px !important;
+}
+
+.brand-text .version {
+    font-size: 9px !important;
+}
+
 .sidebar-nav {
     background: transparent !important;
     border: none !important;
     padding: 0 !important;
-    gap: 4px !important;
+    gap: 2px !important;
 }
 
 .nav-btn {
     background: transparent !important;
     border: none !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
     color: #848995 !important;
-    padding: 11px 16px !important;
-    font-size: 13.5px !important;
+    padding: 7px 10px !important;
+    font-size: 12.5px !important;
     font-weight: 500 !important;
+    gap: 9px !important;
     transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
     position: relative !important;
 }
@@ -3874,7 +3964,7 @@ body {
 .nav-btn:hover {
     background: #161922 !important;
     color: #ffffff !important;
-    transform: translateX(3px) !important;
+    transform: translateX(2px) !important;
 }
 
 .nav-btn.active {
@@ -3889,37 +3979,66 @@ body {
     left: 0 !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
-    width: 4px !important;
-    height: 20px !important;
+    width: 3px !important;
+    height: 16px !important;
     background: #f95721 !important;
     border-radius: 0 4px 4px 0 !important;
-    box-shadow: 0 0 12px rgba(249, 87, 33, 0.7) !important;
+    box-shadow: 0 0 10px rgba(249, 87, 33, 0.7) !important;
 }
 
 .nav-btn.active .btn-icon i {
     color: #f95721 !important;
 }
 
+.nav-btn .btn-icon {
+    font-size: 15px !important;
+}
+
 .sidebar-footer {
     background: #151820 !important;
     border: none !important;
-    border-radius: 16px !important;
-    padding: 14px !important;
+    border-radius: 10px !important;
+    padding: 8px 10px !important;
     margin-top: auto !important;
+    font-size: 11px !important;
+    line-height: 1.35 !important;
 }
 
-/* Cinematic Cards Grid: Pure Borderless */
+/* Pane Header */
+.pane-header {
+    margin-bottom: 12px !important;
+}
+
+.pane-header h2 {
+    font-size: 17px !important;
+    font-weight: 700 !important;
+    margin-bottom: 2px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+.pane-header p {
+    font-size: 12px !important;
+    color: #9096a5 !important;
+    margin: 0 !important;
+}
+
+/* Compact Borderless Cards */
 .card,
 .quad-card,
 .settings-card,
 .mirror-card,
 .fleet-device-card,
-.guide-card {
+.guide-card,
+.metrics-card,
+.storage-browser-card,
+.modal-card {
     background: #151820 !important;
     border: none !important;
-    border-radius: 20px !important;
-    padding: 24px !important;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+    border-radius: 12px !important;
+    padding: 13px 16px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
@@ -3927,41 +4046,104 @@ body {
 .quad-card:hover,
 .settings-card:hover,
 .mirror-card:hover,
-.fleet-device-card:hover {
+.fleet-device-card:hover,
+.metrics-card:hover {
     background: #1a1e28 !important;
     border: none !important;
-    transform: translateY(-2px) !important;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55) !important;
+    transform: translateY(-1.5px) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
 }
 
-/* Hero Showcase Card: Pure Borderless */
+/* Quad Cards - remove bloated min-height */
+.quad-card {
+    min-height: auto !important;
+    padding: 13px 16px !important;
+}
+
+.quad-card .devices-list-container {
+    max-height: 130px !important;
+}
+
+.quad-card .mdns-devices-list {
+    max-height: 90px !important;
+}
+
+.card-icon {
+    font-size: 22px !important;
+    margin-bottom: 6px !important;
+    color: #f95721 !important;
+}
+
+.card h3,
+.quad-card h3,
+.settings-card h3,
+.fleet-device-title h3,
+.metrics-card h3 {
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    margin-top: 0 !important;
+    margin-bottom: 4px !important;
+    color: #ffffff !important;
+}
+
+.card h4,
+.quad-card h4,
+.settings-card h4 {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    margin: 6px 0 3px 0 !important;
+    color: #dbe0ea !important;
+}
+
+.card p,
+.quad-card p,
+.settings-card p,
+.fleet-device-title p,
+.fleet-help p {
+    font-size: 11.5px !important;
+    line-height: 1.4 !important;
+    margin-bottom: 8px !important;
+    color: #9096a5 !important;
+}
+
+.card-header-row {
+    margin-bottom: 8px !important;
+    gap: 8px !important;
+}
+
+.device-status-header {
+    gap: 8px !important;
+    margin-bottom: 8px !important;
+}
+
+/* Hero Showcase Card */
 .active-device-card {
     background: linear-gradient(135deg, #151820 0%, #1c202a 55%, #2a1b18 100%) !important;
     border: none !important;
-    border-radius: 22px !important;
+    border-radius: 14px !important;
     position: relative !important;
     overflow: hidden !important;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6), 0 0 40px rgba(249, 87, 33, 0.08) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 24px rgba(249, 87, 33, 0.08) !important;
 }
 
 .active-device-card::after {
     content: '';
     position: absolute;
-    top: -50%;
-    right: -20%;
-    width: 320px;
-    height: 320px;
-    background: radial-gradient(circle, rgba(249, 87, 33, 0.12) 0%, transparent 70%);
+    top: -40%;
+    right: -15%;
+    width: 220px;
+    height: 220px;
+    background: radial-gradient(circle, rgba(249, 87, 33, 0.10) 0%, transparent 70%);
     pointer-events: none;
 }
 
 .fleet-device-card.selected {
     background: linear-gradient(135deg, #151820 0%, #1e222d 60%, #281a17 100%) !important;
     border: none !important;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 24px rgba(249, 87, 33, 0.15) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 20px rgba(249, 87, 33, 0.15) !important;
 }
 
-/* Row elements */
+/* Row elements inside cards */
 .step-item,
 .device-row,
 .detail-item,
@@ -3969,9 +4151,12 @@ body {
 .storage-row {
     background: #11131a !important;
     border: none !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
+    padding: 6px 10px !important;
+    margin-bottom: 4px !important;
     box-shadow: none !important;
     transition: all 0.18s ease !important;
+    font-size: 12px !important;
 }
 
 .step-item:hover,
@@ -3981,24 +4166,89 @@ body {
     border: none !important;
 }
 
-/* =========================================================================
-   PURE BORDERLESS BUTTONS - THROUGHOUT THE ENTIRE APP
-   ========================================================================= */
+/* Grids & Layout Spacing */
+.connection-quad-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+    align-items: stretch !important;
+}
 
+.mirror-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)) !important;
+    gap: 10px !important;
+}
+
+.settings-layout {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 12px !important;
+    align-items: start !important;
+}
+
+.settings-form {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+}
+
+.form-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr) !important;
+    gap: 8px !important;
+}
+
+.ip-entry-controls,
+.modal-ip-controls {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 42px !important;
+    gap: 6px !important;
+    width: 100% !important;
+}
+
+.metrics-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+    gap: 10px !important;
+    margin-top: 8px !important;
+}
+
+.fleet-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+    gap: 10px !important;
+    padding-bottom: 10px !important;
+}
+
+.embedded-diagnostics {
+    margin-top: 8px !important;
+    padding-top: 8px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.diagnostic-actions {
+    display: flex !important;
+    gap: 4px !important;
+    flex-wrap: wrap !important;
+}
+
+/* Buttons */
 .btn {
     border: none !important;
     outline: none !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
     font-family: var(--font-heading) !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
     font-weight: 600 !important;
     letter-spacing: -0.01em !important;
-    padding: 9px 18px !important;
+    padding: 5px 12px !important;
+    min-height: 30px !important;
     cursor: pointer !important;
     display: inline-flex !important;
     justify-content: center !important;
     align-items: center !important;
-    gap: 8px !important;
+    gap: 6px !important;
     position: relative !important;
     overflow: hidden !important;
     user-select: none !important;
@@ -4031,7 +4281,7 @@ body {
     transform: none !important;
 }
 
-/* Primary Action Buttons: Warm Sunset Flame */
+/* Primary Action Buttons */
 .btn-primary,
 .btn-autoconnect,
 .start-mirror-btn {
@@ -4039,7 +4289,7 @@ body {
     color: #ffffff !important;
     font-weight: 700 !important;
     border: none !important;
-    box-shadow: 0 4px 18px rgba(249, 87, 33, 0.35) !important;
+    box-shadow: 0 3px 12px rgba(249, 87, 33, 0.35) !important;
 }
 
 .btn-primary:hover,
@@ -4048,7 +4298,7 @@ body {
     background: linear-gradient(135deg, #ff6e3a 0%, #e04510 100%) !important;
     color: #ffffff !important;
     border: none !important;
-    box-shadow: 0 6px 26px rgba(249, 87, 33, 0.5) !important;
+    box-shadow: 0 4px 18px rgba(249, 87, 33, 0.5) !important;
     transform: translateY(-1px) !important;
 }
 
@@ -4085,7 +4335,7 @@ body {
     border: none !important;
 }
 
-/* Neutral Action Buttons (Danger & Warning unified to elevated graphite) */
+/* Neutral Action Buttons */
 .btn-danger,
 #btn-conn-disconnect,
 .btn-warning {
@@ -4100,10 +4350,10 @@ body {
     background: #282d3a !important;
     color: #ffffff !important;
     border: none !important;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* Success & Connected Live State Buttons (Warm Sunset Flame accent) */
+/* Success & Live Connected States */
 .btn-success,
 .btn.connected-device {
     background: rgba(249, 87, 33, 0.14) !important;
@@ -4141,59 +4391,41 @@ body {
     background: linear-gradient(135deg, #f95721 0%, #cf4410 100%) !important;
     color: #ffffff !important;
     border: none !important;
-    box-shadow: 0 4px 18px rgba(249, 87, 33, 0.35) !important;
+    box-shadow: 0 3px 12px rgba(249, 87, 33, 0.35) !important;
 }
 
 /* Compact Buttons */
 .btn-sm {
-    padding: 6px 14px !important;
-    font-size: 12px !important;
-    border-radius: 9px !important;
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+    border-radius: 6px !important;
+    min-height: 24px !important;
+    gap: 4px !important;
     border: none !important;
 }
 
-/* Header Buttons: Circle Icons and Pills */
-.header-btn {
-    background: #1a1e28 !important;
-    border: none !important;
-    border-radius: 12px !important;
-    color: #d1d6e2 !important;
-    padding: 8px 16px !important;
-    transition: all 0.18s ease !important;
-}
-
-.header-btn:hover {
-    background: #242936 !important;
-    color: #ffffff !important;
-    border: none !important;
-    transform: translateY(-1px) !important;
-}
-
-#btn-refresh {
-    width: 40px !important;
-    height: 40px !important;
-    min-width: 40px !important;
-    border-radius: 50% !important;
-    border: none !important;
-    padding: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-
-/* Form Inputs & Selects: Pure Borderless */
+/* Form Inputs & Selects */
 input,
 select,
 textarea {
     background: #11131a !important;
     border: none !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
     color: #ffffff !important;
-    padding: 10px 16px !important;
-    font-size: 13.5px !important;
+    padding: 6px 10px !important;
+    font-size: 12.5px !important;
+    min-height: 30px !important;
     outline: none !important;
     box-shadow: none !important;
     transition: all 0.18s ease !important;
+}
+
+.form-group label {
+    font-size: 11.5px !important;
+    font-weight: 500 !important;
+    color: #9096a5 !important;
+    margin-bottom: 3px !important;
+    display: block !important;
 }
 
 input::placeholder,
@@ -4209,7 +4441,7 @@ textarea:focus {
     box-shadow: 0 0 0 2px rgba(249, 87, 33, 0.28) !important;
 }
 
-/* Floating Glass Tags & Status Badges: Pure Borderless */
+/* Floating Glass Tags & Status Badges */
 .status-pill,
 .connection-badge,
 .tailscale-badge,
@@ -4218,8 +4450,8 @@ textarea:focus {
     backdrop-filter: blur(12px) !important;
     border: none !important;
     border-radius: 9999px !important;
-    padding: 5px 14px !important;
-    font-size: 12px !important;
+    padding: 3px 10px !important;
+    font-size: 11px !important;
     font-weight: 600 !important;
     color: #ffffff !important;
 }
@@ -4238,15 +4470,13 @@ textarea:focus {
     border: none !important;
 }
 
-/* =========================================================================
-   PROFESSIONAL CHATGPT-STYLE WORK/CHAT SEGMENTED TOGGLE
-   ========================================================================= */
+/* ChatGPT-Style Work/Chat Segmented Toggle */
 .chatgpt-toggle,
 .pairing-mode-toggle {
     display: inline-flex !important;
     align-items: center !important;
     background: #0d0f14 !important;
-    padding: 3px !important;
+    padding: 2px !important;
     border-radius: 9999px !important;
     border: none !important;
     position: relative !important;
@@ -4262,10 +4492,10 @@ textarea:focus {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
-    gap: 6px !important;
+    gap: 4px !important;
     border-radius: 9999px !important;
-    padding: 6px 14px !important;
-    font-size: 12px !important;
+    padding: 4px 10px !important;
+    font-size: 11.5px !important;
     font-weight: 500 !important;
     color: #9096a5 !important;
     background: transparent !important;
@@ -4304,17 +4534,15 @@ textarea:focus {
     color: #f95721 !important;
 }
 
-/* =========================================================================
-   PROFESSIONAL CHATGPT-STYLE CAPSULE SWITCH TOGGLES (SETTINGS)
-   ========================================================================= */
+/* ChatGPT-Style Capsule Switch Toggles */
 .mirror-checkbox-group {
     display: flex !important;
     align-items: center !important;
-    gap: 14px !important;
-    padding: 10px 14px !important;
+    gap: 10px !important;
+    padding: 6px 10px !important;
     background: #11131a !important;
-    border-radius: 12px !important;
-    margin-bottom: 10px !important;
+    border-radius: 8px !important;
+    margin-bottom: 4px !important;
     cursor: pointer !important;
     transition: background-color 0.18s ease !important;
 }
@@ -4328,9 +4556,9 @@ textarea:focus {
 input[type="checkbox"].chatgpt-switch {
     appearance: none !important;
     -webkit-appearance: none !important;
-    width: 38px !important;
-    height: 22px !important;
-    min-width: 38px !important;
+    width: 32px !important;
+    height: 18px !important;
+    min-width: 32px !important;
     border-radius: 9999px !important;
     background: #242936 !important;
     position: relative !important;
@@ -4348,13 +4576,13 @@ input[type="checkbox"].chatgpt-switch {
 input[type="checkbox"].chatgpt-switch::before {
     content: '' !important;
     position: absolute !important;
-    top: 3px !important;
-    left: 3px !important;
-    width: 16px !important;
-    height: 16px !important;
+    top: 2px !important;
+    left: 2px !important;
+    width: 14px !important;
+    height: 14px !important;
     border-radius: 50% !important;
     background: #ffffff !important;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45) !important;
     transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
@@ -4362,20 +4590,20 @@ input[type="checkbox"].chatgpt-switch::before {
 .compact-check input[type="checkbox"]:checked,
 input[type="checkbox"].chatgpt-switch:checked {
     background: #f95721 !important;
-    box-shadow: 0 2px 10px rgba(249, 87, 33, 0.35) !important;
+    box-shadow: 0 2px 8px rgba(249, 87, 33, 0.35) !important;
 }
 
 .mirror-checkbox-group input[type="checkbox"]:checked::before,
 .compact-check input[type="checkbox"]:checked::before,
 input[type="checkbox"].chatgpt-switch:checked::before {
-    transform: translateX(16px) !important;
+    transform: translateX(14px) !important;
 }
 
 .mirror-checkbox-group label,
 .compact-check label {
     flex: 1 !important;
     color: #ffffff !important;
-    font-size: 13.5px !important;
+    font-size: 12.5px !important;
     font-weight: 500 !important;
     cursor: pointer !important;
     user-select: none !important;
@@ -4384,25 +4612,27 @@ input[type="checkbox"].chatgpt-switch:checked::before {
 
 /* Pairing layout spacing */
 .pairing-controls-card > .btn + .btn {
-    margin-top: 10px;
+    margin-top: 6px;
 }
 
 .pairing-controls-card > .btn + .pairing-qr-panel,
 .pairing-actions + .pairing-qr-panel {
-    margin-top: 16px;
+    margin-top: 10px;
 }
 
 /* Storage Table */
 .storage-browser-card {
     background: #151820 !important;
     border: none !important;
-    border-radius: 20px !important;
+    border-radius: 12px !important;
 }
 
 .storage-table th {
     background: #101218 !important;
     color: #848995 !important;
     border: none !important;
+    padding: 8px 12px !important;
+    font-size: 11.5px !important;
 }
 
 .storage-row {
@@ -4419,14 +4649,15 @@ input[type="checkbox"].chatgpt-switch:checked::before {
 .modal-content {
     background: #151820 !important;
     border: none !important;
-    border-radius: 20px !important;
+    border-radius: 14px !important;
+    padding: 18px 22px !important;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95) !important;
 }
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -4447,6 +4678,7 @@ hr {
     border: none !important;
     height: 1px;
     background: rgba(255, 255, 255, 0.05) !important;
+    margin: 8px 0 !important;
 }
 
 code {
@@ -4454,7 +4686,7 @@ code {
     background: #181b24;
     color: #ff6e3a;
     padding: 2px 6px;
-    border-radius: 6px;
+    border-radius: 5px;
     border: none !important;
     font-size: 0.88em;
 }

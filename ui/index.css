@@ -3925,3 +3925,262 @@ textarea:focus {
 .pairing-actions + .pairing-qr-panel {
     margin-top: 16px;
 }
+
+/* =========================================================================
+   COMPACT DENSITY & REDUNDANT SPACE REMOVAL
+   ========================================================================= */
+
+/* Mirror Grid: Align cards to start to avoid stretching shorter cards to camera card height */
+.mirror-grid {
+    align-items: start !important;
+    gap: 14px !important;
+}
+
+.mirror-card {
+    min-height: auto !important;
+    padding: 16px 18px !important;
+}
+
+.mirror-card p {
+    margin-bottom: 14px !important;
+}
+
+.mirror-card .card-icon {
+    font-size: 28px !important;
+    margin-bottom: 10px !important;
+}
+
+.mirror-card h3 {
+    font-size: 15px !important;
+    margin-bottom: 6px !important;
+}
+
+.mirror-form-group {
+    margin-bottom: 8px !important;
+    gap: 4px !important;
+}
+
+.mirror-form-group label {
+    font-size: 11px !important;
+    letter-spacing: 0.5px !important;
+}
+
+.mirror-form-group select {
+    padding: 7px 12px !important;
+    font-size: 13px !important;
+    border-radius: 8px !important;
+}
+
+/* Connection Center Quad Grid: Align cards to start to eliminate huge empty voids */
+.connection-quad-grid {
+    align-items: start !important;
+    gap: 14px !important;
+}
+
+.quad-card {
+    min-height: auto !important;
+    padding: 16px 18px !important;
+}
+
+.quad-card h3 {
+    font-size: 15px !important;
+    margin-bottom: 4px !important;
+}
+
+.quad-card p {
+    font-size: 12.5px !important;
+    line-height: 1.45 !important;
+    margin-bottom: 10px !important;
+}
+
+.active-device-details {
+    gap: 10px !important;
+    margin-top: 8px !important;
+}
+
+.detail-item {
+    padding: 8px 12px !important;
+    border-radius: 10px !important;
+}
+
+.detail-item span {
+    font-size: 10.5px !important;
+    margin-bottom: 2px !important;
+}
+
+.detail-item p {
+    font-size: 13px !important;
+}
+
+.diagnostic-actions {
+    display: flex !important;
+    gap: 6px !important;
+    flex-wrap: wrap !important;
+}
+
+.diagnostic-actions .btn {
+    width: auto !important;
+    flex: 1 1 calc(33.333% - 6px) !important;
+    min-width: 75px !important;
+    padding: 6px 8px !important;
+    font-size: 11.5px !important;
+    min-height: 30px !important;
+}
+
+.pairing-qr-panel {
+    margin-top: 10px !important;
+    padding: 12px !important;
+}
+
+.pairing-qr-frame {
+    width: min(160px, 100%) !important;
+    margin: 0 auto 8px !important;
+    padding: 8px !important;
+}
+
+.list-placeholder {
+    margin: 6px 0 !important;
+    font-size: 12px !important;
+}
+
+/* =========================================================================
+   CHATGPT-STYLE WORK/CHAT SEGMENTED TOGGLE (WI-FI / TAILNET)
+   ========================================================================= */
+.pairing-mode-toggle {
+    display: inline-flex !important;
+    align-items: center !important;
+    background: rgba(8, 12, 18, 0.75) !important;
+    padding: 3px !important;
+    border-radius: 9999px !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    position: relative !important;
+    user-select: none !important;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5) !important;
+    gap: 2px !important;
+}
+
+.pairing-mode-toggle button,
+.pairing-mode-toggle .btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 5px !important;
+    border-radius: 9999px !important;
+    padding: 4px 12px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: rgba(255, 255, 255, 0.65) !important;
+    background: transparent !important;
+    border: none !important;
+    cursor: pointer !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    outline: none !important;
+    box-shadow: none !important;
+    min-height: auto !important;
+    text-shadow: none !important;
+}
+
+.pairing-mode-toggle button:hover,
+.pairing-mode-toggle .btn:hover {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.pairing-mode-toggle button.active,
+.pairing-mode-toggle .btn.active {
+    background: rgba(42, 207, 202, 0.22) !important;
+    color: #2acfc9 !important;
+    font-weight: 600 !important;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45) !important;
+    border: 1px solid rgba(42, 207, 202, 0.35) !important;
+}
+
+.pairing-mode-toggle button.active i,
+.pairing-mode-toggle .btn.active i {
+    color: #2acfc9 !important;
+}
+
+/* =========================================================================
+   CHATGPT-STYLE CAPSULE SWITCH TOGGLES (CHECKBOXES & SETTINGS)
+   ========================================================================= */
+.mirror-checkbox-group {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 8px 12px !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-radius: 10px !important;
+    margin-bottom: 8px !important;
+    cursor: pointer !important;
+    transition: background-color 0.18s ease, border-color 0.18s ease !important;
+}
+
+.mirror-checkbox-group:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(42, 207, 202, 0.22) !important;
+}
+
+.mirror-checkbox-group input[type="checkbox"],
+.compact-check input[type="checkbox"],
+input[type="checkbox"].chatgpt-switch {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    width: 36px !important;
+    height: 20px !important;
+    min-width: 36px !important;
+    border-radius: 9999px !important;
+    background: rgba(255, 255, 255, 0.18) !important;
+    position: relative !important;
+    cursor: pointer !important;
+    outline: none !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    transition: background-color 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease !important;
+    flex-shrink: 0 !important;
+}
+
+.mirror-checkbox-group input[type="checkbox"]::before,
+.compact-check input[type="checkbox"]::before,
+input[type="checkbox"].chatgpt-switch::before {
+    content: '' !important;
+    position: absolute !important;
+    top: 2px !important;
+    left: 2px !important;
+    width: 14px !important;
+    height: 14px !important;
+    border-radius: 50% !important;
+    background: #ffffff !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45) !important;
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.mirror-checkbox-group input[type="checkbox"]:checked,
+.compact-check input[type="checkbox"]:checked,
+input[type="checkbox"].chatgpt-switch:checked {
+    background: #2acfc9 !important;
+    border-color: #2acfc9 !important;
+    box-shadow: 0 2px 8px rgba(42, 207, 202, 0.35) !important;
+}
+
+.mirror-checkbox-group input[type="checkbox"]:checked::before,
+.compact-check input[type="checkbox"]:checked::before,
+input[type="checkbox"].chatgpt-switch:checked::before {
+    transform: translateX(16px) !important;
+}
+
+.mirror-checkbox-group label,
+.compact-check label {
+    flex: 1 !important;
+    color: #e2e8f0 !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    user-select: none !important;
+    margin: 0 !important;
+    line-height: 1.35 !important;
+}
+

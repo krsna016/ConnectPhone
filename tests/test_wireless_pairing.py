@@ -53,6 +53,17 @@ class WirelessPairingTests(unittest.TestCase):
         self.assertEqual(calls[0][0], ["adb", "pair", "192.0.2.10:43210"])
         self.assertEqual(calls[0][1]["input"], "AbCd1234EfGh\n")
 
+    def test_tailscale_pairing_uses_extended_timeout(self):
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0, "Successfully paired", "")
+
+        success, _ = pair_with_code("100.93.0.20:43210", "654321", runner=runner, timeout=10)
+        self.assertTrue(success)
+        self.assertGreaterEqual(calls[0][1]["timeout"], 20)
+
 
 if __name__ == "__main__":
     unittest.main()

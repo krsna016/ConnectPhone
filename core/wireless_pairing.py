@@ -30,6 +30,13 @@ def pair_with_secret(endpoint, secret, runner=subprocess.run, timeout=15):
         return False, "Invalid pairing endpoint"
     if not isinstance(secret, str) or not re.fullmatch(r"[\x21-\x7e]{6,64}", secret):
         return False, "Invalid pairing secret"
+    if is_tailscale_ip(host):
+        try:
+            from core.tailscale import wake_tailscale_peer
+            wake_tailscale_peer(host, timeout=2.0)
+        except Exception:
+            pass
+        timeout = max(timeout, 20)
     try:
         result = runner(
             ["adb", "pair", endpoint],

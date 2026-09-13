@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRecording = false;
     let _actionInFlight = false;  // pause polling during long operations
     let dependencyWarningShown = false;
+    let setPairingMode = null;
 
     // Storage Manager State
     window.currentStoragePath = '/sdcard';
@@ -362,16 +363,34 @@ document.addEventListener('DOMContentLoaded', () => {
                     </button>
                 </div>
             `).join('');
+            const pairPeerSelect = document.getElementById('pair-tailscale-peers-dropdown');
+            if (pairPeerSelect) {
+                const currentVal = pairPeerSelect.value;
+                pairPeerSelect.innerHTML = '<option value="" disabled ' + (!currentVal ? 'selected' : '') + '>▼ Select Peer</option>' +
+                    peers.map(p => `<option value="${escapeHtml(p.ip)}">${escapeHtml(p.name || p.ip)} (${escapeHtml(p.ip)})</option>`).join('');
+                if (currentVal) pairPeerSelect.value = currentVal;
+            }
         }
     }
 
     window.connectTailscalePeer = function(ip) {
         const connIpInput = document.getElementById('conn-ip');
+        const pairTargetIp = document.getElementById('pair-target-ip');
+        const pairPeerSelect = document.getElementById('pair-tailscale-peers-dropdown');
         if (connIpInput) {
             connIpInput.value = ip;
             connIpInput.focus();
-            showToast(`Filled Tailscale IP ${ip}. Enter port or click Auto-Connect.`, 'info');
         }
+        if (pairTargetIp) {
+            pairTargetIp.value = ip;
+        }
+        if (pairPeerSelect) {
+            pairPeerSelect.value = ip;
+        }
+        if (typeof setPairingMode === 'function') {
+            setPairingMode('tailscale');
+        }
+        showToast(`Filled Tailscale IP ${ip}. Ready to pair or connect.`, 'info');
     };
 
     function renderFleet(data) {
@@ -1035,17 +1054,106 @@ document.addEventListener('DOMContentLoaded', () => {
         postAction('/api/connect', { ip: ip, port: port }, btnConnect);
     });
 
+    const btnPairModeWifi = document.getElementById('btn-pair-mode-wifi');
+    const btnPairModeTailscale = document.getElementById('btn-pair-mode-tailscale');
+    const pairTailscaleRow = document.getElementById('pair-tailscale-row');
+    const pairConnectPortGroup = document.getElementById('pair-connect-port-group');
+    const pairCardDesc = document.getElementById('pair-card-desc');
+    const pairTargetIp = document.getElementById('pair-target-ip');
+    const pairTailscalePeersDropdown = document.getElementById('pair-tailscale-peers-dropdown');
+
+    setPairingMode = function(mode) {
+        if (mode === 'tailscale') {
+            if (btnPairModeTailscale) {
+                btnPairModeTailscale.classList.add('active');
+                btnPairModeTailscale.style.background = '#38bdf8';
+                btnPairModeTailscale.style.color = '#000';
+            }
+            if (btnPairModeWifi) {
+                btnPairModeWifi.classList.remove('active');
+                btnPairModeWifi.style.background = 'transparent';
+                btnPairModeWifi.style.color = 'var(--text-secondary)';
+            }
+            if (pairTailscaleRow) pairTailscaleRow.classList.remove('hidden');
+            if (pairConnectPortGroup) pairConnectPortGroup.classList.remove('hidden');
+            if (btnPairQr) btnPairQr.style.display = 'none';
+            if (qrPairingPanel) qrPairingPanel.classList.add('hidden');
+            if (pairCardDesc) {
+                pairCardDesc.textContent = 'Pair remote phone over Tailscale (works over cellular/remote Wi-Fi). Promotes to port 5555 permanently.';
+            }
+            const connIpVal = (document.getElementById('conn-ip')?.value || '').trim();
+            if (pairTargetIp && !pairTargetIp.value && connIpVal.startsWith('100.')) {
+                pairTargetIp.value = connIpVal;
+            }
+        } else {
+            if (btnPairModeWifi) {
+                btnPairModeWifi.classList.add('active');
+                btnPairModeWifi.style.background = 'var(--color-primary)';
+                btnPairModeWifi.style.color = '#000';
+            }
+            if (btnPairModeTailscale) {
+                btnPairModeTailscale.classList.remove('active');
+                btnPairModeTailscale.style.background = 'transparent';
+                btnPairModeTailscale.style.color = 'var(--text-secondary)';
+            }
+            if (pairTailscaleRow) pairTailscaleRow.classList.add('hidden');
+            if (pairConnectPortGroup) pairConnectPortGroup.classList.add('hidden');
+            if (btnPairQr) btnPairQr.style.display = '';
+            if (pairCardDesc) {
+                pairCardDesc.textContent = 'Pair your phone with this Mac (required once per Wi-Fi network).';
+            }
+        }
+    };
+
+    if (btnPairModeWifi) {
+        btnPairModeWifi.addEventListener('click', () => setPairingMode('wifi'));
+    }
+    if (btnPairModeTailscale) {
+        btnPairModeTailscale.addEventListener('click', () => setPairingMode('tailscale'));
+    }
+
+    if (pairTailscalePeersDropdown) {
+        pairTailscalePeersDropdown.addEventListener('change', (e) => {
+            const selectedIp = e.target.value;
+            if (selectedIp) {
+                if (pairTargetIp) pairTargetIp.value = selectedIp;
+                const connIpInput = document.getElementById('conn-ip');
+                if (connIpInput) connIpInput.value = selectedIp;
+            }
+        });
+    }
+
     const btnPair = document.getElementById('btn-conn-pair');
     if (btnPair) btnPair.addEventListener('click', () => {
-        const ip = document.getElementById('conn-ip').value.trim();
+        const isTailnet = btnPairModeTailscale && btnPairModeTailscale.classList.contains('active');
+        let ip = '';
+        let connectPort = null;
+
+        if (isTailnet) {
+            ip = (pairTargetIp?.value || document.getElementById('conn-ip')?.value || '').trim();
+            const cpVal = document.getElementById('pair-connect-port')?.value.trim();
+            if (cpVal) connectPort = cpVal;
+        } else {
+            ip = document.getElementById('conn-ip').value.trim();
+        }
+
         const port = document.getElementById('pair-port').value.trim();
         const code = document.getElementById('pair-code').value.trim();
-        if (!ip || !port || !code) {
-            showToast('IP, Pairing Port, and Pairing Code are all required.', 'error');
+
+        if (!ip) {
+            showToast(isTailnet ? 'Tailnet Target IP is required. Select a peer or enter a 100.x.y.z IP.' : 'Phone IP is required in the connection section.', 'error');
             return;
         }
-        showToast('Pairing wirelessly with device...', 'info');
-        postAction('/api/pair', { ip: ip, port: port, code: code }, btnPair).finally(() => {
+        if (!port || !code) {
+            showToast('Pairing Port and 6-Digit Pairing Code are required.', 'error');
+            return;
+        }
+
+        showToast(isTailnet ? `Pairing wirelessly over Tailscale (${ip})...` : 'Pairing wirelessly with device...', 'info');
+        const payload = { ip: ip, port: port, code: code };
+        if (connectPort) payload.connect_port = connectPort;
+
+        postAction('/api/pair', payload, btnPair).finally(() => {
             document.getElementById('pair-code').value = '';
         });
     });

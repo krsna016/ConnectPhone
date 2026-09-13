@@ -1330,10 +1330,17 @@ def discover_all_mdns_services(timeout=1.5, target_ip=None):
     return discovered
 
 
-def pair_and_connect_wireless(ip, port, code):
+def pair_and_connect_wireless(ip, port, code, connect_port=None):
     """Complete one secure pairing attempt, then resolve the connect service."""
     endpoint = f"{ip}:{int(port)}"
-    success, detail = pair_with_code(endpoint, code)
+    is_ts = is_tailscale_ip(ip)
+    if is_ts:
+        try:
+            from core.tailscale import wake_tailscale_peer
+            wake_tailscale_peer(ip, timeout=2.0)
+        except Exception:
+            pass
+    success, detail = pair_with_code(endpoint, code, timeout=20 if is_ts else 15)
     if not success:
         return {
             "success": False,
@@ -1345,51 +1352,91 @@ def pair_and_connect_wireless(ip, port, code):
             ),
         }
 
-    return _connect_after_pairing(ip)
+    return _connect_after_pairing(ip, connect_port=connect_port)
 
 
-def _connect_after_pairing(ip):
+def _connect_after_pairing(ip, connect_port=None):
     """Resolve Android's distinct TLS connect service after either pairing mode."""
-    deadline = time.monotonic() + 6.0
+    is_ts = is_tailscale_ip(ip)
+    deadline = time.monotonic() + (10.0 if is_ts else 6.0)
     attempted = set()
     last_error = ""
+    explicit_port = int(connect_port) if connect_port and _valid_port(connect_port) else None
+
     while time.monotonic() < deadline:
-        services = discover_all_mdns_services(timeout=1.2, target_ip=ip)
-        connect_ports = [
-            int(item["port"])
-            for item in services
-            if item.get("type") == "connect" and _valid_port(item.get("port"))
-        ]
-        if not connect_ports:
-            fallback_ports = [5555]
-            last_port = ConnectPhone.load_config().get("last_port")
-            if last_port and _valid_port(last_port) and int(last_port) not in fallback_ports:
-                fallback_ports.append(int(last_port))
-            connect_ports = fallback_ports
-        for connect_port in connect_ports:
-            if connect_port in attempted:
+        connect_ports = []
+        if explicit_port and explicit_port not in attempted:
+            connect_ports.append(explicit_port)
+
+        if not is_ts:
+            services = discover_all_mdns_services(timeout=1.2, target_ip=ip)
+            for item in services:
+                if item.get("type") == "connect" and _valid_port(item.get("port")):
+                    p = int(item["port"])
+                    if p not in connect_ports:
+                        connect_ports.append(p)
+
+        fallback_ports = [5555]
+        last_port = ConnectPhone.load_config().get("last_port")
+        if last_port and _valid_port(last_port) and int(last_port) not in fallback_ports:
+            fallback_ports.append(int(last_port))
+        for p in fallback_ports:
+            if p not in connect_ports:
+                connect_ports.append(p)
+
+        if is_ts and not any(p in attempted for p in fallback_ports) and not connect_ports:
+            discovered = scan_and_connect_wireless_debug(ip, allow_port_scan=True)
+            if discovered and int(discovered) not in connect_ports:
+                connect_ports.append(int(discovered))
+
+        for target_port in connect_ports:
+            if target_port in attempted:
                 continue
-            attempted.add(connect_port)
-            connected, last_error = _adb_connect(ip, connect_port, attempts=2)
+            attempted.add(target_port)
+            conn_timeout = 8 if is_ts else 3
+            connected, last_error = _adb_connect(ip, target_port, attempts=2, timeout=conn_timeout)
             if not connected:
                 continue
-            wireless_endpoint = f"{ip}:{connect_port}"
-            serial = _get_adb_device_serial(wireless_endpoint)
+            wireless_endpoint = f"{ip}:{target_port}"
+            serial = _get_adb_device_serial(wireless_endpoint, timeout=6.0 if is_ts else 3.5, fallback_attempts=2)
             if not serial or ":" in serial:
-                subprocess.run(["adb", "disconnect", wireless_endpoint], capture_output=True, timeout=5)
-                last_error = "Android hardware identity could not be verified"
-                continue
-            os.environ["ANDROID_SERIAL"] = wireless_endpoint
-            ConnectPhone.save_wireless_endpoint(ip, connect_port, serial)
+                if not _adb_endpoint_alive(wireless_endpoint):
+                    subprocess.run(["adb", "disconnect", wireless_endpoint], capture_output=True, timeout=5)
+                    last_error = "Android hardware identity could not be verified"
+                    continue
+
+            active_endpoint = wireless_endpoint
+            active_port = target_port
+
+            # On Tailscale, if connected via dynamic port, lock to standard port 5555 permanently
+            if is_ts and target_port != 5555:
+                try:
+                    subprocess.run(["adb", "-s", wireless_endpoint, "tcpip", "5555"], capture_output=True, timeout=4)
+                    time.sleep(0.5)
+                    p5555_ok, _ = _adb_connect(ip, 5555, attempts=2, timeout=6)
+                    if p5555_ok:
+                        active_port = 5555
+                        active_endpoint = f"{ip}:5555"
+                except Exception:
+                    pass
+
+            resolved_serial = serial or "Android Device"
+            os.environ["ANDROID_SERIAL"] = active_endpoint
+            ConnectPhone.save_wireless_endpoint(ip, active_port, resolved_serial)
+            _publish_connected_endpoint(active_endpoint, resolved_serial)
             _invalidate_status_cache()
-            return {"success": True, "message": f"Paired and connected securely to {wireless_endpoint}."}
+            msg = f"Paired and connected securely to {active_endpoint}."
+            if is_ts and active_port == 5555:
+                msg = f"🎉 Paired and permanently locked to standard port 5555 on your Tailnet ({active_endpoint})!"
+            return {"success": True, "message": msg}
         time.sleep(0.3)
+
     return {
         "success": True,
         "message": (
-            "Pairing succeeded, but the phone has not advertised its connect service yet. "
-            "Keep Wireless Debugging enabled and click Scan Network, then Connect."
-            + (f" Last connection error: {last_error}" if last_error else "")
+            "Pairing succeeded, but the phone connect service was not reached yet. "
+            "Enter the Connect Port (shown on phone under IP address & Port) and click Connect."
+            + (f" Last error: {last_error}" if last_error else "")
         ),
     }
 
@@ -2944,209 +2991,12 @@ class ConnectPhoneUIHandler(http.server.BaseHTTPRequestHandler):
                 ip = str(data.get("ip", "")).strip()
                 port = str(data.get("port", "")).strip()
                 code = str(data.get("code", "")).strip()
+                connect_port = str(data.get("connect_port", "")).strip()
                 if not _valid_endpoint_host(ip) or not _valid_port(port) or not code.isdigit() or len(code) != 6:
                     res_data["message"] = "Enter a valid IP/Tailscale address, TCP port, and 6-digit pairing code."
                 else:
-                    res_data.update(pair_and_connect_wireless(ip, int(port), code))
-                    self.wfile.write(json.dumps(res_data).encode('utf-8'))
-                    return
-                    ip_port = f"{ip}:{port}"
-                    print(f"[UI Server] Attempting wireless pairing to {ip_port}...")
-
-                    # ── Pre-pairing: restart ADB server to clear stale TLS
-                    # state from prior USB or wireless sessions.  On ADB >= 35
-                    # this is the #1 reason wireless pairing silently fails.
-                    try:
-                        print("[UI Server] Restarting ADB server to clear stale TLS state...")
-                        subprocess.run(["adb", "kill-server"], capture_output=True, timeout=5)
-                        time.sleep(0.3)
-                        subprocess.run(["adb", "start-server"], capture_output=True, timeout=5)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        print(f"[UI Server] ADB restart warning: {e}")
-
-                    def _try_pair_cli(target_ip_port, pair_code):
-                        """Strategy 1: adb pair <ip:port> <code>  — works on ADB >= 30."""
-                        try:
-                            res = subprocess.run(
-                                ["adb", "pair", target_ip_port, pair_code],
-                                capture_output=True, text=True, timeout=12
-                            )
-                            combined = (res.stdout or "") + " " + (res.stderr or "")
-                            print(f"[UI Server] Strategy 1 (CLI arg): rc={res.returncode} out={res.stdout.strip()} err={res.stderr.strip()}")
-                            if "successfully paired" in combined.lower():
-                                return True, combined.strip()
-                            return False, combined.strip()
-                        except subprocess.TimeoutExpired:
-                            return False, "timeout"
-                        except Exception as e:
-                            return False, str(e)
-
-                    def _try_pair_stdin(target_ip_port, pair_code):
-                        """Strategy 2: adb pair <ip:port>  then write code to stdin."""
-                        try:
-                            res = subprocess.run(
-                                ["adb", "pair", target_ip_port],
-                                input=f"{pair_code}\n",
-                                capture_output=True, text=True, timeout=12
-                            )
-                            combined = (res.stdout or "") + " " + (res.stderr or "")
-                            print(f"[UI Server] Strategy 2 (stdin): rc={res.returncode} out={res.stdout.strip()} err={res.stderr.strip()}")
-                            if "successfully paired" in combined.lower():
-                                return True, combined.strip()
-                            # Only the explicit "successfully paired" message
-                            # proves the handshake completed.  Seeing the
-                            # "Enter pairing code:" prompt alone does NOT mean
-                            # pairing succeeded — report failure so Strategy 3
-                            # (PTY) gets a chance.
-                            return False, combined.strip()
-                        except subprocess.TimeoutExpired:
-                            return False, "timeout"
-                        except Exception as e:
-                            return False, str(e)
-
-                    def _try_pair_pty(target_ip_port, pair_code):
-                        """Strategy 3: use a pseudo-terminal so adb sees a real TTY (avoids prompt-suppress issues)."""
-                        try:
-                            import pty, os, select as _sel
-                            master_fd, slave_fd = pty.openpty()
-                            proc = subprocess.Popen(
-                                ["adb", "pair", target_ip_port],
-                                stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-                                close_fds=True
-                            )
-                            os.close(slave_fd)
-                            output_chunks = []
-                            code_sent = False
-                            deadline = time.time() + 12
-                            while time.time() < deadline:
-                                rlist, _, _ = _sel.select([master_fd], [], [], 0.15)
-                                if rlist:
-                                    try:
-                                        chunk = os.read(master_fd, 4096).decode("utf-8", errors="replace")
-                                    except OSError:
-                                        break
-                                    output_chunks.append(chunk)
-                                    combined_so_far = "".join(output_chunks)
-                                    if not code_sent and "enter pairing code" in combined_so_far.lower():
-                                        time.sleep(0.05)
-                                        os.write(master_fd, f"{pair_code}\n".encode())
-                                        code_sent = True
-                                if proc.poll() is not None:
-                                    # Drain remaining output
-                                    try:
-                                        rlist2, _, _ = _sel.select([master_fd], [], [], 0.3)
-                                        if rlist2:
-                                            output_chunks.append(os.read(master_fd, 4096).decode("utf-8", errors="replace"))
-                                    except OSError:
-                                        pass
-                                    break
-                            try:
-                                os.close(master_fd)
-                            except OSError:
-                                pass
-                            proc.wait(timeout=2)
-                            combined = "".join(output_chunks)
-                            print(f"[UI Server] Strategy 3 (pty): rc={proc.returncode} output={combined.strip()}")
-                            if "successfully paired" in combined.lower():
-                                return True, combined.strip()
-                            return False, combined.strip()
-                        except Exception as e:
-                            print(f"[UI Server] Strategy 3 (pty) exception: {e}")
-                            return False, str(e)
-
-                    def _run_all_pair_strategies(target_ip_port, pair_code):
-                        """Run all 3 pairing strategies in order, return (success, message)."""
-                        ok, msg = _try_pair_cli(target_ip_port, pair_code)
-                        if ok:
-                            return True, msg
-                        ok, msg = _try_pair_stdin(target_ip_port, pair_code)
-                        if ok:
-                            return True, msg
-                        ok, msg = _try_pair_pty(target_ip_port, pair_code)
-                        if ok:
-                            return True, msg
-                        return False, msg
-
-                    # ── Phase 1: Try pairing with the user-entered port first.
-                    # The pairing code is cryptographically bound to the port
-                    # shown on the phone; we must NOT silently replace it.
-                    success, final_msg = _run_all_pair_strategies(ip_port, code)
-
-                    # ── Phase 2 (fallback): If the user's port failed, try the
-                    # mDNS-advertised pairing port.  The phone may have
-                    # re-advertised on a new port since the user read it.
-                    if not success:
-                        fresh_ip, fresh_port = discover_adb_service_hybrid(
-                            "_adb-tls-pairing._tcp.local.",
-                            target_ip=ip,
-                            timeout=1.5,
-                        )
-                        if fresh_ip == ip and fresh_port and str(int(fresh_port)) != port:
-                            mdns_ip_port = f"{ip}:{int(fresh_port)}"
-                            print(f"[UI Server] User port failed; retrying with mDNS-discovered port: {mdns_ip_port}")
-                            success, final_msg = _run_all_pair_strategies(mdns_ip_port, code)
-
-                    # ── Build response ──────────────────────────────────────────
-                    if success:
-                        # Pairing authorizes the Mac but uses a different,
-                        # rotating port from the main ADB connect service.
-                        # Resolve that service immediately so the user does
-                        # not have to copy a second port by hand.
-                        connected_port = None
-                        _, discovered_port = discover_adb_service_hybrid(
-                            "_adb-tls-connect._tcp.local.",
-                            target_ip=ip,
-                            timeout=1.2,
-                        )
-                        if not discovered_port:
-                            discovered_port = scan_and_connect_wireless_debug(ip, allow_port_scan=True)
-                        if discovered_port:
-                            connected_now, _ = _adb_connect(ip, int(discovered_port), attempts=3)
-                            if connected_now:
-                                connected_port = int(discovered_port)
-                                serial = _get_adb_device_serial(f"{ip}:{connected_port}")
-                                os.environ["ANDROID_SERIAL"] = f"{ip}:{connected_port}"
-                                ConnectPhone.save_wireless_endpoint(ip, connected_port, serial)
-                                _invalidate_status_cache()
-                        res_data["success"] = True
-                        if connected_port:
-                            res_data["message"] = f"✅ Paired and connected to {ip}:{connected_port}."
-                        else:
-                            res_data["message"] = (
-                                "✅ Successfully paired. The phone did not publish its connect service yet; "
-                                "keep Wireless Debugging enabled and click Connect/Auto-connect once."
-                            )
-                    else:
-                        err_lower = final_msg.lower()
-                        if "connection refused" in err_lower or "timeout" in err_lower or "timed out" in err_lower:
-                            res_data["message"] = (
-                                f"Pairing failed: {final_msg}\n\n"
-                                "💡 Connection refused / timeout. Both your Mac and phone must be on the "
-                                "same Wi-Fi network. If you use a router with AP Isolation / Client Isolation, "
-                                "disable it. Also ensure Wireless Debugging is still toggled ON.\n\n"
-                                "🔧 Also try: close the pairing-code popup on your phone, "
-                                "turn Wireless Debugging OFF and ON, then tap 'Pair device with pairing code' "
-                                "again to get a fresh port and code."
-                            )
-                        elif "protocol" in err_lower or "read status" in err_lower or "undefined" in err_lower or "fault" in err_lower:
-                            res_data["message"] = (
-                                f"Pairing failed: {final_msg}\n\n"
-                                "💡 ADB could not complete the pairing handshake. Most common causes:\n"
-                                "• The 6-digit code or pairing port has expired — close the popup on your phone, "
-                                "reopen it and use the fresh code + port shown.\n"
-                                "• You entered the main Wireless Debugging port instead of the Pairing port "
-                                "(the pairing port is only shown inside the 'Pair with code' popup).\n"
-                                "• Very rarely, the code was entered too slowly — try again immediately after opening the popup."
-                            )
-                        else:
-                            res_data["message"] = (
-                                f"Pairing failed: {final_msg}\n\n"
-                                "💡 Make sure the 'Pair device with pairing code' popup is still open on "
-                                "your phone and you are using the port shown inside that popup. If the popup "
-                                "was open before scanning, close it, open a fresh pairing-code popup, scan "
-                                "again, and submit the new code immediately."
-                            )
+                    c_port = int(connect_port) if _valid_port(connect_port) else None
+                    res_data.update(pair_and_connect_wireless(ip, int(port), code, connect_port=c_port))
                 
             elif self.path == '/api/restart_adb':
                 subprocess.run(["adb", "kill-server"], timeout=8)

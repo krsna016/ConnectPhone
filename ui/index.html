@@ -265,10 +265,32 @@
                         </div>
                         
                         <!-- Card 4: Wireless Debugging Pairing -->
+                        <!-- Card 4: Wireless Debugging Pairing -->
                         <div class="card pairing-controls-card quad-card">
-                            <h3><i class="material-symbols-outlined">key</i> Wireless Debugging Pairing</h3>
-                            <p>Pair your phone with this Mac (required once per Wi-Fi network).</p>
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                <h3 style="margin-bottom: 0;"><i class="material-symbols-outlined">key</i> Wireless Debugging Pairing</h3>
+                                <div class="pairing-mode-toggle" style="display: flex; gap: 3px; background: rgba(255,255,255,0.06); padding: 3px; border-radius: 8px;">
+                                    <button type="button" class="btn btn-sm active" id="btn-pair-mode-wifi" style="padding: 3px 9px; font-size: 11px; border-radius: 6px; background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer;">
+                                        <i class="material-symbols-outlined" style="font-size: 13px; vertical-align: middle;">wifi</i> Wi-Fi
+                                    </button>
+                                    <button type="button" class="btn btn-sm" id="btn-pair-mode-tailscale" style="padding: 3px 9px; font-size: 11px; border-radius: 6px; background: transparent; color: var(--text-secondary); font-weight: 600; border: none; cursor: pointer;">
+                                        <i class="material-symbols-outlined" style="font-size: 13px; color: #38bdf8; vertical-align: middle;">vpn_lock</i> Tailnet
+                                    </button>
+                                </div>
+                            </div>
+                            <p id="pair-card-desc">Pair your phone with this Mac (required once per Wi-Fi network).</p>
                             <div class="settings-form">
+                                <div class="form-row hidden" id="pair-tailscale-row">
+                                    <div class="form-group" style="flex: 1;">
+                                        <label for="pair-target-ip">Tailnet Target IP / Peer:</label>
+                                        <div style="display: flex; gap: 6px;">
+                                            <input type="text" id="pair-target-ip" placeholder="100.x.y.z or MagicDNS name">
+                                            <select id="pair-tailscale-peers-dropdown" class="saved-device-select" style="min-width: 36px; padding: 4px 6px;" title="Select an active Tailscale peer">
+                                                <option value="" disabled selected>▼</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="form-row">
                                     <div class="form-group">
                                         <label for="pair-port">Pairing Port:</label>
@@ -278,10 +300,14 @@
                                         <label for="pair-code">Pairing Code:</label>
                                         <input type="password" id="pair-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code">
                                     </div>
+                                    <div class="form-group hidden" id="pair-connect-port-group">
+                                        <label for="pair-connect-port">Connect Port (opt):</label>
+                                        <input type="text" id="pair-connect-port" inputmode="numeric" autocomplete="off" placeholder="e.g. 42771">
+                                    </div>
                                 </div>
                                 <div class="pairing-actions">
-                                    <button class="btn btn-primary" id="btn-conn-pair">Pair With 6-Digit Code</button>
-                                    <button class="btn btn-accent" id="btn-pair-qr"><i class="material-symbols-outlined">qr_code_2</i> Pair Using QR Code</button>
+                                    <button class="btn btn-primary" id="btn-conn-pair"><i class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">key</i> Pair With 6-Digit Code</button>
+                                    <button class="btn btn-accent" id="btn-pair-qr"><i class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">qr_code_2</i> Pair Using QR Code</button>
                                 </div>
                                 <div id="qr-pairing-panel" class="pairing-qr-panel hidden">
                                     <div class="pairing-qr-frame">

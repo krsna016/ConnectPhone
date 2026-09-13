@@ -1,33 +1,48 @@
-/* Design System & Tokens - Cinematic Dark Graphite & Warm Sunset Flame (Steam Edition) */
+/* =========================================================================
+   THE THREE PURPOSE-DRIVEN COLORS DESIGN SYSTEM
+   -------------------------------------------------------------------------
+   COLOR 1: PURE OBSIDIAN GRAPHITE (Surfaces, Containers & Spatial Depth)
+   - Purpose: Deep OLED backdrop, cards, sidebar, header, inputs, modals.
+   - Values:  #090b0e (canvas) | #101217 (shell) | #151820 (cards) | #1e222c (controls)
+
+   COLOR 2: PLATINUM WHITE & MUTED SLATE (Typography, Legibility & Content)
+   - Purpose: Headings, body copy, icons, labels, metadata, console logs.
+   - Values:  #ffffff (pure white) | #9096a5 (subdued silver) | #5e6473 (muted)
+
+   COLOR 3: WARM SUNSET FLAME (Action, Active States & Live Focus)
+   - Purpose: Primary action buttons, active navigation, active toggles, live status.
+   - Values:  #f95721 (flame accent) | #ff6e3a (hover glow) | rgba(249, 87, 33, 0.15) (ambient tint)
+   ========================================================================= */
 :root {
-    --bg-main: #0a0c10;
+    --bg-main: #090b0e;
     --bg-app: #101217;
     --bg-sidebar: #0d0f14;
     --bg-card: #151820;
     --bg-card-hover: #1c1f2a;
     --bg-card-hero: linear-gradient(135deg, #161922 0%, #202431 55%, #2d1c1a 100%);
-    --bg-input: #12141c;
+    --bg-input: #11131a;
     --bg-input-focus: #181b24;
-    --bg-pill: rgba(255, 255, 255, 0.08);
-    --bg-pill-hover: rgba(255, 255, 255, 0.14);
+    --bg-pill: #1e222c;
+    --bg-pill-hover: #282d3a;
+    --surface-raised: #1e222c;
     
-    --border-color: rgba(255, 255, 255, 0.05);
-    --border-hover: rgba(255, 255, 255, 0.10);
-    --border-highlight: rgba(249, 87, 33, 0.4);
+    --border-color: transparent;
+    --border-hover: transparent;
+    --border-highlight: transparent;
     
     --text-primary: #ffffff;
-    --text-secondary: #8d929f;
-    --text-muted: #626775;
-    --text-dim: #4d515e;
+    --text-secondary: #9096a5;
+    --text-muted: #5e6473;
+    --text-dim: #454955;
     
     --color-primary: #f95721;
     --color-primary-hover: #ff6e3a;
     --color-primary-glow: rgba(249, 87, 33, 0.35);
     --color-accent: #f95721;
     --color-accent-glow: rgba(249, 87, 33, 0.20);
-    --color-success: #22c55e;
-    --color-warning: #f59e0b;
-    --color-danger: #f43f5e;
+    --color-success: #f95721;
+    --color-warning: #9096a5;
+    --color-danger: #f95721;
     
     --shadow-light: transparent;
     --shadow-dark: rgba(0, 0, 0, 0.7);
@@ -3468,43 +3483,11 @@ body {
     .fleet-grid { grid-template-columns: 1fr; }
 }
 
-/* 2026 interface refinement
-   A single, calm visual language for the native dashboard. */
-:root {
-    --bg-main: #090d14;
-    --bg-app: #0f151f;
-    --bg-card: #161e2a;
-    --bg-input: #0c121b;
-    --surface-raised: #1a2432;
-    --border-color: rgba(159, 178, 204, 0.13);
-    --border-hover: rgba(159, 178, 204, 0.25);
-    --border-highlight: rgba(42, 207, 202, 0.40);
-    --text-primary: #edf3fa;
-    --text-secondary: #9babc0;
-    --text-muted: #687991;
-    --color-primary: #2acfc9;
-    --color-accent: #66e4dd;
-    --color-success: #42d69b;
-    --color-warning: #f4b95f;
-    --color-danger: #f16f7e;
-    --color-primary-glow: rgba(42, 207, 202, 0.18);
-    --shadow-light: rgba(255, 255, 255, 0.025);
-    --shadow-dark: rgba(0, 0, 0, 0.34);
-    --neu-extrude: 0 12px 32px rgba(0, 0, 0, 0.20);
-    --neu-extrude-hover: 0 16px 38px rgba(0, 0, 0, 0.26);
-    --neu-inset: inset 0 0 0 1px var(--border-color);
-    --neu-inset-deep: inset 0 0 0 1px var(--border-hover);
-    --transition-smooth: all 0.18s ease;
-}
-
-body {
-    background: #080c12;
-}
-
+/* Interface refinement tokens aligned with 3 purpose-driven colors */
 .glass-bg {
     background:
-        radial-gradient(circle at 82% 8%, rgba(42, 207, 202, 0.07), transparent 28%),
-        radial-gradient(circle at 4% 90%, rgba(81, 112, 255, 0.05), transparent 30%),
+        radial-gradient(circle at 82% 8%, rgba(249, 87, 33, 0.05), transparent 28%),
+        radial-gradient(circle at 4% 90%, rgba(249, 87, 33, 0.03), transparent 30%),
         var(--bg-main);
 }
 
@@ -3631,63 +3614,59 @@ body {
     min-height: 38px;
     padding: 8px 14px;
     border-radius: 9px;
+    border: none;
     box-shadow: none;
-    transition: background-color .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
+    transition: background-color .16s ease, color .16s ease, transform .16s ease;
 }
 
 .btn:hover { box-shadow: none; transform: translateY(-1px); }
 .btn:active { transform: translateY(0); }
 
 .btn-primary {
-    background: linear-gradient(135deg, #31d8d0, #21bbb9);
-    border-color: transparent;
-    color: #061514;
-    box-shadow: 0 7px 18px rgba(42, 207, 202, 0.15);
+    background: var(--color-primary);
+    border: none;
+    color: #ffffff;
 }
 
 .btn-primary:hover {
-    background: linear-gradient(135deg, #59e3dd, #2acfc9);
-    border-color: transparent;
-    color: #061514;
-    box-shadow: 0 8px 20px rgba(42, 207, 202, 0.20);
+    background: var(--color-primary-hover);
+    color: #ffffff;
 }
 
 .btn-accent {
-    background: rgba(42, 207, 202, 0.08);
-    border-color: rgba(42, 207, 202, 0.28);
-    color: var(--color-accent);
+    background: rgba(249, 87, 33, 0.12);
+    border: none;
+    color: var(--color-primary);
 }
 
 .btn-accent:hover {
-    background: rgba(42, 207, 202, 0.14);
-    border-color: rgba(42, 207, 202, 0.43);
-    color: var(--color-accent);
+    background: rgba(249, 87, 33, 0.22);
+    color: #ffffff;
 }
 
 .btn-danger:hover {
-    background: rgba(241, 111, 126, 0.16);
-    border-color: rgba(241, 111, 126, 0.45);
-    color: #ff8996;
+    background: #282d3a;
+    color: #ffffff;
 }
 
 .btn-warning:hover {
-    background: rgba(244, 185, 95, 0.14);
-    border-color: rgba(244, 185, 95, 0.42);
-    color: #ffd083;
+    background: #282d3a;
+    color: #ffffff;
 }
 
 input,
 select,
 textarea {
-    border-color: var(--border-color) !important;
+    border: none !important;
     background-color: var(--bg-input) !important;
+    color: #ffffff !important;
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-    border-color: rgba(42, 207, 202, 0.55) !important;
-    box-shadow: 0 0 0 3px rgba(42, 207, 202, 0.08) !important;
+    border: none !important;
+    box-shadow: 0 0 0 2px rgba(249, 87, 33, 0.3) !important;
 }
 
 .connection-layout-streamlined {
@@ -4106,53 +4085,43 @@ body {
     border: none !important;
 }
 
-/* Danger Buttons */
+/* Neutral Action Buttons (Danger & Warning unified to elevated graphite) */
 .btn-danger,
-#btn-conn-disconnect {
-    background: rgba(244, 63, 94, 0.14) !important;
-    color: #fb7185 !important;
+#btn-conn-disconnect,
+.btn-warning {
+    background: #1e222c !important;
+    color: #ffffff !important;
     border: none !important;
 }
 
 .btn-danger:hover,
-#btn-conn-disconnect:hover {
-    background: rgba(244, 63, 94, 0.26) !important;
-    color: #ffffff !important;
-    border: none !important;
-    box-shadow: 0 4px 16px rgba(244, 63, 94, 0.3) !important;
-}
-
-/* Warning Buttons */
-.btn-warning {
-    background: rgba(245, 158, 11, 0.14) !important;
-    color: #fbbf24 !important;
-    border: none !important;
-}
-
+#btn-conn-disconnect:hover,
 .btn-warning:hover {
-    background: rgba(245, 158, 11, 0.24) !important;
+    background: #282d3a !important;
     color: #ffffff !important;
     border: none !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* Success Buttons */
+/* Success & Connected Live State Buttons (Warm Sunset Flame accent) */
 .btn-success,
 .btn.connected-device {
-    background: rgba(34, 197, 94, 0.14) !important;
-    color: #4ade80 !important;
+    background: rgba(249, 87, 33, 0.14) !important;
+    color: #f95721 !important;
+    font-weight: 600 !important;
     border: none !important;
 }
 
 .btn-success:hover,
 .btn.connected-device:hover {
-    background: rgba(34, 197, 94, 0.25) !important;
+    background: rgba(249, 87, 33, 0.25) !important;
     color: #ffffff !important;
     border: none !important;
 }
 
 .btn.connected-device:disabled {
-    background: rgba(34, 197, 94, 0.12) !important;
-    color: #4ade80 !important;
+    background: rgba(249, 87, 33, 0.12) !important;
+    color: #f95721 !important;
     opacity: 1 !important;
     border: none !important;
 }
@@ -4257,16 +4226,160 @@ textarea:focus {
 
 .fleet-status.online,
 .status-connected {
-    background: rgba(34, 197, 94, 0.14) !important;
-    color: #4ade80 !important;
+    background: rgba(249, 87, 33, 0.14) !important;
+    color: #f95721 !important;
     border: none !important;
 }
 
 .fleet-status.offline,
 .status-disconnected {
-    background: rgba(255, 255, 255, 0.06) !important;
-    color: #848995 !important;
+    background: #1e222c !important;
+    color: #9096a5 !important;
     border: none !important;
+}
+
+/* =========================================================================
+   PROFESSIONAL CHATGPT-STYLE WORK/CHAT SEGMENTED TOGGLE
+   ========================================================================= */
+.chatgpt-toggle,
+.pairing-mode-toggle {
+    display: inline-flex !important;
+    align-items: center !important;
+    background: #0d0f14 !important;
+    padding: 3px !important;
+    border-radius: 9999px !important;
+    border: none !important;
+    position: relative !important;
+    user-select: none !important;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6) !important;
+    gap: 2px !important;
+}
+
+.chatgpt-toggle button,
+.chatgpt-toggle .chatgpt-toggle-item,
+.pairing-mode-toggle button,
+.pairing-mode-toggle .btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px !important;
+    border-radius: 9999px !important;
+    padding: 6px 14px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: #9096a5 !important;
+    background: transparent !important;
+    border: none !important;
+    cursor: pointer !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    outline: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+}
+
+.chatgpt-toggle button:hover,
+.chatgpt-toggle .chatgpt-toggle-item:hover,
+.pairing-mode-toggle button:hover,
+.pairing-mode-toggle .btn:hover {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.chatgpt-toggle button.active,
+.chatgpt-toggle .chatgpt-toggle-item.active,
+.pairing-mode-toggle button.active,
+.pairing-mode-toggle .btn.active {
+    background: #252936 !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45) !important;
+}
+
+.chatgpt-toggle button.active i,
+.chatgpt-toggle .chatgpt-toggle-item.active i,
+.pairing-mode-toggle button.active i,
+.pairing-mode-toggle .btn.active i {
+    color: #f95721 !important;
+}
+
+/* =========================================================================
+   PROFESSIONAL CHATGPT-STYLE CAPSULE SWITCH TOGGLES (SETTINGS)
+   ========================================================================= */
+.mirror-checkbox-group {
+    display: flex !important;
+    align-items: center !important;
+    gap: 14px !important;
+    padding: 10px 14px !important;
+    background: #11131a !important;
+    border-radius: 12px !important;
+    margin-bottom: 10px !important;
+    cursor: pointer !important;
+    transition: background-color 0.18s ease !important;
+}
+
+.mirror-checkbox-group:hover {
+    background: #171a24 !important;
+}
+
+.mirror-checkbox-group input[type="checkbox"],
+.compact-check input[type="checkbox"],
+input[type="checkbox"].chatgpt-switch {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    width: 38px !important;
+    height: 22px !important;
+    min-width: 38px !important;
+    border-radius: 9999px !important;
+    background: #242936 !important;
+    position: relative !important;
+    cursor: pointer !important;
+    outline: none !important;
+    border: none !important;
+    padding: 0 !important;
+    transition: background-color 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    flex-shrink: 0 !important;
+    margin: 0 !important;
+}
+
+.mirror-checkbox-group input[type="checkbox"]::before,
+.compact-check input[type="checkbox"]::before,
+input[type="checkbox"].chatgpt-switch::before {
+    content: '' !important;
+    position: absolute !important;
+    top: 3px !important;
+    left: 3px !important;
+    width: 16px !important;
+    height: 16px !important;
+    border-radius: 50% !important;
+    background: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45) !important;
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.mirror-checkbox-group input[type="checkbox"]:checked,
+.compact-check input[type="checkbox"]:checked,
+input[type="checkbox"].chatgpt-switch:checked {
+    background: #f95721 !important;
+    box-shadow: 0 2px 10px rgba(249, 87, 33, 0.35) !important;
+}
+
+.mirror-checkbox-group input[type="checkbox"]:checked::before,
+.compact-check input[type="checkbox"]:checked::before,
+input[type="checkbox"].chatgpt-switch:checked::before {
+    transform: translateX(16px) !important;
+}
+
+.mirror-checkbox-group label,
+.compact-check label {
+    flex: 1 !important;
+    color: #ffffff !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    user-select: none !important;
+    margin-bottom: 0 !important;
 }
 
 /* Pairing layout spacing */
@@ -4277,16 +4390,6 @@ textarea:focus {
 .pairing-controls-card > .btn + .pairing-qr-panel,
 .pairing-actions + .pairing-qr-panel {
     margin-top: 16px;
-}
-
-.pairing-mode-toggle {
-    border: none !important;
-    background: #11131a !important;
-}
-
-#btn-pair-mode-wifi,
-#btn-pair-mode-tailscale {
-    border: none !important;
 }
 
 /* Storage Table */

@@ -1066,8 +1066,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (mode === 'tailscale') {
             if (btnPairModeTailscale) {
                 btnPairModeTailscale.classList.add('active');
-                btnPairModeTailscale.style.background = '#38bdf8';
-                btnPairModeTailscale.style.color = '#000';
+                btnPairModeTailscale.style.background = '#f95721';
+                btnPairModeTailscale.style.color = '#ffffff';
             }
             if (btnPairModeWifi) {
                 btnPairModeWifi.classList.remove('active');
@@ -1088,8 +1088,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             if (btnPairModeWifi) {
                 btnPairModeWifi.classList.add('active');
-                btnPairModeWifi.style.background = 'var(--color-primary)';
-                btnPairModeWifi.style.color = '#000';
+                btnPairModeWifi.style.background = '#f95721';
+                btnPairModeWifi.style.color = '#ffffff';
             }
             if (btnPairModeTailscale) {
                 btnPairModeTailscale.classList.remove('active');

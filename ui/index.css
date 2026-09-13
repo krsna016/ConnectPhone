@@ -1,28 +1,33 @@
-/* Design System & Tokens - Pure Dark OLED Edition */
+/* Design System & Tokens - Cinematic Dark Graphite & Warm Sunset Flame (Steam Edition) */
 :root {
-    --bg-main: #000000;
-    --bg-app: #000000;
-    --bg-sidebar: #040406;
-    --bg-card: #09090d;
-    --bg-card-hover: #0f0f14;
-    --bg-input: #0c0c10;
-    --bg-input-focus: #111116;
+    --bg-main: #0a0c10;
+    --bg-app: #101217;
+    --bg-sidebar: #0d0f14;
+    --bg-card: #151820;
+    --bg-card-hover: #1c1f2a;
+    --bg-card-hero: linear-gradient(135deg, #161922 0%, #202431 55%, #2d1c1a 100%);
+    --bg-input: #12141c;
+    --bg-input-focus: #181b24;
+    --bg-pill: rgba(255, 255, 255, 0.08);
+    --bg-pill-hover: rgba(255, 255, 255, 0.14);
     
-    --border-color: rgba(255, 255, 255, 0.06);
-    --border-hover: rgba(255, 255, 255, 0.12);
-    --border-highlight: rgba(56, 189, 248, 0.4);
+    --border-color: rgba(255, 255, 255, 0.05);
+    --border-hover: rgba(255, 255, 255, 0.10);
+    --border-highlight: rgba(249, 87, 33, 0.4);
     
     --text-primary: #ffffff;
-    --text-secondary: #a1a1aa;
-    --text-muted: #71717a;
+    --text-secondary: #8d929f;
+    --text-muted: #626775;
+    --text-dim: #4d515e;
     
-    --color-primary: #38bdf8;
-    --color-primary-glow: rgba(56, 189, 248, 0.25);
-    --color-accent: #38bdf8;
-    --color-accent-glow: rgba(56, 189, 248, 0.20);
+    --color-primary: #f95721;
+    --color-primary-hover: #ff6e3a;
+    --color-primary-glow: rgba(249, 87, 33, 0.35);
+    --color-accent: #f95721;
+    --color-accent-glow: rgba(249, 87, 33, 0.20);
     --color-success: #22c55e;
     --color-warning: #f59e0b;
-    --color-danger: #ef4444;
+    --color-danger: #f43f5e;
     
     --shadow-light: transparent;
     --shadow-dark: rgba(0, 0, 0, 0.7);
@@ -35,7 +40,7 @@
     --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Space Grotesk", sans-serif;
     --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Space Grotesk", sans-serif;
     
-    --transition-smooth: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-smooth: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     --transition-bounce: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -70,7 +75,7 @@ body {
     top: -1px;
 }
 
-/* Background - Pure Dark OLED */
+/* Background - Cinematic Dark Graphite with Soft Amber Ambiance */
 .glass-bg {
     position: absolute;
     top: 0;
@@ -78,8 +83,8 @@ body {
     width: 100vw;
     height: 100vh;
     z-index: -1;
-    background-color: #000000;
-    background-image: none;
+    background-color: #0a0c10;
+    background-image: radial-gradient(circle at 45% 25%, rgba(249, 87, 33, 0.08) 0%, transparent 65%);
 }
 
 /* App Container */
@@ -88,10 +93,10 @@ body {
     height: 92vh;
     max-width: 1600px;
     max-height: 1000px;
-    background-color: #000000;
+    background-color: #101217;
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 20px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.85);
+    border-radius: 28px;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85);
     display: flex;
     overflow: hidden;
     animation: zoomIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
@@ -99,39 +104,39 @@ body {
 
 /* Sidebar Styling */
 .sidebar {
-    width: 260px;
-    min-width: 260px;
-    max-width: 260px;
+    width: 250px;
+    min-width: 250px;
+    max-width: 250px;
     flex-shrink: 0;
-    background-color: #040406;
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    background-color: #0d0f14;
+    border-right: 1px solid rgba(255, 255, 255, 0.04);
     box-shadow: none;
     display: flex;
     flex-direction: column;
-    padding: 22px;
+    padding: 24px 18px;
     z-index: 10;
 }
 
 .brand {
     display: flex;
     align-items: center;
-    gap: 14px;
-    margin-bottom: 36px;
+    gap: 12px;
+    margin-bottom: 32px;
+    padding-left: 6px;
     cursor: default;
 }
 
 .brand-icon-container {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #f95721 0%, #e04510 100%);
     display: flex;
     justify-content: center;
     align-items: center;
-    box-shadow: 0 0 10px var(--color-primary-glow), 0 0 20px rgba(0, 230, 230, 0.2);
+    box-shadow: 0 4px 18px rgba(249, 87, 33, 0.45);
     flex-shrink: 0;
-    transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-    animation: slowPulse 3s infinite alternate;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @keyframes slowPulse {
@@ -200,34 +205,32 @@ body {
     50% { opacity: 0; }
 }
 
-/* Sidebar Nav Buttons - macOS Dock Style */
+/* Sidebar Nav Buttons - Steam Dribbble Edition */
 .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
     flex-grow: 1;
-    background: rgba(15, 20, 28, 0.45);
-    padding: 10px;
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(20px);
+    background: transparent;
+    padding: 0;
+    border: none;
 }
 
 .nav-btn {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 9px 14px;
+    padding: 11px 16px;
     background-color: transparent;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    color: var(--text-secondary);
+    border: none;
+    border-radius: 12px;
+    color: #848995;
     font-family: var(--font-heading);
     font-size: 13.5px;
     font-weight: 500;
     cursor: pointer;
     text-align: left;
-    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
     box-shadow: none;
     white-space: nowrap;
     position: relative;
@@ -235,37 +238,39 @@ body {
 
 .nav-btn:hover {
     color: #ffffff;
-    background-color: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.08);
-    transform: translateX(3px) scale(1.01);
+    background-color: #161922;
+    transform: translateX(3px);
 }
 
 .nav-btn.active {
-    color: #ffffff;
-    background: linear-gradient(135deg, rgba(24, 217, 222, 0.22), rgba(19, 191, 199, 0.12));
-    border-color: rgba(24, 217, 222, 0.35);
+    color: #ff6e3a !important;
+    background-color: #181b24 !important;
     font-weight: 600;
-    box-shadow: 0 4px 14px rgba(24, 217, 222, 0.15);
 }
 
 .nav-btn.active::before {
     content: '';
     position: absolute;
-    left: 4px;
+    left: 0;
     top: 50%;
     transform: translateY(-50%);
-    width: 3px;
-    height: 16px;
-    background-color: var(--color-primary);
-    border-radius: 4px;
-    box-shadow: 0 0 8px var(--color-primary-glow);
+    width: 4px;
+    height: 20px;
+    background: #f95721;
+    border-radius: 0 4px 4px 0;
+    box-shadow: 0 0 12px rgba(249, 87, 33, 0.7);
+}
+
+.nav-btn.active .btn-icon i {
+    color: #f95721 !important;
 }
 
 .nav-btn .btn-icon {
-    font-size: 17px;
+    font-size: 18px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    color: inherit;
 }
 
 .sidebar-footer {
@@ -3827,259 +3832,47 @@ textarea:focus {
 }
 
 /* =========================================================================
-   DARK OLED DESIGN SYSTEM - MINIMAL, BORDERLESS & HIGH-CONTRAST
+   CINEMATIC DARK GRAPHITE & WARM SUNSET FLAME (STEAM DRIBBLE EDITION)
    ========================================================================= */
 
-/* Universal Dark OLED surfaces */
-body,
-.glass-bg,
-.app-container {
-    background: #000000 !important;
+/* Universal Canvas Surfaces */
+body {
+    background-color: #0a0c10 !important;
+    background-image: radial-gradient(circle at 45% 20%, rgba(249, 87, 33, 0.08) 0%, transparent 60%) !important;
     color: #ffffff !important;
+}
+
+.glass-bg {
+    background-color: #0a0c10 !important;
+    background-image: radial-gradient(circle at 45% 20%, rgba(249, 87, 33, 0.08) 0%, transparent 60%) !important;
+}
+
+.app-container {
+    background-color: #101217 !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-radius: 28px !important;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85) !important;
 }
 
 .tab-content-container {
-    background: #000000 !important;
-    padding: 26px !important;
+    background-color: #101217 !important;
+    padding: 28px !important;
 }
 
 .sidebar {
-    background: #040406 !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+    background-color: #0d0f14 !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.04) !important;
+    padding: 24px 18px !important;
 }
 
 .app-header {
-    background: #040406 !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    background-color: #0d0f14 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+    min-height: 72px !important;
+    padding: 14px 28px !important;
 }
 
-/* Sleek OLED Cards throughout the app */
-.card,
-.quad-card,
-.settings-card,
-.mirror-card,
-.fleet-device-card,
-.guide-card,
-.active-device-card {
-    background: #09090d !important;
-    border: 1px solid rgba(255, 255, 255, 0.055) !important;
-    border-radius: 14px !important;
-    box-shadow: none !important;
-    transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease !important;
-}
-
-.card:hover,
-.quad-card:hover,
-.settings-card:hover,
-.mirror-card:hover,
-.fleet-device-card:hover {
-    background: #0e0e13 !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
-    transform: translateY(-1px) !important;
-}
-
-.card.highlight,
-.active-device-card {
-    background: #0a0d12 !important;
-    border-color: rgba(56, 189, 248, 0.3) !important;
-}
-
-.fleet-device-card.selected {
-    background: #0b1118 !important;
-    border-color: rgba(56, 189, 248, 0.45) !important;
-}
-
-/* OLED Deep Row Items */
-.step-item,
-.device-row,
-.detail-item,
-.stat-item,
-.storage-row {
-    background: #060608 !important;
-    border: 1px solid rgba(255, 255, 255, 0.04) !important;
-    border-radius: 9px !important;
-    box-shadow: none !important;
-}
-
-.step-item:hover,
-.device-row:hover,
-.storage-row:hover {
-    background: #0d0d12 !important;
-    border-color: rgba(255, 255, 255, 0.08) !important;
-}
-
-/* =========================================================================
-   MINIMAL BEAUTIFUL BORDERLESS BUTTONS - THROUGHOUT THE SITE
-   ========================================================================= */
-
-.btn {
-    border: none !important;
-    outline: none !important;
-    border-radius: 9px !important;
-    font-family: var(--font-heading) !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    letter-spacing: -0.01em !important;
-    padding: 8px 16px !important;
-    cursor: pointer !important;
-    display: inline-flex !important;
-    justify-content: center !important;
-    align-items: center !important;
-    gap: 7px !important;
-    position: relative !important;
-    overflow: hidden !important;
-    user-select: none !important;
-    box-shadow: none !important;
-    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
-    background: #18181c !important;
-    color: #f4f4f5 !important;
-}
-
-.btn:hover {
-    background: #27272f !important;
-    color: #ffffff !important;
-    transform: translateY(-1px) !important;
-    box-shadow: none !important;
-}
-
-.btn:active {
-    transform: scale(0.97) !important;
-}
-
-.btn:focus-visible {
-    outline: 2px solid rgba(56, 189, 248, 0.7) !important;
-    outline-offset: 2px !important;
-}
-
-.btn:disabled {
-    opacity: 0.35 !important;
-    cursor: not-allowed !important;
-    pointer-events: none !important;
-    transform: none !important;
-}
-
-/* Primary Action Buttons: Solid High-Contrast Electric Cyan/Blue */
-.btn-primary,
-.btn-autoconnect,
-.start-mirror-btn {
-    background: #38bdf8 !important;
-    color: #020617 !important;
-    font-weight: 700 !important;
-    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25) !important;
-}
-
-.btn-primary:hover,
-.btn-autoconnect:hover,
-.start-mirror-btn:hover {
-    background: #7dd3fc !important;
-    color: #000000 !important;
-    box-shadow: 0 6px 20px rgba(56, 189, 248, 0.4) !important;
-    transform: translateY(-1px) !important;
-}
-
-.btn-primary:active,
-.btn-autoconnect:active,
-.start-mirror-btn:active {
-    background: #0ea5e9 !important;
-    transform: scale(0.97) !important;
-}
-
-/* Secondary Action Buttons: Minimal borderless deep gray tile */
-.btn-secondary {
-    background: #18181d !important;
-    color: #e4e4e7 !important;
-}
-
-.btn-secondary:hover {
-    background: #25252c !important;
-    color: #ffffff !important;
-    transform: translateY(-1px) !important;
-}
-
-/* Accent Buttons: Sleek translucent electric tint */
-.btn-accent {
-    background: rgba(56, 189, 248, 0.12) !important;
-    color: #38bdf8 !important;
-}
-
-.btn-accent:hover {
-    background: rgba(56, 189, 248, 0.22) !important;
-    color: #7dd3fc !important;
-    transform: translateY(-1px) !important;
-}
-
-/* Danger Buttons: Minimal soft red tint with high contrast */
-.btn-danger,
-#btn-conn-disconnect {
-    background: rgba(239, 68, 68, 0.14) !important;
-    color: #f87171 !important;
-}
-
-.btn-danger:hover,
-#btn-conn-disconnect:hover {
-    background: rgba(239, 68, 68, 0.26) !important;
-    color: #ffffff !important;
-    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.25) !important;
-    transform: translateY(-1px) !important;
-}
-
-/* Warning Buttons: Minimal amber tint */
-.btn-warning {
-    background: rgba(245, 158, 11, 0.14) !important;
-    color: #fbbf24 !important;
-}
-
-.btn-warning:hover {
-    background: rgba(245, 158, 11, 0.24) !important;
-    color: #ffffff !important;
-    transform: translateY(-1px) !important;
-}
-
-/* Success Buttons: Crisp emerald tint */
-.btn-success,
-.btn.connected-device {
-    background: rgba(34, 197, 94, 0.14) !important;
-    color: #4ade80 !important;
-}
-
-.btn-success:hover,
-.btn.connected-device:hover {
-    background: rgba(34, 197, 94, 0.25) !important;
-    color: #ffffff !important;
-    transform: translateY(-1px) !important;
-}
-
-.btn.connected-device:disabled {
-    background: rgba(34, 197, 94, 0.12) !important;
-    color: #4ade80 !important;
-    opacity: 1 !important;
-}
-
-/* QR Code & Special Action Buttons */
-.btn-qr,
-#btn-pair-qr,
-#btn-companion-pair {
-    background: rgba(168, 85, 247, 0.15) !important;
-    color: #c084fc !important;
-}
-
-.btn-qr:hover,
-#btn-pair-qr:hover,
-#btn-companion-pair:hover {
-    background: rgba(168, 85, 247, 0.28) !important;
-    color: #ffffff !important;
-    box-shadow: 0 4px 16px rgba(168, 85, 247, 0.25) !important;
-    transform: translateY(-1px) !important;
-}
-
-/* Compact Buttons */
-.btn-sm {
-    padding: 6px 12px !important;
-    font-size: 12px !important;
-    border-radius: 7px !important;
-}
-
-/* Sidebar Navigation Items */
+/* Sidebar Navigation Items: Steam Active Pill Indicator */
 .sidebar-nav {
     background: transparent !important;
     border: none !important;
@@ -4090,98 +3883,370 @@ body,
 .nav-btn {
     background: transparent !important;
     border: none !important;
-    border-radius: 9px !important;
-    color: #94a3b8 !important;
-    padding: 10px 14px !important;
+    border-radius: 12px !important;
+    color: #848995 !important;
+    padding: 11px 16px !important;
     font-size: 13.5px !important;
     font-weight: 500 !important;
-    transition: all 0.16s ease !important;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    position: relative !important;
 }
 
 .nav-btn:hover {
-    background: #111116 !important;
+    background: #161922 !important;
     color: #ffffff !important;
-    transform: translateX(2px) !important;
+    transform: translateX(3px) !important;
 }
 
 .nav-btn.active {
-    background: #181822 !important;
-    color: #ffffff !important;
+    background: #181b24 !important;
+    color: #ff6e3a !important;
     font-weight: 600 !important;
-    box-shadow: inset 3px 0 0 #38bdf8 !important;
+}
+
+.nav-btn.active::before {
+    content: '' !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: 4px !important;
+    height: 20px !important;
+    background: #f95721 !important;
+    border-radius: 0 4px 4px 0 !important;
+    box-shadow: 0 0 12px rgba(249, 87, 33, 0.7) !important;
 }
 
 .nav-btn.active .btn-icon i {
-    color: #38bdf8 !important;
+    color: #f95721 !important;
 }
 
-/* Header Action Buttons */
-.header-btn {
-    background: rgba(255, 255, 255, 0.05) !important;
-    border: none !important;
-    border-radius: 8px !important;
-    color: #e4e4e7 !important;
-    padding: 7px 12px !important;
-    transition: all 0.16s ease !important;
+.sidebar-footer {
+    background: #151820 !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border-radius: 16px !important;
+    padding: 14px !important;
+    margin-top: auto !important;
 }
 
-.header-btn:hover {
-    background: rgba(255, 255, 255, 0.11) !important;
-    color: #ffffff !important;
+/* Cinematic Cards Grid */
+.card,
+.quad-card,
+.settings-card,
+.mirror-card,
+.fleet-device-card,
+.guide-card {
+    background: #151820 !important;
+    border: 1px solid rgba(255, 255, 255, 0.045) !important;
+    border-radius: 20px !important;
+    padding: 24px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.card:hover,
+.quad-card:hover,
+.settings-card:hover,
+.mirror-card:hover,
+.fleet-device-card:hover {
+    background: #1a1e28 !important;
+    border-color: rgba(255, 255, 255, 0.09) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55) !important;
+}
+
+/* Hero Showcase Card (Steam 'Stray' Hero Style) */
+.active-device-card {
+    background: linear-gradient(135deg, #151820 0%, #1c202a 55%, #2a1b18 100%) !important;
+    border: 1px solid rgba(249, 87, 33, 0.22) !important;
+    border-radius: 22px !important;
+    position: relative !important;
+    overflow: hidden !important;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6), 0 0 40px rgba(249, 87, 33, 0.08) !important;
+}
+
+.active-device-card::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 320px;
+    height: 320px;
+    background: radial-gradient(circle, rgba(249, 87, 33, 0.12) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.fleet-device-card.selected {
+    background: linear-gradient(135deg, #151820 0%, #1e222d 60%, #281a17 100%) !important;
+    border-color: rgba(249, 87, 33, 0.45) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 24px rgba(249, 87, 33, 0.15) !important;
+}
+
+/* Row elements */
+.step-item,
+.device-row,
+.detail-item,
+.stat-item,
+.storage-row {
+    background: #11131a !important;
+    border: 1px solid rgba(255, 255, 255, 0.04) !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+    transition: all 0.18s ease !important;
+}
+
+.step-item:hover,
+.device-row:hover,
+.storage-row:hover {
+    background: #171a23 !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 /* =========================================================================
-   CLEAN BORDERLESS OLED INPUTS & SELECTS
+   WARM SUNSET FLAME & GRAPHITE BUTTONS
    ========================================================================= */
 
+.btn {
+    border: none !important;
+    outline: none !important;
+    border-radius: 12px !important;
+    font-family: var(--font-heading) !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em !important;
+    padding: 9px 18px !important;
+    cursor: pointer !important;
+    display: inline-flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 8px !important;
+    position: relative !important;
+    overflow: hidden !important;
+    user-select: none !important;
+    box-shadow: none !important;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    background: #1e222c !important;
+    color: #dbe0ea !important;
+}
+
+.btn:hover {
+    background: #282d3a !important;
+    color: #ffffff !important;
+    transform: translateY(-1px) !important;
+}
+
+.btn:active {
+    transform: scale(0.97) !important;
+}
+
+.btn:focus-visible {
+    outline: 2px solid rgba(249, 87, 33, 0.7) !important;
+    outline-offset: 2px !important;
+}
+
+.btn:disabled {
+    opacity: 0.36 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+    transform: none !important;
+}
+
+/* Primary Action Buttons: Warm Sunset Flame */
+.btn-primary,
+.btn-autoconnect,
+.start-mirror-btn {
+    background: linear-gradient(135deg, #f95721 0%, #cf4410 100%) !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 18px rgba(249, 87, 33, 0.35) !important;
+}
+
+.btn-primary:hover,
+.btn-autoconnect:hover,
+.start-mirror-btn:hover {
+    background: linear-gradient(135deg, #ff6e3a 0%, #e04510 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 6px 26px rgba(249, 87, 33, 0.5) !important;
+    transform: translateY(-1px) !important;
+}
+
+.btn-primary:active,
+.btn-autoconnect:active,
+.start-mirror-btn:active {
+    background: #cf4410 !important;
+    transform: scale(0.97) !important;
+}
+
+/* Secondary Action Buttons */
+.btn-secondary {
+    background: #1e222c !important;
+    color: #dbe0ea !important;
+}
+
+.btn-secondary:hover {
+    background: #282d3a !important;
+    color: #ffffff !important;
+}
+
+/* Accent Buttons */
+.btn-accent {
+    background: rgba(249, 87, 33, 0.12) !important;
+    color: #ff6e3a !important;
+}
+
+.btn-accent:hover {
+    background: rgba(249, 87, 33, 0.22) !important;
+    color: #ffffff !important;
+}
+
+/* Danger Buttons */
+.btn-danger,
+#btn-conn-disconnect {
+    background: rgba(244, 63, 94, 0.14) !important;
+    color: #fb7185 !important;
+}
+
+.btn-danger:hover,
+#btn-conn-disconnect:hover {
+    background: rgba(244, 63, 94, 0.26) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(244, 63, 94, 0.3) !important;
+}
+
+/* Warning Buttons */
+.btn-warning {
+    background: rgba(245, 158, 11, 0.14) !important;
+    color: #fbbf24 !important;
+}
+
+.btn-warning:hover {
+    background: rgba(245, 158, 11, 0.24) !important;
+    color: #ffffff !important;
+}
+
+/* Success Buttons */
+.btn-success,
+.btn.connected-device {
+    background: rgba(34, 197, 94, 0.14) !important;
+    color: #4ade80 !important;
+}
+
+.btn-success:hover,
+.btn.connected-device:hover {
+    background: rgba(34, 197, 94, 0.25) !important;
+    color: #ffffff !important;
+}
+
+.btn.connected-device:disabled {
+    background: rgba(34, 197, 94, 0.12) !important;
+    color: #4ade80 !important;
+    opacity: 1 !important;
+}
+
+/* QR Code Pairing Button */
+.btn-qr,
+#btn-pair-qr,
+#btn-companion-pair {
+    background: rgba(249, 87, 33, 0.12) !important;
+    color: #ff6e3a !important;
+}
+
+.btn-qr:hover,
+#btn-pair-qr:hover,
+#btn-companion-pair:hover {
+    background: linear-gradient(135deg, #f95721 0%, #cf4410 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 18px rgba(249, 87, 33, 0.35) !important;
+}
+
+/* Compact Buttons */
+.btn-sm {
+    padding: 6px 14px !important;
+    font-size: 12px !important;
+    border-radius: 9px !important;
+}
+
+/* Header Buttons: Circle Icons and Pills */
+.header-btn {
+    background: #1a1e28 !important;
+    border: none !important;
+    border-radius: 12px !important;
+    color: #d1d6e2 !important;
+    padding: 8px 16px !important;
+    transition: all 0.18s ease !important;
+}
+
+.header-btn:hover {
+    background: #242936 !important;
+    color: #ffffff !important;
+    transform: translateY(-1px) !important;
+}
+
+#btn-refresh {
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px !important;
+    border-radius: 50% !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Form Inputs & Selects */
 input,
 select,
 textarea {
-    background: #0d0d11 !important;
-    border: 1px solid rgba(255, 255, 255, 0.07) !important;
-    border-radius: 9px !important;
+    background: #11131a !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-radius: 12px !important;
     color: #ffffff !important;
-    padding: 9px 13px !important;
+    padding: 10px 16px !important;
     font-size: 13.5px !important;
     outline: none !important;
     box-shadow: none !important;
-    transition: all 0.16s ease !important;
+    transition: all 0.18s ease !important;
 }
 
 input::placeholder,
 textarea::placeholder {
-    color: #52525b !important;
+    color: #585e6c !important;
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-    background: #121217 !important;
-    border-color: rgba(56, 189, 248, 0.45) !important;
-    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2) !important;
+    background: #161822 !important;
+    border-color: rgba(249, 87, 33, 0.5) !important;
+    box-shadow: 0 0 0 3px rgba(249, 87, 33, 0.18) !important;
 }
 
-/* Status Badges & Pills */
+/* Floating Glass Tags & Status Badges */
 .status-pill,
 .connection-badge,
+.tailscale-badge,
 .card-badge {
-    background: #111116 !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(12px) !important;
     border: 1px solid rgba(255, 255, 255, 0.06) !important;
     border-radius: 9999px !important;
+    padding: 5px 14px !important;
+    font-size: 12px !important;
     font-weight: 600 !important;
+    color: #ffffff !important;
 }
 
 .fleet-status.online,
 .status-connected {
-    background: rgba(34, 197, 94, 0.12) !important;
+    background: rgba(34, 197, 94, 0.14) !important;
     color: #4ade80 !important;
-    border-color: rgba(34, 197, 94, 0.25) !important;
+    border-color: rgba(34, 197, 94, 0.3) !important;
 }
 
 .fleet-status.offline,
 .status-disconnected {
-    background: rgba(255, 255, 255, 0.05) !important;
-    color: #71717a !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: #848995 !important;
     border-color: transparent !important;
 }
 
@@ -4195,14 +4260,15 @@ textarea:focus {
     margin-top: 16px;
 }
 
-/* Storage Table OLED */
+/* Storage Table */
 .storage-browser-card {
-    background: #09090d !important;
+    background: #151820 !important;
+    border-radius: 20px !important;
 }
 
 .storage-table th {
-    background: #050507 !important;
-    color: #71717a !important;
+    background: #101218 !important;
+    color: #848995 !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
 
@@ -4218,13 +4284,13 @@ textarea:focus {
 
 .modal-card,
 .modal-content {
-    background: #0a0a0e !important;
+    background: #151820 !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 16px !important;
+    border-radius: 20px !important;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95) !important;
 }
 
-/* Custom OLED Scrollbars */
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -4240,10 +4306,10 @@ textarea:focus {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.28);
+    background: #f95721;
 }
 
-/* OLED Clean Separators */
+/* Clean Separators & Code */
 hr {
     border: none !important;
     border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
@@ -4251,9 +4317,9 @@ hr {
 
 code {
     font-family: var(--font-mono);
-    background: #121217;
-    color: #38bdf8;
+    background: #181b24;
+    color: #ff6e3a;
     padding: 2px 6px;
-    border-radius: 5px;
+    border-radius: 6px;
     font-size: 0.88em;
 }

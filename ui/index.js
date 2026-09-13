@@ -1010,6 +1010,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Allow tapping anywhere on standard mirror cards to trigger mirror
+    document.querySelectorAll('.mirror-card:not([data-mode="camera"])').forEach(card => {
+        card.addEventListener('click', (e) => {
+            if (!e.target.closest('.start-mirror-btn')) {
+                const btn = card.querySelector('.start-mirror-btn');
+                if (btn) btn.click();
+            }
+        });
+    });
+
     // Camera Control Overlay listeners
     overlayCapture.addEventListener('click', () => {
         showToast('Capturing frame...', 'info');

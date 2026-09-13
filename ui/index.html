@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ConnectPhone - Dashboard</title>
     <link rel="stylesheet" href="local-fonts.css">
-    <link rel="stylesheet" href="index.css?v=2.4.0">
+    <link rel="stylesheet" href="index.css?v=2.4.1">
 </head>
 <body>
     <div class="glass-bg"></div>
@@ -195,9 +195,9 @@
                             <div class="card-header-row">
                                 <h3><i class="material-symbols-outlined">smartphone</i> Attached & Discovered</h3>
                                 <div style="display: flex; gap: 6px;">
-                                    <button class="btn btn-sm btn-refresh-list" id="btn-refresh-devices-list" title="Refresh devices"><i class="material-symbols-outlined">refresh</i></button>
-                                    <button class="btn btn-sm btn-scan-mdns" id="btn-scan-mdns-devices" title="Scan local network"><i class="material-symbols-outlined">search</i> Scan</button>
-                                    <button class="btn btn-sm btn-primary" id="btn-connect-authorized" title="Connect trusted phones"><i class="material-symbols-outlined">wifi_find</i></button>
+                                    <button class="btn tap-btn btn-sm btn-refresh-list" id="btn-refresh-devices-list" title="Refresh devices"><i class="material-symbols-outlined">refresh</i> <span>Refresh</span></button>
+                                    <button class="btn tap-btn btn-sm btn-scan-mdns" id="btn-scan-mdns-devices" title="Scan local network"><i class="material-symbols-outlined">search</i> <span>Scan</span></button>
+                                    <button class="btn tap-btn btn-sm btn-primary" id="btn-connect-authorized" title="Connect trusted phones"><i class="material-symbols-outlined">wifi_find</i> <span>Connect</span></button>
                                 </div>
                             </div>
                             <div class="devices-list-container" id="adb-devices-list">
@@ -241,8 +241,8 @@
                                     </div>
                                 </div>
                                 <div style="display: flex; gap: 10px; margin-top: 6px;">
-                                    <button class="btn btn-accent btn-autoconnect" id="btn-conn-autoconnect" style="flex: 1;"><i class="material-symbols-outlined">bolt</i> Auto-Connect</button>
-                                    <button class="btn btn-primary" id="btn-conn-connect" style="flex: 1.2;">Connect Device</button>
+                                    <button class="btn tap-btn btn-accent btn-autoconnect" id="btn-conn-autoconnect" style="flex: 1;"><i class="material-symbols-outlined">bolt</i> <span>Auto-Connect</span></button>
+                                    <button class="btn tap-btn btn-primary" id="btn-conn-connect" style="flex: 1.2;"><i class="material-symbols-outlined">link</i> <span>Connect Device</span></button>
                                 </div>
                             </div>
 
@@ -254,17 +254,16 @@
                                     </span>
                                 </div>
                                 <div class="diagnostic-actions" style="display: flex; gap: 6px; flex-wrap: wrap;">
-                                    <button class="btn btn-warning btn-sm" id="btn-restart-adb" style="flex: 1; min-width: 80px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">restart_alt</i> Restart ADB</button>
-                                    <button class="btn btn-danger btn-sm" id="btn-disconnect-all" style="flex: 1; min-width: 80px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">link_off</i> Disconnect</button>
-                                    <button class="btn btn-primary btn-sm" id="btn-ping-test" style="flex: 1; min-width: 60px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">bolt</i> Ping</button>
-                                    <button class="btn btn-accent btn-sm" id="btn-phone-unlock" style="flex: 1; min-width: 75px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">fingerprint</i> Touch ID</button>
-                                    <button class="btn btn-secondary btn-sm" id="btn-app-unlock" style="flex: 1; min-width: 75px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">lock_open</i> Unlock</button>
+                                    <button class="btn tap-btn btn-warning btn-sm" id="btn-restart-adb" style="flex: 1; min-width: 80px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">restart_alt</i> <span>Restart</span></button>
+                                    <button class="btn tap-btn btn-danger btn-sm" id="btn-disconnect-all" style="flex: 1; min-width: 80px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">link_off</i> <span>Disconnect</span></button>
+                                    <button class="btn tap-btn btn-primary btn-sm" id="btn-ping-test" style="flex: 1; min-width: 60px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">bolt</i> <span>Ping</span></button>
+                                    <button class="btn tap-btn btn-accent btn-sm" id="btn-phone-unlock" style="flex: 1; min-width: 75px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">fingerprint</i> <span>Touch ID</span></button>
+                                    <button class="btn tap-btn btn-secondary btn-sm" id="btn-app-unlock" style="flex: 1; min-width: 75px; padding: 6px 8px; font-size: 12px;"><i class="material-symbols-outlined" style="font-size: 14px;">lock_open</i> <span>Unlock</span></button>
                                 </div>
                                 <div id="ping-test-result" class="ping-result hidden" style="margin-top: 6px;"></div>
                             </div>
                         </div>
                         
-                        <!-- Card 4: Wireless Debugging Pairing -->
                         <!-- Card 4: Wireless Debugging Pairing -->
                         <div class="card pairing-controls-card quad-card">
                             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
@@ -306,8 +305,8 @@
                                     </div>
                                 </div>
                                 <div class="pairing-actions">
-                                    <button class="btn btn-primary" id="btn-conn-pair"><i class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">key</i> Pair With 6-Digit Code</button>
-                                    <button class="btn btn-accent" id="btn-pair-qr"><i class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">qr_code_2</i> Pair Using QR Code</button>
+                                    <button class="btn tap-btn btn-primary" id="btn-conn-pair"><i class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">key</i> <span>Pair Code</span></button>
+                                    <button class="btn tap-btn btn-accent" id="btn-pair-qr"><i class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">qr_code_2</i> <span>Pair QR</span></button>
                                 </div>
                                 <div id="qr-pairing-panel" class="pairing-qr-panel hidden">
                                     <div class="pairing-qr-frame">
@@ -332,22 +331,19 @@
                         <!-- Mode 1: Standard Mirror -->
                         <div class="card mirror-card" data-mode="screen">
                             <div class="card-icon"><i class="material-symbols-outlined">desktop_windows</i></div>
-                            <div class="mirror-card-body">
-                                <h3>Standard Screen Mirroring</h3>
-                                <p>Interact with your phone screen directly on your Mac. Seamless audio streaming output.</p>
-                            </div>
-                            <button class="btn btn-primary start-mirror-btn" data-type="screen">Start Screen Mirror</button>
+                            <h3>Standard Screen Mirroring</h3>
+                            <p>Interact with your phone screen directly on your Mac. Seamless audio streaming output.</p>
+                            <button class="btn tap-btn btn-primary start-mirror-btn" data-type="screen">
+                                <i class="material-symbols-outlined">play_arrow</i>
+                                <span>Screen Mirror</span>
+                            </button>
                         </div>
                         
                         <!-- Mode 2: Camera Feed -->
                         <div class="card mirror-card highlight" data-mode="camera">
-                            <div class="mirror-card-header">
-                                <div class="card-icon"><i class="material-symbols-outlined">camera</i></div>
-                                <div class="mirror-card-body">
-                                    <h3>Live Camera Feed <span class="card-badge-inline">PRO</span></h3>
-                                    <p>Stream front or back camera directly to your Mac. Supports mic merging and live controls.</p>
-                                </div>
-                            </div>
+                            <div class="card-icon"><i class="material-symbols-outlined">camera</i></div>
+                            <h3>Live Camera Feed <span class="card-badge-inline">PRO</span></h3>
+                            <p>Stream front or back camera directly to your Mac. Supports mic merging and live controls.</p>
                             
                             <div class="camera-options-grid">
                                 <div class="mirror-form-group">
@@ -390,37 +386,43 @@
                                 <label for="cam-no-audio">Ultra-Smooth Mode (Mute mic to prevent A/V latency)</label>
                             </div>
                             
-                            <button class="btn btn-accent start-mirror-btn" data-type="camera">Start Camera Stream</button>
+                            <button class="btn tap-btn btn-accent start-mirror-btn" data-type="camera">
+                                <i class="material-symbols-outlined">videocam</i>
+                                <span>Stream Camera</span>
+                            </button>
                         </div>
                         
                         <!-- Mode 3: Audio Only -->
                         <div class="card mirror-card" data-mode="audio">
                             <div class="card-icon"><i class="material-symbols-outlined">volume_up</i></div>
-                            <div class="mirror-card-body">
-                                <h3>Audio-Only Mirroring</h3>
-                                <p>Listen directly to the Android microphone or system audio stream without rendering video.</p>
-                            </div>
-                            <button class="btn btn-primary start-mirror-btn" data-type="audio">Listen to Mic</button>
+                            <h3>Audio-Only Mirroring</h3>
+                            <p>Listen directly to the Android microphone or system audio stream without rendering video.</p>
+                            <button class="btn tap-btn btn-primary start-mirror-btn" data-type="audio">
+                                <i class="material-symbols-outlined">headphones</i>
+                                <span>Audio Stream</span>
+                            </button>
                         </div>
 
                         <!-- Mode 4: Phone Call Audio -->
                         <div class="card mirror-card highlight" data-mode="call">
                             <div class="card-icon"><i class="material-symbols-outlined">phone_in_talk</i></div>
-                            <div class="mirror-card-body">
-                                <h3>Call Audio <span class="card-badge-inline">CALL</span></h3>
-                                <p>Hear both sides of an active cellular call on your Mac when the phone permits protected call capture.</p>
-                            </div>
-                            <button class="btn btn-accent start-mirror-btn" data-type="call">Start Call Audio</button>
+                            <h3>Call Audio <span class="card-badge-inline">CALL</span></h3>
+                            <p>Hear both sides of an active cellular call on your Mac when the phone permits protected call capture.</p>
+                            <button class="btn tap-btn btn-accent start-mirror-btn" data-type="call">
+                                <i class="material-symbols-outlined">phone_in_talk</i>
+                                <span>Call Audio</span>
+                            </button>
                         </div>
                         
                         <!-- Mode 5: Record Session -->
                         <div class="card mirror-card" data-mode="record">
                             <div class="card-icon"><i class="material-symbols-outlined">videocam</i></div>
-                            <div class="mirror-card-body">
-                                <h3>Mirror & Record Session</h3>
-                                <p>Launches standard screen mirror and records the entire session as an MP4 directly to your Mac Desktop.</p>
-                            </div>
-                            <button class="btn btn-primary start-mirror-btn" data-type="record">Mirror & Record Session</button>
+                            <h3>Mirror & Record Session</h3>
+                            <p>Launches standard screen mirror and records the entire session as an MP4 directly to your Mac Desktop.</p>
+                            <button class="btn tap-btn btn-primary start-mirror-btn" data-type="record">
+                                <i class="material-symbols-outlined">fiber_manual_record</i>
+                                <span>Record Session</span>
+                            </button>
                         </div>
                         
                         <!-- Mode 6: Ghost Driver AI -->
@@ -726,7 +728,7 @@
                         <div class="card connection-main">
                             <div class="card-header-row">
                                 <h3><i class="material-symbols-outlined">photo_camera</i> Latest 10 Screenshots</h3>
-                                <button class="btn btn-sm btn-accent" id="btn-refresh-screenshots"><i class="material-symbols-outlined">refresh</i> Fetch Latest</button>
+                                <button class="btn tap-btn btn-sm btn-accent" id="btn-refresh-screenshots"><i class="material-symbols-outlined">refresh</i> <span>Fetch</span></button>
                             </div>
                             <p class="card-desc">Pull any of the most recent screenshots straight to your Mac Desktop.</p>
                             <div class="devices-list-container" id="screenshots-list">
@@ -742,15 +744,15 @@
                             </div>
                             <p>Copy on Phone -> Paste on Mac (Runs automatically in background).</p>
                             <br>
-                            <button class="btn btn-primary" id="btn-sync-clipboard-start"><i class="material-symbols-outlined">play_arrow</i> Start Background Sync</button>
-                            <button class="btn btn-danger" id="btn-sync-clipboard-stop" style="margin-top: 10px;"><i class="material-symbols-outlined">stop</i> Stop Sync</button>
+                            <button class="btn tap-btn btn-primary" id="btn-sync-clipboard-start"><i class="material-symbols-outlined">play_arrow</i> <span>Start Sync</span></button>
+                            <button class="btn tap-btn btn-danger" id="btn-sync-clipboard-stop" style="margin-top: 10px;"><i class="material-symbols-outlined">stop</i> <span>Stop Sync</span></button>
                             
                             <hr style="margin: 20px 0; border-color: var(--border-color); opacity: 0.3;">
                             
                             <h3>Mac ➔ Phone (Type directly)</h3>
                             <p>Because Android blocks background clipboard writing, click this to instantly type your Mac's clipboard into your phone's active text box.</p>
                             <br>
-                            <button class="btn btn-accent" id="btn-type-mac-clipboard"><i class="material-symbols-outlined">keyboard</i> Type Mac Clipboard on Phone</button>
+                            <button class="btn tap-btn btn-accent" id="btn-type-mac-clipboard"><i class="material-symbols-outlined">keyboard</i> <span>Type Clipboard</span></button>
                         </div>
                     </div>
                 </section>
